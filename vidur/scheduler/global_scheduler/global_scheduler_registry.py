@@ -27,6 +27,9 @@ from vidur.scheduler.global_scheduler.sticky_round_robin_global_scheduler import
 from vidur.scheduler.global_scheduler.tolerant_sticky_lop_uncached_global_scheduler import (
     TolerantStickyLOPUncachedGlobalScheduler,
 )
+from vidur.scheduler.global_scheduler.rl_cache_aware_global_scheduler import (
+    RLCacheAwareGlobalScheduler,
+)
 from vidur.types import GlobalSchedulerType
 from vidur.utils.base_registry import BaseRegistry
 
@@ -65,4 +68,8 @@ GlobalSchedulerRegistry.register(
 GlobalSchedulerRegistry.register(
     GlobalSchedulerType.TOLERANT_STICKY_LOP_UNCACHED,
     TolerantStickyLOPUncachedGlobalScheduler,
+)
+GlobalSchedulerRegistry.register(
+    GlobalSchedulerType.RL_CACHE_AWARE,
+    RLCacheAwareGlobalScheduler,
 )

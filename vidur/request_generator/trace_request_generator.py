@@ -23,13 +23,6 @@ class TraceRequestGenerator(BaseRequestGenerator):
         self.num_requests_generated = 0
         # load into a pd dataframe
         self.trace_df = pd.read_csv(config.trace_file)
-        # assert that the number of requests is not greater than the number of requests in the trace
-        self.num_requests = (
-            config.num_requests
-            if config.num_requests is not None
-            else len(self.trace_df)
-        )
-        assert self.num_requests <= len(self.trace_df)
 
         # scale prefill and decode tokens
         self.trace_df["num_prefill_tokens"] = (
@@ -55,11 +48,30 @@ class TraceRequestGenerator(BaseRequestGenerator):
             lower=1
         )
 
-        # assert that the total number of tokens does not exceed the max tokens
-        assert (config.max_tokens is None) or all(
-            self.trace_df["num_prefill_tokens"] + self.trace_df["num_decode_tokens"]
-            <= config.max_tokens
+        # Filter out requests that exceed max_tokens (if specified)
+        # This must happen BEFORE setting num_requests to ensure correct count
+        if config.max_tokens is not None:
+            total_tokens = self.trace_df["num_prefill_tokens"] + self.trace_df["num_decode_tokens"]
+            num_before = len(self.trace_df)
+            self.trace_df = self.trace_df[total_tokens <= config.max_tokens].reset_index(drop=True)
+            num_filtered = num_before - len(self.trace_df)
+            if num_filtered > 0:
+                logger.warning(
+                    f"Filtered {num_filtered} requests exceeding max_tokens={config.max_tokens}"
+                )
+
+        # Set num_requests AFTER filtering to ensure we have enough requests
+        self.num_requests = (
+            config.num_requests
+            if config.num_requests is not None
+            else len(self.trace_df)
         )
+        if self.num_requests > len(self.trace_df):
+            logger.warning(
+                f"Requested {self.num_requests} requests but only {len(self.trace_df)} available after filtering. "
+                f"Using {len(self.trace_df)} requests."
+            )
+            self.num_requests = len(self.trace_df)
 
         # rescale the time to change QPS
         self.trace_df["arrived_at"] = (

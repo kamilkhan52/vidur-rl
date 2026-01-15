@@ -135,6 +135,15 @@ class KVCacheManager:
         self.prefix_cache_stats.queries += len(block_hashes)
         self.prefix_cache_stats.hits += len(computed_blocks)
 
+        # Limit computed blocks to prefill range only.
+        # Per docs/how_to_run.md, block_hash_ids covers "entire length (input + output)",
+        # so traces intentionally include decode blocks. We must cap here to avoid
+        # num_computed_tokens > num_prefill_tokens, which would cause negative
+        # num_new_tokens in the replica scheduler.
+        max_prefill_blocks = request.num_prefill_tokens // self.block_size
+        if len(computed_blocks) > max_prefill_blocks:
+            computed_blocks = computed_blocks[:max_prefill_blocks]
+
         # NOTE(woosuk): Since incomplete blocks are not eligible for
         # sharing, `num_computed_tokens` is always a multiple of
         # `block_size`.

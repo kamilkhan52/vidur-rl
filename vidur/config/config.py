@@ -704,6 +704,58 @@ class RankedStickyLopUncachedGlobalSchedulerConfig(BaseGlobalSchedulerConfig):
 
 
 @dataclass
+class RLCacheAwareGlobalSchedulerConfig(BaseGlobalSchedulerConfig):
+    mode: str = field(
+        default="inference",
+        metadata={"help": "Mode: 'training' or 'inference'"},
+    )
+    model_checkpoint_path: str = field(
+        default="",
+        metadata={"help": "Path to model checkpoint for loading/saving"},
+    )
+    epsilon_start: float = field(
+        default=1.0,
+        metadata={"help": "Initial epsilon for ε-greedy exploration"},
+    )
+    epsilon_end: float = field(
+        default=0.0,
+        metadata={"help": "Final epsilon after decay"},
+    )
+    epsilon_decay_steps: int = field(
+        default=500,
+        metadata={"help": "Training steps for epsilon to decay ~99% toward epsilon_end (exponential decay)"},
+    )
+    learning_rate: float = field(
+        default=0.0003,
+        metadata={"help": "Learning rate for optimizer"},
+    )
+    replay_buffer_size: int = field(
+        default=10000,
+        metadata={"help": "Replay buffer capacity"},
+    )
+    batch_size: int = field(
+        default=64,
+        metadata={"help": "Batch size for training updates"},
+    )
+    update_frequency: int = field(
+        default=100,
+        metadata={"help": "Update policy every N completed requests"},
+    )
+    reward_normalization_factor: float = field(
+        default=100.0,
+        metadata={"help": "Factor to normalize reward signals"},
+    )
+    target_network_update_frequency: int = field(
+        default=1000,
+        metadata={"help": "Update target network every N updates"},
+    )
+
+    @staticmethod
+    def get_type():
+        return GlobalSchedulerType.RL_CACHE_AWARE
+
+
+@dataclass
 class BaseExecutionTimePredictorConfig(BasePolyConfig):
     seed: int = field(
         default=42,

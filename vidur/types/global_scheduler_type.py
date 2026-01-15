@@ -13,3 +13,4 @@ class GlobalSchedulerType(BaseIntEnum):
     STICKY_LOR = 9
     RANKED_STICKY_LOP_UNCACHED = 10
     TOLERANT_STICKY_LOP_UNCACHED = 11
+    RL_CACHE_AWARE = 12

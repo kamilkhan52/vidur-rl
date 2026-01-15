@@ -162,6 +162,15 @@ class VLLMV1ReplicaScheduler(BaseReplicaScheduler):
                     # is always a multiple of the block size. This limitation
                     # can potentially be removed in the future to slightly
                     # improve the performance.
+
+                    # Ensure budget covers full block before forced recompute.
+                    # Without this check, we'd "un-cache" block_size tokens but only
+                    # schedule token_budget tokens, leaving the difference in limbo.
+                    # Note: This causes head-of-line blocking (skips remaining waiting
+                    # requests), which is acceptable for FIFO but could be revisited.
+                    if token_budget < self._cache_config.block_size:
+                        break
+
                     num_computed_tokens -= self._cache_config.block_size
                     num_new_tokens = self._cache_config.block_size
                     computed_blocks.pop()
