@@ -77,9 +77,11 @@ class RLCacheAwareGlobalScheduler(BaseGlobalScheduler):
         
         # Determine final enable_prefix_caching based on checkpoint or config
         if checkpoint_state_dim is not None:
-            # Infer from checkpoint dimension (68 = with cache, 48 = without cache for 4 replicas)
-            expected_dim_with_cache = 5 + len(replicas) * 5 + len(replicas) + 4 * (5 + len(replicas)) + 3
-            expected_dim_without_cache = 5 + len(replicas) * 5 + 4 * 5 + 3
+            # Infer from checkpoint dimension (72 = with cache, 52 = without cache for 4 replicas)
+            # Includes session affinity features (+M)
+            M = len(replicas)
+            expected_dim_with_cache = 5 + M * 5 + M + 4 * (5 + M) + M + 3
+            expected_dim_without_cache = 5 + M * 5 + 4 * 5 + M + 3
             
             if checkpoint_state_dim == expected_dim_with_cache:
                 enable_prefix_caching = True
@@ -157,7 +159,15 @@ class RLCacheAwareGlobalScheduler(BaseGlobalScheduler):
 
         # Training infrastructure
         if self._mode == "training":
-            self._replay_buffer = ReplayBuffer(rl_config.replay_buffer_size)
+            # Set up transition logging if path provided
+            transition_log_path = rl_config.transition_log_path if rl_config.transition_log_path else None
+            feature_names = self._state_tracker.get_feature_names() if transition_log_path else None
+
+            self._replay_buffer = ReplayBuffer(
+                capacity=rl_config.replay_buffer_size,
+                log_file_path=transition_log_path,
+                feature_names=feature_names,
+            )
             self._update_counter = 0
             self._update_frequency = rl_config.update_frequency
             self._target_update_frequency = (
