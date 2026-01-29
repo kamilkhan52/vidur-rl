@@ -46,26 +46,17 @@ class Batch(BaseEntity):
         }
         self._total_num_tokens = sum(num_tokens)
         self._num_prefill_tokens = sum(
-            [
-                (t if not r.is_prefill_complete else 0)
-                for r, t in zip(self.requests, self._num_tokens)
-            ]
+            (t if not r.is_prefill_complete else 0)
+            for r, t in zip(self._requests, self._num_tokens)
         )
-        decode_context_sizes = [
-            r.num_processed_tokens for r in self.requests if r.is_prefill_complete
+        # Cache decode context sizes for lazy computation of spread/iqr
+        self._decode_context_sizes = [
+            r.num_processed_tokens for r in self._requests if r.is_prefill_complete
         ]
-        self._decode_context_sum = sum(decode_context_sizes)
-        self._decode_context_spread = max(decode_context_sizes, default=0) - min(
-            decode_context_sizes, default=0
-        )
-        self._decode_context_iqr = int(
-            (
-                np.percentile(decode_context_sizes, 75)
-                - np.percentile(decode_context_sizes, 25)
-            )
-            if len(decode_context_sizes) > 0
-            else 0
-        )
+        self._decode_context_sum = sum(self._decode_context_sizes)
+        # Lazy-computed fields (expensive operations deferred until needed)
+        self._decode_context_spread = None
+        self._decode_context_iqr = None
 
         self._scheduled_at = None
         self._completed_at = None
@@ -106,10 +97,23 @@ class Batch(BaseEntity):
 
     @property
     def decode_context_spread(self) -> int:
+        if self._decode_context_spread is None:
+            sizes = self._decode_context_sizes
+            self._decode_context_spread = (
+                max(sizes, default=0) - min(sizes, default=0)
+            )
         return self._decode_context_spread
 
     @property
     def decode_context_iqr(self) -> float:
+        if self._decode_context_iqr is None:
+            sizes = self._decode_context_sizes
+            if len(sizes) > 0:
+                self._decode_context_iqr = int(
+                    np.percentile(sizes, 75) - np.percentile(sizes, 25)
+                )
+            else:
+                self._decode_context_iqr = 0
         return self._decode_context_iqr
 
     @property

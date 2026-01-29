@@ -106,24 +106,36 @@ class TraceRequestGenerator(BaseRequestGenerator):
             f"Prompt/decode token ratio stats\n:{pd_ratio.describe(percentiles=[0.25, 0.5, 0.75, 0.9, 0.95, 0.99])}"
         )
 
+        # Pre-extract columns to numpy arrays/lists for fast indexing
+        # This avoids expensive pandas iloc operations in the hot path
+        self._arrived_at = self.trace_df["arrived_at"].to_numpy()
+        self._num_prefill_tokens = self.trace_df["num_prefill_tokens"].to_numpy()
+        self._num_decode_tokens = self.trace_df["num_decode_tokens"].to_numpy()
+        self._block_hash_ids = self.trace_df["block_hash_ids"].tolist()
+        self._block_size = self.trace_df["block_size"].tolist()
+        self._session_id = self.trace_df["session_id"].tolist()
+
+        # Free the DataFrame to save memory (we no longer need it)
+        del self.trace_df
+
     def get_next_request_arrival_time(self) -> Optional[float]:
         if self.num_requests_generated >= self.num_requests:
             return None
 
-        return self.trace_df.iloc[self.num_requests_generated]["arrived_at"]
+        return float(self._arrived_at[self.num_requests_generated])
 
     def get_next_request(self) -> Optional[Request]:
         if self.num_requests_generated >= self.num_requests:
             return None
 
-        request_from_trace = self.trace_df.iloc[self.num_requests_generated]
+        idx = self.num_requests_generated
         request = Request(
-            arrived_at=request_from_trace["arrived_at"],
-            num_prefill_tokens=request_from_trace["num_prefill_tokens"],
-            num_decode_tokens=request_from_trace["num_decode_tokens"],
-            block_hash_ids=request_from_trace["block_hash_ids"],
-            block_size=request_from_trace["block_size"],
-            session_id=request_from_trace["session_id"],
+            arrived_at=float(self._arrived_at[idx]),
+            num_prefill_tokens=int(self._num_prefill_tokens[idx]),
+            num_decode_tokens=int(self._num_decode_tokens[idx]),
+            block_hash_ids=self._block_hash_ids[idx],
+            block_size=self._block_size[idx],
+            session_id=self._session_id[idx],
         )
         self.num_requests_generated += 1
         return request
