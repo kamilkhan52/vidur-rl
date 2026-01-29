@@ -19,7 +19,9 @@ import pandas as pd
 def main():
     parser = argparse.ArgumentParser(description='Run baseline scheduler with progress output')
     parser.add_argument('--scheduler', type=str, default='round_robin',
-                        choices=['round_robin', 'lor', 'lop_uncached', 'random'],
+                        choices=['round_robin', 'lor', 'lop_uncached', 'random',
+                                 'sticky_round_robin', 'sticky_lor',
+                                 'ranked_sticky_lop_uncached', 'tolerant_sticky_lop_uncached'],
                         help='Scheduler to use')
     parser.add_argument('--scale', type=float, default=8.0,
                         help='Time scale factor')
@@ -27,11 +29,19 @@ def main():
                         help='Number of requests (default: all)')
     parser.add_argument('--output_dir', type=str, default='results/baseline_run',
                         help='Output directory')
+    parser.add_argument('--trace', type=str, default='conversation',
+                        choices=['conversation', 'synthetic', 'toolagent'],
+                        help='Which trace to use')
     args = parser.parse_args()
 
     # Configuration
-    trace_file = 'data/processed_traces/mooncake_conversation_trace.csv'
-    output_dir = Path(args.output_dir) / f"{args.scheduler}_scale{args.scale}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    trace_files = {
+        'conversation': 'data/processed_traces/mooncake_conversation_trace.csv',
+        'synthetic': 'data/processed_traces/mooncake_synthetic_trace.csv',
+        'toolagent': 'data/processed_traces/mooncake_toolagent_trace.csv',
+    }
+    trace_file = trace_files[args.trace]
+    output_dir = Path(args.output_dir) / f"{args.trace}_{args.scheduler}_scale{args.scale}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Count total requests (after filtering)

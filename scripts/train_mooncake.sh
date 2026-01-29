@@ -48,7 +48,7 @@ TRACE="data/processed_traces/mooncake_conversation_trace.csv"
 OUTPUT_DIR="results/mooncake_training_$(date +%Y%m%d_%H%M%S)"
 LOG_DIR="/tmp/rl_training_logs"
 CHECKPOINT_DIR="rl_models"
-CHECKPOINT_NAME="mooncake_training"
+CHECKPOINT_NAME="mooncake_training_scale${TIME_SCALE_FACTOR}"
 
 # Optional: Load existing model
 LOAD_MODEL_PATH="${1:-}"
