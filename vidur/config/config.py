@@ -725,6 +725,10 @@ class RLCacheAwareGlobalSchedulerConfig(BaseGlobalSchedulerConfig):
         default=500,
         metadata={"help": "Training steps for epsilon to decay ~99% toward epsilon_end (exponential decay)"},
     )
+    reset_epsilon_on_load: bool = field(
+        default=False,
+        metadata={"help": "When True, ignore loaded epsilon state and start fresh with config values. Useful for forcing exploration on a loaded model."},
+    )
     learning_rate: float = field(
         default=0.0003,
         metadata={"help": "Learning rate for optimizer"},
@@ -748,6 +752,10 @@ class RLCacheAwareGlobalSchedulerConfig(BaseGlobalSchedulerConfig):
     target_network_update_frequency: int = field(
         default=1000,
         metadata={"help": "Update target network every N updates"},
+    )
+    transition_log_path: str = field(
+        default="",
+        metadata={"help": "Path to CSV file for logging (state, action, reward) transitions. Empty to disable."},
     )
 
     @staticmethod

@@ -128,21 +128,29 @@ class RLCacheAwareGlobalScheduler(BaseGlobalScheduler):
 
             if os.path.exists(rl_config.model_checkpoint_path):
                 print(f"[RL Scheduler] Loaded trained model from: {rl_config.model_checkpoint_path}")
-                
+
                 # Try to load epsilon state if continuing training
                 if self._mode == "training":
-                    epsilon_path = rl_config.model_checkpoint_path.replace('.pt', '_epsilon.pt')
-                    if os.path.exists(epsilon_path):
-
-                        epsilon_state = torch.load(epsilon_path, map_location='cpu')
-                        self._num_training_steps = epsilon_state.get('num_training_steps', 0)
-                        self._epsilon_start = epsilon_state.get('epsilon_start', self._epsilon_start)
-                        self._epsilon_end = epsilon_state.get('epsilon_end', self._epsilon_end)
-                        self._epsilon_decay_steps = epsilon_state.get('epsilon_decay_steps', self._epsilon_decay_steps)
+                    if rl_config.reset_epsilon_on_load:
+                        # User requested to reset epsilon state - use config values and start from step 0
                         current_epsilon = self._get_epsilon()
-                        print(f"[RL Scheduler] Restored epsilon state: step {self._num_training_steps}, epsilon {current_epsilon:.4f}")
+                        print(f"[RL Scheduler] Reset epsilon state (reset_epsilon_on_load=True)")
+                        print(f"[RL Scheduler] Using config values: start={self._epsilon_start}, end={self._epsilon_end}, decay_steps={self._epsilon_decay_steps}")
+                        print(f"[RL Scheduler] Starting from step 0, initial epsilon={current_epsilon:.4f}")
                     else:
-                        print(f"[RL Scheduler] No epsilon state found, starting epsilon decay from beginning")
+                        # Normal behavior: load epsilon state from checkpoint
+                        epsilon_path = rl_config.model_checkpoint_path.replace('.pt', '_epsilon.pt')
+                        if os.path.exists(epsilon_path):
+
+                            epsilon_state = torch.load(epsilon_path, map_location='cpu')
+                            self._num_training_steps = epsilon_state.get('num_training_steps', 0)
+                            self._epsilon_start = epsilon_state.get('epsilon_start', self._epsilon_start)
+                            self._epsilon_end = epsilon_state.get('epsilon_end', self._epsilon_end)
+                            self._epsilon_decay_steps = epsilon_state.get('epsilon_decay_steps', self._epsilon_decay_steps)
+                            current_epsilon = self._get_epsilon()
+                            print(f"[RL Scheduler] Restored epsilon state: step {self._num_training_steps}, epsilon {current_epsilon:.4f}")
+                        else:
+                            print(f"[RL Scheduler] No epsilon state found, starting epsilon decay from beginning")
             else:
                 print(f"[RL Scheduler] Model checkpoint path provided but file not found: {rl_config.model_checkpoint_path}")
                 if self._mode == "inference":
