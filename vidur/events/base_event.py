@@ -51,19 +51,13 @@ class BaseEvent(ABC):
         return (self._time, self.event_type, self._id)
 
     def __lt__(self, other):
-        assert isinstance(other, BaseEvent)
         return self._priority_number < other._priority_number
 
     def __gt__(self, other):
-        assert isinstance(other, BaseEvent)
         return self._priority_number > other._priority_number
 
     def __eq__(self, other):
-        assert isinstance(other, BaseEvent)
-        if self._id == other._id:
-            assert self._time == other._time and self._event_type == other._event_type
-            return True
-        return False
+        return self._id == other._id
 
     def __str__(self) -> str:
         # use to_dict to get a dict representation of the object
