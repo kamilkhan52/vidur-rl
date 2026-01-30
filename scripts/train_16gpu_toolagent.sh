@@ -149,7 +149,6 @@ while true; do
         --r_l_cache_aware_global_scheduler_config_epsilon_start "$EPSILON_START"
         --r_l_cache_aware_global_scheduler_config_epsilon_end "$EPSILON_END"
         --r_l_cache_aware_global_scheduler_config_epsilon_decay_steps "$EPSILON_DECAY_STEPS"
-        $([ "$RESET_EPSILON_ON_LOAD" = "1" ] && echo "--r_l_cache_aware_global_scheduler_config_reset_epsilon_on_load")
         --r_l_cache_aware_global_scheduler_config_learning_rate 0.0001
         --r_l_cache_aware_global_scheduler_config_batch_size 128
         --r_l_cache_aware_global_scheduler_config_update_frequency 50
@@ -174,6 +173,12 @@ while true; do
         TRANSITION_LOG="$OUTPUT_DIR/transitions.csv"
         CMD+=(--r_l_cache_aware_global_scheduler_config_transition_log_path "$TRANSITION_LOG")
         echo "  Transition log: $TRANSITION_LOG"
+    fi
+
+    # Only reset epsilon on first iteration (if requested)
+    if [ $ITERATION -eq 1 ] && [ "$RESET_EPSILON_ON_LOAD" = "1" ]; then
+        CMD+=(--r_l_cache_aware_global_scheduler_config_reset_epsilon_on_load)
+        echo "  Epsilon reset: ENABLED (first iteration only)"
     fi
 
     # If first iteration with user-provided model, copy it
