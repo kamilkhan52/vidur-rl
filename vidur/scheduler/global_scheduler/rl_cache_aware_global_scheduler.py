@@ -158,8 +158,10 @@ class RLCacheAwareGlobalScheduler(BaseGlobalScheduler):
 
         # Reward calculator
         self._reward_calculator = RewardCalculator(
-            normalization_factor=rl_config.reward_normalization_factor
+            normalization_factor=rl_config.reward_normalization_factor,
+            reward_type=rl_config.reward_type,
         )
+        print(f"[RL Scheduler] Reward type: {rl_config.reward_type}")
 
         # Pending transitions (awaiting rewards)
         # Maps request.id -> {'state': state, 'action': replica_id}

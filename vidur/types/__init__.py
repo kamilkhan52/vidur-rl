@@ -14,6 +14,7 @@ from vidur.types.request_generator_type import RequestGeneratorType
 from vidur.types.request_interval_generator_type import RequestIntervalGeneratorType
 from vidur.types.request_length_generator_type import RequestLengthGeneratorType
 from vidur.types.request_queue_type import RequestQueueType
+from vidur.types.reward_type import RewardType
 
 __all__ = [
     EventType,
@@ -25,6 +26,7 @@ __all__ = [
     RequestIntervalGeneratorType,
     ReplicaSchedulerType,
     RequestQueueType,
+    RewardType,
     DeviceSKUType,
     NodeSKUType,
     NormType,

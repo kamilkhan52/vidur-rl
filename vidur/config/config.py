@@ -23,6 +23,7 @@ from vidur.types import (
     RequestIntervalGeneratorType,
     RequestLengthGeneratorType,
     RequestQueueType,
+    RewardType,
 )
 
 logger = init_logger(__name__)
@@ -748,6 +749,10 @@ class RLCacheAwareGlobalSchedulerConfig(BaseGlobalSchedulerConfig):
     reward_normalization_factor: float = field(
         default=100.0,
         metadata={"help": "Factor to normalize reward signals"},
+    )
+    reward_type: str = field(
+        default=RewardType.E2E_TIME,
+        metadata={"help": "Reward signal type: 'e2e_time' (end-to-end latency) or 'ttft' (time to first token)"},
     )
     target_network_update_frequency: int = field(
         default=1000,

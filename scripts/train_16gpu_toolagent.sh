@@ -16,6 +16,7 @@
 #   EPSILON_DECAY_STEPS=5000   # Decay over N steps (default: 5000)
 #   RESET_EPSILON_ON_LOAD=0    # Set to 1 to ignore loaded epsilon state and start fresh
 #   LOG_TRANSITIONS=0          # Set to 1 to log (state, action, reward) to CSV
+#   REWARD_TYPE=e2e_time       # Reward signal: 'e2e_time' or 'ttft' (time to first token)
 
 set -e
 
@@ -33,6 +34,9 @@ EPSILON_DECAY_STEPS="${EPSILON_DECAY_STEPS:-5000}"
 
 # Transition logging (set LOG_TRANSITIONS=1 to enable)
 LOG_TRANSITIONS="${LOG_TRANSITIONS:-0}"
+
+# Reward type: 'e2e_time' (default) or 'ttft' (time to first token)
+REWARD_TYPE="${REWARD_TYPE:-e2e_time}"
 
 # Reset epsilon on load (set RESET_EPSILON_ON_LOAD=1 to ignore saved epsilon state)
 RESET_EPSILON_ON_LOAD="${RESET_EPSILON_ON_LOAD:-0}"
@@ -64,6 +68,9 @@ if [ "$LOG_TRANSITIONS" = "1" ]; then
 else
     echo "  Disabled (set LOG_TRANSITIONS=1 to enable)"
 fi
+echo ""
+echo "Reward Type:"
+echo "  $REWARD_TYPE"
 echo ""
 
 # Directories
@@ -153,6 +160,7 @@ while true; do
         --r_l_cache_aware_global_scheduler_config_batch_size 128
         --r_l_cache_aware_global_scheduler_config_update_frequency 50
         --r_l_cache_aware_global_scheduler_config_replay_buffer_size 10000
+        --r_l_cache_aware_global_scheduler_config_reward_type "$REWARD_TYPE"
         --request_generator_config_type trace
         --trace_request_generator_config_trace_file "$TRACE_FILE"
         --trace_request_generator_config_time_scale_factor "$TIME_SCALE_FACTOR"
