@@ -17,6 +17,7 @@
 #   RESET_EPSILON_ON_LOAD=0    # Set to 1 to ignore loaded epsilon state and start fresh
 #   LOG_TRANSITIONS=0          # Set to 1 to log (state, action, reward) to CSV
 #   REWARD_TYPE=e2e_time       # Reward signal: 'e2e_time' or 'ttft' (time to first token)
+#   TEMP_DIR=/tmp              # Base temp directory (default: /tmp, use ./tmp for HPC)
 
 set -e
 
@@ -40,6 +41,9 @@ REWARD_TYPE="${REWARD_TYPE:-e2e_time}"
 
 # Reset epsilon on load (set RESET_EPSILON_ON_LOAD=1 to ignore saved epsilon state)
 RESET_EPSILON_ON_LOAD="${RESET_EPSILON_ON_LOAD:-0}"
+
+# Temp directory (use ./tmp on HPC where /tmp is cleared)
+TEMP_DIR="${TEMP_DIR:-/tmp}"
 
 echo "================================================================================"
 echo "  16-GPU Toolagent RL Training - Press Ctrl+C to stop"
@@ -72,10 +76,13 @@ echo ""
 echo "Reward Type:"
 echo "  $REWARD_TYPE"
 echo ""
+echo "Temp Directory:"
+echo "  $TEMP_DIR"
+echo ""
 
 # Directories
 RUN_TAG="16gpu_toolagent_scale${TIME_SCALE_FACTOR}_$(date +%Y%m%d_%H%M%S)_$$"
-LOG_DIR="/tmp/mooncake_training_logs/${RUN_TAG}"
+LOG_DIR="${TEMP_DIR}/mooncake_training_logs/${RUN_TAG}"
 CHECKPOINT_DIR="rl_models"
 CHECKPOINT_NAME="16gpu_toolagent_scale${TIME_SCALE_FACTOR}"
 
