@@ -1,13 +1,29 @@
 #!/usr/bin/env python3
 """
-Comprehensive scheduler evaluation script.
+Comprehensive scheduler evaluation framework.
 
 Runs multiple scheduling policies across different workloads and generates
-comparison plots and analysis reports.
+comparison plots, CSV summaries, and analysis reports.
+
+Supports:
+  - 6 schedulers: random, round_robin, lor, lop_uncached, tolerant_sticky, rl_cache_aware
+  - 4 workloads: splitwise_conv, arxiv, splitwise_code, mooncake
+  - Multiple runs for statistical significance
+  - Time scale factor adjustment for trace replay
+  - Comprehensive visualization (6 plot types + summary table)
 
 Usage:
-    python scripts/evaluate_schedulers.py --output_dir results/eval_2026_01_10
+    # Evaluate all schedulers on all workloads
+    python scripts/evaluate_schedulers.py --output_dir results/eval_full
+
+    # Quick test with specific schedulers
     python scripts/evaluate_schedulers.py --schedulers rl_cache_aware lop_uncached --quick
+
+    # Mooncake evaluation with scaled arrival rate
+    python scripts/evaluate_schedulers.py --workloads mooncake --time_scale_factor 16.0
+
+    # Multiple runs with RL model
+    python scripts/evaluate_schedulers.py --num_runs 3 --rl_model_path rl_models/model.pt
 """
 
 import argparse
@@ -70,7 +86,8 @@ class SchedulerEvaluator:
 
     def __init__(self, output_dir: str, schedulers: Optional[List[str]] = None,
                  workloads: Optional[List[str]] = None, quick: bool = False,
-                 rl_model_path: Optional[str] = None):
+                 rl_model_path: Optional[str] = None,
+                 time_scale_factor: Optional[float] = None):
         """
         Initialize evaluator.
 
@@ -80,6 +97,7 @@ class SchedulerEvaluator:
             workloads: List of workload names to evaluate (None = all)
             quick: If True, use faster settings (fewer requests, less detailed metrics)
             rl_model_path: Path to RL model checkpoint (for rl_cache_aware scheduler)
+            time_scale_factor: Scale factor for trace arrival times (higher = slower QPS)
         """
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
@@ -88,6 +106,7 @@ class SchedulerEvaluator:
         self.workloads = workloads or list(self.WORKLOADS.keys())
         self.quick = quick
         self.rl_model_path = rl_model_path
+        self.time_scale_factor = time_scale_factor
 
         # Results storage
         self.results = []
@@ -143,6 +162,13 @@ class SchedulerEvaluator:
         # Enable prefix caching for Mooncake (has block_hash_ids)
         if workload == 'mooncake':
             cmd.append("--cache_config_enable_prefix_caching")
+
+        # Add time scale factor if specified
+        if self.time_scale_factor is not None:
+            cmd.extend([
+                "--trace_request_generator_config_time_scale_factor",
+                str(self.time_scale_factor),
+            ])
 
         # Add scheduler-specific config
         if scheduler == 'rl_cache_aware':
@@ -269,6 +295,18 @@ class SchedulerEvaluator:
                 'mean_scheduling_delay': float(df['request_scheduling_delay'].mean()),
                 'mean_execution_time': float(df['request_execution_time'].mean()),
             }
+
+            # Cache hit rate metrics (if available)
+            if 'request_num_prefill_tokens_cached' in df.columns:
+                cached = df['request_num_prefill_tokens_cached']
+                total = df['request_num_prefill_tokens']
+                # Token-weighted: total cached tokens / total prefill tokens
+                metrics['cache_hit_rate_token'] = float(100 * cached.sum() / total.sum()) if total.sum() > 0 else 0.0
+                # Request-weighted: mean of per-request hit ratios
+                hit_ratios = cached / total
+                metrics['cache_hit_rate_request'] = float(100 * hit_ratios.mean())
+                # Percentage of requests with any cache hit
+                metrics['pct_requests_with_cache_hit'] = float(100 * (cached > 0).sum() / len(df))
 
             return metrics
 
@@ -456,17 +494,26 @@ class SchedulerEvaluator:
         ax.axis('off')
 
         # Aggregate metrics by scheduler
-        summary = df.groupby('scheduler').agg({
+        agg_dict = {
             'mean_e2e_time': 'mean',
             'p99_e2e_time': 'mean',
             'mean_ttft': 'mean',
             'throughput': 'mean',
             'load_imbalance': 'mean',
-        }).round(4)
+        }
+        col_names = ['Mean E2E (s)', 'P99 E2E (s)', 'Mean TTFT (s)',
+                     'Throughput (tok/s)', 'Load Imbalance']
+
+        # Add cache metrics if available
+        if 'cache_hit_rate_token' in df.columns:
+            agg_dict['cache_hit_rate_token'] = 'mean'
+            agg_dict['cache_hit_rate_request'] = 'mean'
+            col_names.extend(['Cache % (token)', 'Cache % (req)'])
+
+        summary = df.groupby('scheduler').agg(agg_dict).round(4)
 
         # Format for display
-        summary.columns = ['Mean E2E (s)', 'P99 E2E (s)', 'Mean TTFT (s)',
-                          'Throughput (tok/s)', 'Load Imbalance']
+        summary.columns = col_names
 
         # Create table
         table = ax.table(
@@ -492,8 +539,10 @@ class SchedulerEvaluator:
             values = summary[col].values
             if 'Imbalance' in col or 'E2E' in col or 'TTFT' in col:
                 best_idx = np.argmin(values)  # Lower is better
-            else:
+            elif 'Cache' in col or 'Throughput' in col:
                 best_idx = np.argmax(values)  # Higher is better
+            else:
+                best_idx = np.argmax(values)  # Default: higher is better
 
             table[(best_idx + 1, col_idx)].set_facecolor('#FFE082')
             table[(best_idx + 1, col_idx)].set_text_props(weight='bold')
@@ -563,6 +612,12 @@ Examples:
         help='Path to RL model checkpoint for rl_cache_aware scheduler (e.g., rl_models/model_latest.pt)'
     )
 
+    parser.add_argument(
+        '--time_scale_factor',
+        type=float,
+        help='Scale factor for trace arrival times (higher = slower QPS, e.g., 20.0)'
+    )
+
     args = parser.parse_args()
 
     # Create evaluator
@@ -571,7 +626,8 @@ Examples:
         schedulers=args.schedulers,
         workloads=args.workloads,
         quick=args.quick,
-        rl_model_path=args.rl_model_path
+        rl_model_path=args.rl_model_path,
+        time_scale_factor=args.time_scale_factor,
     )
 
     # Run evaluations
