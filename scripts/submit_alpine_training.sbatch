@@ -55,14 +55,15 @@ mkdir -p slurm_logs
 # Epsilon configuration (can be overridden via environment)
 export EPSILON_START="${EPSILON_START:-0.90}"
 export EPSILON_END="${EPSILON_END:-0.05}"
-export EPSILON_DECAY_STEPS="${EPSILON_DECAY_STEPS:-5000}"
+export EPSILON_DECAY_STEPS="${EPSILON_DECAY_STEPS:-8000}"
 export RESET_EPSILON_ON_LOAD="${RESET_EPSILON_ON_LOAD:-1}"
-
+export TEMP_DIR="${TEMP_DIR:-tmp}"
 echo "Epsilon Configuration:"
 echo "  EPSILON_START: $EPSILON_START"
 echo "  EPSILON_END: $EPSILON_END"
 echo "  EPSILON_DECAY_STEPS: $EPSILON_DECAY_STEPS"
 echo "  RESET_EPSILON_ON_LOAD: $RESET_EPSILON_ON_LOAD"
+echo "  TEMP_DIR: $TEMP_DIR"
 echo ""
 
 # Verify trace file exists
