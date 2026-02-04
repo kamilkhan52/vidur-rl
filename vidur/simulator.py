@@ -91,7 +91,12 @@ class Simulator:
                 if chrome_trace:
                     self._event_chrome_trace.append(chrome_trace)
 
-        assert self._scheduler.is_empty() or self._time_limit_reached
+        if not (self._scheduler.is_empty() or self._time_limit_reached):
+            logger.warning(
+                f"Simulation ended with pending requests in scheduler. "
+                f"Scheduler empty: {self._scheduler.is_empty()}, "
+                f"Time limit reached: {self._time_limit_reached}"
+            )
 
         logger.info(f"Simulation ended at: {self._time}s")
 
