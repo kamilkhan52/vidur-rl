@@ -32,10 +32,9 @@ echo ""
 VIDUR_ROOT="/projects/kamil@colostate.edu/vidur-rl"
 
 # Load required modules
-echo "Loading modules..."
-module purge
-module load anaconda
-echo "  Loaded: anaconda"
+echo "Initializing Conda..."
+source /curc/sw/anaconda3/2023.09/etc/profile.d/conda.sh
+echo "  Sourced: /curc/sw/anaconda3/2023.09/etc/profile.d/conda.sh"
 echo ""
 
 # Activate conda environment
