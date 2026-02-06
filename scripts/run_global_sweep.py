@@ -42,11 +42,30 @@ class SimulationRun:
 def run_vidur(sim: SimulationRun):
     """Executes a single Vidur simulation run."""
     output_dir = sim.output_dir
-    metrics_file = os.path.join(output_dir, "metrics.json")
     
-    # Check if already completed
-    if os.path.exists(metrics_file):
-        return f"SKIP: {sim.name} already exists."
+    # Check if already completed (search in subdirectories due to timestamping)
+    if os.path.exists(output_dir):
+        completed = False
+        for root, dirs, files in os.walk(output_dir):
+            if "request_metrics.csv" in files or "metrics.json" in files:
+                completed = True
+                break
+        
+        if completed:
+            # Clean up any partial/empty timestamped subdirectories
+            for item in os.listdir(output_dir):
+                item_path = os.path.join(output_dir, item)
+                if os.path.isdir(item_path):
+                    has_metrics = False
+                    for _, _, subfiles in os.walk(item_path):
+                        if "request_metrics.csv" in subfiles or "metrics.json" in subfiles:
+                            has_metrics = True
+                            break
+                    if not has_metrics:
+                        import shutil
+                        shutil.rmtree(item_path)
+            
+            return f"SKIP: {sim.name} already exists."
 
     os.makedirs(output_dir, exist_ok=True)
     
