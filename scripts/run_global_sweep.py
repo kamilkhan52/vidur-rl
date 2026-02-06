@@ -106,7 +106,7 @@ def run_vidur(sim: SimulationRun):
         return f"EXCEPTION: {sim.name} - {str(e)}"
 
 def main():
-    # Final Research Sweep Grid
+    # Updated Research Grid: Focusing on the Tension Zone and pushing higher scales
     TRACES = [
         "data/processed_traces/mooncake_toolagent_trace.csv",
         "data/processed_traces/mooncake_synthetic_trace.csv"
@@ -115,9 +115,11 @@ def main():
         ("meta-llama/Llama-2-7b-hf", 1),
         ("meta-llama/Llama-2-70b-hf", 4)
     ]
-    REPLICAS = [2, 4, 8, 16]
+    # Dropped 2-replica cases as they are consistently overloaded
+    REPLICAS = [4, 8, 16]
     SCHEDULERS = ["lor", "sticky_lor", "random"]
-    SCALES = [0.5, 1.0, 2.0, 4.0, 8.0]
+    # Added 16.0 and 32.0 to find the breaking point
+    SCALES = [1.0, 2.0, 4.0, 8.0, 16.0, 32.0]
     
     experiment_grid: List[SimulationRun] = []
     
