@@ -1,0 +1,5 @@
+task_id,model,replicas,trace,scale
+1,meta-llama/Llama-2-70b-hf,16,synthetic,1.0
+2,meta-llama/Llama-2-70b-hf,8,toolagent,2.0
+3,meta-llama/Llama-2-7b-hf,16,toolagent,32.0
+4,meta-llama/Llama-2-7b-hf,8,synthetic,1.0
