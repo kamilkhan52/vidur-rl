@@ -110,7 +110,7 @@ PY
     )
 fi
 RUN_TAG="${TRACE_NAME}_scale${TIME_SCALE_FACTOR}_$(date +%Y%m%d_%H%M%S)_$$"
-LOG_DIR="/tmp/mooncake_training_logs/${RUN_TAG}"
+LOG_DIR="./tmp/mooncake_training_logs/${RUN_TAG}"
 CHECKPOINT_DIR="rl_models"
 CHECKPOINT_NAME="mooncake_continuous_${TRACE_NAME}_scale${TIME_SCALE_FACTOR}"
 
