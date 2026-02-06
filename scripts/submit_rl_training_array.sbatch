@@ -22,11 +22,12 @@ if [ -z "$LINE" ]; then
 fi
 
 # Parse CSV line
-IFS=',' read -r task_id model replicas trace scale <<< "$LINE"
+IFS=',' read -r task_id model replicas trace scale tp <<< "$LINE"
 
 echo "========================================================"
 echo "RL Training Array Task: $SLURM_ARRAY_TASK_ID"
 echo "Model:    $model"
+echo "TP Size:  $tp"
 echo "Replicas: $replicas"
 echo "Trace:    $trace"
 echo "Scale:    $scale"
@@ -39,6 +40,7 @@ conda activate vidur
 
 # Set environment variables for the training script
 export MODEL_NAME="$model"
+export TP_SIZE="$tp"
 export NUM_REPLICAS="$replicas"
 export TRACE_NAME="$trace"
 export TIME_SCALE_FACTOR="$scale"

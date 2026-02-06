@@ -32,6 +32,7 @@ LOG_TRANSITIONS="${LOG_TRANSITIONS:-0}"
 # Model configuration
 MODEL_NAME="${MODEL_NAME:-meta-llama/Llama-2-7b-hf}"
 NUM_REPLICAS="${NUM_REPLICAS:-4}"
+TP_SIZE="${TP_SIZE:-1}"
 
 # Trace selection
 TRACE_NAME="${TRACE_NAME:-conversation_v2}"
@@ -188,6 +189,7 @@ while true; do
         python -m vidur.main
         --replica_config_device a100
         --replica_config_model_name "$MODEL_NAME"
+        --replica_config_tensor_parallel_size "$TP_SIZE"
         --cluster_config_num_replicas "$NUM_REPLICAS"
         --replica_scheduler_config_type vllm_v1
         --global_scheduler_config_type rl_cache_aware
