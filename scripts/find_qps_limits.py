@@ -46,11 +46,11 @@ def main():
     print("=== Suggested QPS Scale Limits (Max Scale where at least one scheduler is < 1000s) ===")
     results = []
     for (workload, model, cluster), group in df_all.groupby(['workload', 'model', 'cluster_size']):
-        # Find the max scale for this group where the MIN latency across schedulers is < 1000
+        # Find the max scale for this group where the MIN latency across schedulers is < 500
         valid_scales = []
         for scale in sorted(group['scale'].unique()):
             scale_group = group[group['scale'] == scale]
-            if scale_group['avg_e2e'].min() < 1000:
+            if scale_group['avg_e2e'].min() < 500:
                 valid_scales.append(scale)
         
         max_scale = max(valid_scales) if valid_scales else 0
