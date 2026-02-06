@@ -6,11 +6,11 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=64
-#SBATCH --mem=128G
-#SBATCH --time=24:00:00
+#SBATCH --mem=240G
+#SBATCH --time=16:00:00
 #SBATCH --output=slurm_logs/vidur_sweep_%j.out
 #SBATCH --error=slurm_logs/vidur_sweep_%j.err
-#SBATCH --mail-type=END,FAIL
+#SBATCH --mail-type=BEGIN,END,FAIL
 #SBATCH --mail-user=kamil@colostate.edu
 
 # Vidur Global Sweep - RL Cache-Aware Scheduling
@@ -53,10 +53,11 @@ mkdir -p slurm_logs
 mkdir -p tmp
 
 # Sweep Configuration
-export MAX_WORKERS="${MAX_WORKERS:-32}"
+export MAX_WORKERS="${MAX_WORKERS:-25}"
 export TEMP_DIR="${TEMP_DIR:-tmp}"
 echo "Sweep Configuration:"
 echo "  MAX_WORKERS: $MAX_WORKERS"
+echo "  Memory Request: 240GB"
 echo "  TEMP_DIR: $TEMP_DIR"
 echo ""
 
