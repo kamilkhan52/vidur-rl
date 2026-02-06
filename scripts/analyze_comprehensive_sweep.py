@@ -133,6 +133,56 @@ def plot_grid(data, metric_col, title_suffix, filename):
             plt.savefig(os.path.join(OUTPUT_DIR, f"{filename}_{model}.png"), bbox_inches='tight')
             plt.close()
 
+def plot_stacked_breakdown(data, filename):
+    workloads = sorted(data['workload'].unique())
+    models = sorted(data['model'].unique())
+    schedulers = sorted(data['scheduler'].unique())
+    
+    with PdfPages(os.path.join(OUTPUT_DIR, f"{filename}.pdf")) as pdf:
+        for model in models:
+            for scheduler in schedulers:
+                subset_model_sched = data[(data['model'] == model) & (data['scheduler'] == scheduler)]
+                if subset_model_sched.empty: continue
+                
+                cluster_sizes = sorted(subset_model_sched['cluster_size'].unique())
+                fig, axes = plt.subplots(len(workloads), len(cluster_sizes), 
+                                         figsize=(5*len(cluster_sizes), 4*len(workloads)), 
+                                         squeeze=False)
+                
+                for i, workload in enumerate(workloads):
+                    for j, cluster in enumerate(cluster_sizes):
+                        ax = axes[i, j]
+                        subset = subset_model_sched[(subset_model_sched['workload'] == workload) & 
+                                            (subset_model_sched['cluster_size'] == cluster)].sort_values("qps")
+                        
+                        if subset.empty: continue
+                        
+                        # Prepare data for stackplot
+                        x = subset["qps"]
+                        y_sched = subset["avg_scheduling"]
+                        y_prefill = subset["avg_prefill"]
+                        y_decode = subset["avg_decode"]
+                        
+                        ax.stackplot(x, y_sched, y_prefill, y_decode, 
+                                    labels=['Scheduling Delay', 'Prefill Latency', 'Decode Latency'],
+                                    colors=['#d62728', '#9467bd', '#8c564b'], alpha=0.8)
+                        
+                        ax.set_title(f"{workload} | {cluster} Replicas")
+                        ax.set_ylim(0, 500)
+                        ax.grid(True, linestyle='--', alpha=0.3)
+                        if i == len(workloads) - 1:
+                            ax.set_xlabel("QPS")
+                        if j == 0:
+                            ax.set_ylabel("Latency Breakdown (s)")
+                
+                plt.tight_layout()
+                handles, labels = ax.get_legend_handles_labels()
+                fig.legend(handles, labels, loc='upper center', bbox_to_anchor=(0.5, 1.05), ncol=3)
+                plt.suptitle(f"{model} ({scheduler}) - Latency Component Breakdown", y=1.08, fontsize=16)
+                pdf.savefig(bbox_inches='tight')
+                plt.savefig(os.path.join(OUTPUT_DIR, f"{filename}_{model}_{scheduler}.png"), bbox_inches='tight')
+                plt.close()
+
 def main():
     data = gather_data()
     if data.empty:
@@ -149,6 +199,9 @@ def main():
     
     for col, title, fname in metrics:
         plot_grid(data, col, title, fname)
+    
+    # New stacked breakdown plots
+    plot_stacked_breakdown(data, "latency_breakdown")
         
     print(f"Done! Plots saved to {OUTPUT_DIR}")
 
