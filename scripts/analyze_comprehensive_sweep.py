@@ -104,8 +104,8 @@ def plot_grid(data, metric_col, title_suffix, filename):
                                      figsize=(5*len(cluster_sizes), 4*len(workloads)), 
                                      squeeze=False)
             
-            # Find global max for this model to normalize Y axis (Option B)
-            y_max = model_data[metric_col].max() * 1.1
+            # Set Y-axis limit to 500s to zoom in on usable data
+            y_max = 500
             
             for i, workload in enumerate(workloads):
                 for j, cluster in enumerate(cluster_sizes):
