@@ -69,8 +69,6 @@ class BaseReplicaScheduler(ABC):
             request_queue_config=self._request_queue_config,
             execution_time_predictor=self._execution_time_predictor,
         )
-        # Alias for compatibility with subclasses
-        self._request_queue = self._waiting_queue
 
     @property
     def replica_id(self) -> int:
@@ -83,17 +81,21 @@ class BaseReplicaScheduler(ABC):
         self._disk_kv_cache_manager = disk_kv_cache_manager
 
     @property
+    @abstractmethod
     def memory_usage_percent(self) -> float:
-        return 0.0
+        pass
 
+    @abstractmethod
     def get_cached_prefill_length(self, request: Request) -> int:
-        return 0
+        pass
 
+    @abstractmethod
     def add_request(self, request: Request):
         pass
 
+    @abstractmethod
     def is_empty(self) -> bool:
-        return True
+        pass
 
     @abstractmethod
     def on_batch_end(self, batch: Batch) -> None:
