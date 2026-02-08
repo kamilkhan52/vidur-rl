@@ -26,6 +26,10 @@ fi
 MODEL_NAME="meta-llama/Llama-2-7b-hf"
 [[ "$CONFIG_NAME" == *"70b"* ]] && MODEL_NAME="meta-llama/Llama-2-70b-hf"
 
+
+# Set tensor parallel size (70B models need TP=4 to fit in 80GB A100)
+TP_SIZE=1
+[[ "$CONFIG_NAME" == *"70b"* ]] && TP_SIZE=4
 NUM_REPLICAS=8
 [[ "$CONFIG_NAME" == *"16R"* ]] && NUM_REPLICAS=16
 [[ "$CONFIG_NAME" == *"4R"* ]] && NUM_REPLICAS=4
@@ -88,6 +92,7 @@ while true; do
         python3 -m vidur.main \
             --replica_config_device a100 \
             --replica_config_model_name "$MODEL_NAME" \
+            --replica_config_tensor_parallel_size "$TP_SIZE" \
             --cluster_config_num_replicas "$NUM_REPLICAS" \
             --replica_scheduler_config_type vllm_v1 \
             --global_scheduler_config_type rl_cache_aware \
