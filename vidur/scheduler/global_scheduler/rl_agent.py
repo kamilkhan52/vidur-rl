@@ -2,7 +2,7 @@
 
 import copy
 import os
-from typing import Dict
+from typing import Dict, List
 
 import numpy as np
 import torch
@@ -13,29 +13,28 @@ import torch.nn.functional as F
 class QNetwork(nn.Module):
     """
     Q-Network for estimating action values.
-
-    Architecture:
-    - Input: State vector (state_dim)
-    - Hidden 1: 256 units + ReLU
-    - Hidden 2: 128 units + ReLU
-    - Hidden 3: 64 units + ReLU
-    - Output: Q-values (num_actions)
     """
 
-    def __init__(self, state_dim: int, num_actions: int):
+    def __init__(self, state_dim: int, num_actions: int, hidden_dims: List[int]):
         """
         Initialize Q-network.
 
         Args:
             state_dim: Dimensionality of state vector
             num_actions: Number of actions (replicas)
+            hidden_dims: List of hidden layer dimensions
         """
         super().__init__()
 
-        self.fc1 = nn.Linear(state_dim, 256)
-        self.fc2 = nn.Linear(256, 128)
-        self.fc3 = nn.Linear(128, 64)
-        self.fc4 = nn.Linear(64, num_actions)
+        layers = []
+        input_dim = state_dim
+        for h_dim in hidden_dims:
+            layers.append(nn.Linear(input_dim, h_dim))
+            layers.append(nn.ReLU())
+            input_dim = h_dim
+        layers.append(nn.Linear(input_dim, num_actions))
+        
+        self.network = nn.Sequential(*layers)
 
     def forward(self, state: torch.Tensor) -> torch.Tensor:
         """
@@ -47,11 +46,7 @@ class QNetwork(nn.Module):
         Returns:
             Q-values [batch_size, num_actions]
         """
-        x = F.relu(self.fc1(state))
-        x = F.relu(self.fc2(x))
-        x = F.relu(self.fc3(x))
-        q_values = self.fc4(x)
-        return q_values
+        return self.network(state)
 
 
 class RLAgent:
@@ -63,7 +58,7 @@ class RLAgent:
     - Target network: Updated periodically for stable targets
     """
 
-    def __init__(self, state_dim: int, num_actions: int, config):
+    def __init__(self, state_dim: int, num_actions: int, config, hidden_dims: List[int] = [512, 512, 256, 128]):
         """
         Initialize RL agent.
 
@@ -71,13 +66,15 @@ class RLAgent:
             state_dim: Dimensionality of state vector
             num_actions: Number of actions (replicas)
             config: Configuration object with hyperparameters
+            hidden_dims: List of hidden layer dimensions
         """
         self._state_dim = state_dim
         self._num_actions = num_actions
         self._config = config
+        self._hidden_dims = hidden_dims
 
         # Build Q-networks
-        self._q_network = QNetwork(state_dim, num_actions)
+        self._q_network = QNetwork(state_dim, num_actions, hidden_dims)
         self._target_network = copy.deepcopy(self._q_network)
 
         # Optimizer
@@ -190,6 +187,7 @@ class RLAgent:
             "update_count": self._update_count,
             "state_dim": self._state_dim,
             "num_actions": self._num_actions,
+            "hidden_dims": self._hidden_dims,
         }
 
         # Create directory if needed
@@ -236,9 +234,11 @@ class RLAgent:
             self._target_network.load_state_dict(checkpoint["target_network_state_dict"])
             self._optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
             self._update_count = checkpoint.get("update_count", 0)
+            self._hidden_dims = checkpoint.get("hidden_dims", [256, 128, 64])
 
             print(f"Checkpoint loaded from {path}")
             print(f"Resuming from update {self._update_count}")
+            print(f"Hidden dims: {self._hidden_dims}")
 
         except Exception as e:
             print(f"Error loading checkpoint from {path}: {e}")
