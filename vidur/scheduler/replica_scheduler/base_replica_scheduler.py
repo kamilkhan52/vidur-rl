@@ -81,21 +81,17 @@ class BaseReplicaScheduler(ABC):
         self._disk_kv_cache_manager = disk_kv_cache_manager
 
     @property
-    @abstractmethod
     def memory_usage_percent(self) -> float:
-        pass
+        return 0.0
 
-    @abstractmethod
     def get_cached_prefill_length(self, request: Request) -> int:
-        pass
+        return 0
 
-    @abstractmethod
     def add_request(self, request: Request):
         pass
 
-    @abstractmethod
     def is_empty(self) -> bool:
-        pass
+        return True
 
     @abstractmethod
     def on_batch_end(self, batch: Batch) -> None:
