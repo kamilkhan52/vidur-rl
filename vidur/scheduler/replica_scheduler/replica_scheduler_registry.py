@@ -23,7 +23,18 @@ from vidur.utils.base_registry import BaseRegistry
 class ReplicaSchedulerRegistry(BaseRegistry):
     @classmethod
     def get_key_from_str(cls, key_str: str) -> ReplicaSchedulerType:
-        return ReplicaSchedulerType.from_str(key_str)
+        scheduler_type = ReplicaSchedulerType.from_str(key_str)
+        
+        # Warn users if they're using the deprecated 'vllm' scheduler
+        if scheduler_type == ReplicaSchedulerType.VLLM:
+            raise ValueError(
+                "The 'vllm' scheduler is deprecated and has known bugs. "
+                "Please use 'vllm_v1' instead:\n"
+                "  --replica_scheduler_config_type vllm_v1\n\n"
+                "The vllm_v1 scheduler is the maintained version with bug fixes."
+            )
+        
+        return scheduler_type
 
 
 ReplicaSchedulerRegistry.register(
