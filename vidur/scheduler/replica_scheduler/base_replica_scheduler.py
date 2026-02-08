@@ -69,6 +69,8 @@ class BaseReplicaScheduler(ABC):
             request_queue_config=self._request_queue_config,
             execution_time_predictor=self._execution_time_predictor,
         )
+        # Alias for compatibility with subclasses
+        self._request_queue = self._waiting_queue
 
     @property
     def replica_id(self) -> int:
