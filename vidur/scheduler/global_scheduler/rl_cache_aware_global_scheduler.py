@@ -77,43 +77,23 @@ class RLCacheAwareGlobalScheduler(BaseGlobalScheduler):
         
         # Determine final enable_prefix_caching based on checkpoint or config
         if checkpoint_state_dim is not None:
-            # Infer from checkpoint dimension (72 = with cache, 52 = without cache for 4 replicas)
-            # Includes session affinity features (+M)
+            # Infer from checkpoint dimension
             M = len(replicas)
-            expected_dim_with_cache = 5 + M * 5 + M + 4 * (5 + M) + M + 3
-            expected_dim_without_cache = 5 + M * 5 + 4 * 5 + M + 3
-            
-            if checkpoint_state_dim == expected_dim_with_cache:
-                enable_prefix_caching = True
-                if not (config.cluster_config.cache_config.enable_prefix_caching if hasattr(config, 'cluster_config') else False):
-                    print(f"[RL Scheduler] ⚠️  WARNING: Checkpoint uses cache-aware state (dim={checkpoint_state_dim}), but prefix caching is DISABLED in config")
-                    print(f"[RL Scheduler] Overriding to use cache-aware state to match checkpoint")
-            elif checkpoint_state_dim == expected_dim_without_cache:
-                enable_prefix_caching = False
-                if config.cluster_config.cache_config.enable_prefix_caching if hasattr(config, 'cluster_config') else False:
-                    print(f"[RL Scheduler] ⚠️  WARNING: Checkpoint uses simplified state (dim={checkpoint_state_dim}), but prefix caching is ENABLED in config")
-                    print(f"[RL Scheduler] Overriding to use simplified state to match checkpoint")
-            else:
-                print(f"[RL Scheduler] ⚠️  WARNING: Checkpoint state_dim={checkpoint_state_dim} doesn't match expected dimensions")
-                print(f"[RL Scheduler]    Expected: {expected_dim_with_cache} (with cache) or {expected_dim_without_cache} (without cache)")
+            # The state dim depends on M (num_replicas) and session/cache features
+            # Let's just trust the config if the dim matches our current tracker
+            current_tracker_dim = self._state_tracker.get_state_dim()
+            if checkpoint_state_dim != current_tracker_dim:
+                print(f"[RL Scheduler] ⚠️  WARNING: Checkpoint state_dim={checkpoint_state_dim} doesn't match current state_dim={current_tracker_dim}")
         
-        if enable_prefix_caching:
-            print(f"[RL Scheduler] Using cache-aware state (with prefix caching features)")
-        else:
-            print(f"[RL Scheduler] Using simplified state (without prefix caching features)")
-
-        # State tracker - maintains shadow state of pending work
-        self._state_tracker = StateTracker(
-            num_replicas=len(replicas),
-            replica_schedulers=self._replica_schedulers,
-            enable_prefix_caching=enable_prefix_caching,
-        )
-
         # RL Agent (Policy Network)
+        # Parse hidden dimensions from config
+        hidden_dims = [int(d) for d in rl_config.hidden_dims.split(",")] if hasattr(rl_config, "hidden_dims") else [512, 512, 256, 128]
+        
         self._rl_agent = RLAgent(
             state_dim=self._state_tracker.get_state_dim(),
             num_actions=len(replicas),
             config=rl_config,
+            hidden_dims=hidden_dims,
         )
 
         # Initialize epsilon parameters BEFORE loading checkpoint (so we have defaults)
@@ -190,7 +170,7 @@ class RLCacheAwareGlobalScheduler(BaseGlobalScheduler):
             # Note: _num_training_steps and epsilon params initialized earlier (before loading checkpoint)
 
             # Checkpoint saving
-            self._checkpoint_frequency = 10000  # Save every 10k requests
+            self._checkpoint_frequency = 2000  # Save every 2k requests (lowered from 10k for synthetic trace support)
             self._last_checkpoint_request = 0
 
             # Training log file

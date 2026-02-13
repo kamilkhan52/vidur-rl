@@ -53,9 +53,12 @@ class RewardCalculator:
         # Negative because we want to minimize latency
         latency_reward = -latency / self._normalization_factor
 
-        # NOTE: Clipping removed to preserve learning signal at all latency ranges.
-        # Gradient clipping in the optimizer handles training stability instead.
-        # Natural scaling: 1s → -0.01, 10s → -0.1, 100s → -1.0, 1000s → -10.0 (with factor=100)
+        # APPLY REWARD CLAMPING (Updated 2026-02-06):
+        # Prevent "Policy Poisoning" from extreme latencies (Death Spirals)
+        # 10.0 with factor=100 represents a 1000s latency limit
+        MIN_REWARD = -10.0
+        if latency_reward < MIN_REWARD:
+            latency_reward = MIN_REWARD
 
         return latency_reward
 

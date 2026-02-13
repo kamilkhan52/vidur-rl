@@ -186,7 +186,7 @@ while true; do
 
     # Build command
     CMD=(
-        python -m vidur.main
+        python3 -m vidur.main
         --replica_config_device a100
         --replica_config_model_name "$MODEL_NAME"
         --replica_config_tensor_parallel_size "$TP_SIZE"

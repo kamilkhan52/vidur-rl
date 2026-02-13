@@ -449,7 +449,7 @@ class MetricsConfig:
         metadata={"help": "Weights & Biases run id."},
     )
     enable_chrome_trace: bool = field(
-        default=True,
+        default=False,
         metadata={"help": "Enable Chrome tracing."},
     )
     save_table_to_wandb: bool = field(
@@ -758,6 +758,10 @@ class RLCacheAwareGlobalSchedulerConfig(BaseGlobalSchedulerConfig):
         default=1000,
         metadata={"help": "Update target network every N updates"},
     )
+    hidden_dims: str = field(
+        default="512,512,256,128",
+        metadata={"help": "Comma-separated list of hidden layer dimensions"},
+    )
     transition_log_path: str = field(
         default="",
         metadata={"help": "Path to CSV file for logging (state, action, reward) transitions. Empty to disable."},
@@ -931,7 +935,7 @@ class ClusterConfig:
         metadata={"help": "Global scheduler config."},
     )
     replica_scheduler_config: BaseReplicaSchedulerConfig = field(
-        default_factory=SarathiSchedulerConfig,
+        default_factory=VllmSchedulerConfig,
         metadata={"help": "Replica scheduler config."},
     )
     request_queue_config: BaseRequestQueueConfig = field(

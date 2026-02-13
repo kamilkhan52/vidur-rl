@@ -20,6 +20,9 @@ dependencies = [
     "seaborn==0.13.2",
     "snakeviz==2.2.0",
     "streamlit==1.36.0",
+    "torch>=2.10.0",
+    "torchaudio>=2.10.0",
+    "torchvision>=0.25.0",
     "wandb==0.16.6",
 ]
 
