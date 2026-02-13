@@ -78,6 +78,13 @@ class Simulator:
                 )
                 continue
 
+            if not self._event_queue:
+                # Event queue is empty but scheduler has pending requests
+                # Trigger a global schedule event to process them
+                from vidur.events.global_schedule_event import GlobalScheduleEvent
+                self._add_event(GlobalScheduleEvent(self._time))
+                continue
+
             event = self._event_queue[0]
             heapq.heappop(self._event_queue)
             self._set_time(event._time)
