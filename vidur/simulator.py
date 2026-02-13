@@ -61,6 +61,7 @@ class Simulator:
         while not self._time_limit_reached and (
             self._event_queue
             or self._request_generator.get_next_request_arrival_time() is not None
+            or not self._scheduler.is_empty()
         ):
             next_event_time = self._event_queue[0]._time if self._event_queue else None
             next_request_arrival_time = (
