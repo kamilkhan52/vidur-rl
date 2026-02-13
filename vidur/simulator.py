@@ -78,7 +78,8 @@ class Simulator:
                 )
                 continue
 
-            if not self._event_queue:
+            # Only trigger scheduling if both event queue is empty AND no more arrivals
+            if not self._event_queue and self._request_generator.get_next_request_arrival_time() is None:
                 # Event queue is empty but scheduler has pending requests
                 # Trigger a global schedule event to process them
                 from vidur.events.global_schedule_event import GlobalScheduleEvent
