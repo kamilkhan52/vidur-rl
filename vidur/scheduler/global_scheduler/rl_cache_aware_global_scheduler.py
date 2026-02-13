@@ -7,6 +7,7 @@ KV cache affinity.
 """
 
 import math
+import atexit
 import os
 from typing import Dict, List, Tuple
 
@@ -182,6 +183,9 @@ class RLCacheAwareGlobalScheduler(BaseGlobalScheduler):
         # Metrics tracking
         self._episode_rewards = []
         self._recent_rewards = []  # Track last 100 rewards for moving average
+        # Register cleanup to save final checkpoint
+        if self._mode == "training" and self._config.cluster_config.global_scheduler_config.model_checkpoint_path:
+            atexit.register(self._save_final_checkpoint)
 
     def _get_epsilon(self) -> float:
         """
@@ -398,3 +402,36 @@ class RLCacheAwareGlobalScheduler(BaseGlobalScheduler):
         # Save latest epsilon state (using original path)
         latest_epsilon_path = original_checkpoint_path.replace('.pt', '_epsilon.pt')
         torch.save(epsilon_state, latest_epsilon_path)
+
+    def _save_final_checkpoint(self):
+        """Save final checkpoint when simulation ends."""
+        if not hasattr(self, '_config') or not hasattr(self, '_rl_agent'):
+            return  # Already cleaned up or not initialized
+        
+        checkpoint_path = self._config.cluster_config.global_scheduler_config.model_checkpoint_path
+        if not checkpoint_path:
+            return
+        
+        print(f"\n[RL Scheduler] Saving final checkpoint to {checkpoint_path}", flush=True)
+        
+        # Save the model
+        self._rl_agent.save_checkpoint(checkpoint_path)
+        
+        # Save epsilon state
+        epsilon_state = {
+            'num_training_steps': self._num_training_steps,
+            'epsilon_start': self._epsilon_start,
+            'epsilon_end': self._epsilon_end,
+            'epsilon_decay_steps': self._epsilon_decay_steps,
+        }
+        epsilon_path = checkpoint_path.replace('.pt', '_epsilon.pt')
+        torch.save(epsilon_state, epsilon_path)
+        
+        # Close training log if open
+        if hasattr(self, '_training_log_file') and self._training_log_file:
+            try:
+                self._training_log_file.close()
+            except:
+                pass
+        
+        print(f"[RL Scheduler] Final checkpoint saved. Total requests seen: {self._num_requests_seen}", flush=True)
