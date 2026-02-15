@@ -1,12 +1,11 @@
 #!/bin/bash
 #SBATCH --job-name=priority2_baseline
-#SBATCH --account=csu-general
-#SBATCH --partition=aa100
+#SBATCH --account=csu65_alpine1
+#SBATCH --partition=amilan
 #SBATCH --qos=normal
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=8
-#SBATCH --gres=gpu:1
+#SBATCH --cpus-per-task=18
 #SBATCH --mem=64G
 #SBATCH --time=02:00:00
 #SBATCH --output=/scratch/alpine/kamil@colostate.edu/vidur-rl/baselines/slurm/slurm-%A_%a.out
