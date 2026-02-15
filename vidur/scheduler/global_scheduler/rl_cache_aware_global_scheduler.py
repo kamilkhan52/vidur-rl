@@ -418,3 +418,22 @@ class RLCacheAwareGlobalScheduler(BaseGlobalScheduler):
         # Save latest epsilon state (using original path)
         latest_epsilon_path = original_checkpoint_path.replace('.pt', '_epsilon.pt')
         torch.save(epsilon_state, latest_epsilon_path)
+
+    def save_final_checkpoint(self):
+        """
+        Public method to save final checkpoint when simulation completes.
+        Called explicitly from main.py after simulator.run() finishes.
+        """
+        if self._mode != "training":
+            return
+        
+        checkpoint_path = self._config.cluster_config.global_scheduler_config.model_checkpoint_path
+        if not checkpoint_path:
+            return
+        
+        print(f"\n[RL Scheduler] Saving final checkpoint to {checkpoint_path}", flush=True)
+        
+        # Save the trained model with full trace coverage
+        self._save_checkpoint()
+        
+        print(f"[RL Scheduler] Final checkpoint saved after {self._num_requests_seen} requests", flush=True)
