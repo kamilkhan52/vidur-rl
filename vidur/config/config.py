@@ -724,7 +724,7 @@ class RLCacheAwareGlobalSchedulerConfig(BaseGlobalSchedulerConfig):
     )
     epsilon_decay_steps: int = field(
         default=500,
-        metadata={"help": "Training steps for epsilon to decay ~99% toward epsilon_end (exponential decay)"},
+        metadata={"help": "Training steps for epsilon to decay ~99%% toward epsilon_end (exponential decay)"},
     )
     reset_epsilon_on_load: bool = field(
         default=False,
