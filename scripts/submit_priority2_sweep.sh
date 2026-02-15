@@ -2,6 +2,7 @@
 #SBATCH --job-name=priority2_baseline
 #SBATCH --account=ucb-general
 #SBATCH --partition=aa100
+#SBATCH --qos=normal
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
