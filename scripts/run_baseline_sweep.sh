@@ -232,6 +232,12 @@ run_baseline_single() {
             --request_generator_config_type trace \
             --cache_config_enable_prefix_caching \
             --no-metrics_config_enable_chrome_trace 2>&1 | tee "${run_dir}/output.log"
+        
+        # Check if simulation succeeded (pipefail doesn't work with tee, so check explicitly)
+        if [ ${PIPESTATUS[0]} -ne 0 ]; then
+            log_error "Simulation failed for run $i (see ${run_dir}/output.log)"
+            exit 1
+        fi
 
         # Collect metrics
         local metrics_file="${run_dir}/request_metrics.csv"
@@ -241,6 +247,9 @@ run_baseline_single() {
             local throughput=$(python3 -c "import pandas as pd; df = pd.read_csv('$metrics_file'); print(len(df) / (df['request_e2e_time'].max() - df['request_arrival_time'].min()))")
 
             echo "$scheduler,$model,$replicas,$trace,$scale,$i,$mean_e2e,$p99_e2e,$throughput" >> "${output_dir}/metrics.csv"
+        else
+            log_error "Metrics file not found: $metrics_file (simulation may have failed silently)"
+            exit 1
         fi
     done
 
