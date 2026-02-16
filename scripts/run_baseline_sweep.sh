@@ -36,9 +36,17 @@ set -e
 # CONFIGURATION
 # ============================================================================
 
-# Directories
-PROJECT_ROOT="/home/kamil/vidur-rl-working"
-SCRATCH_ROOT="/home/kamil/vidur-rl-working/outputs"
+# Directories - detect if we're on Alpine or local
+if [ -d "/projects/kamil@colostate.edu/vidur-rl" ]; then
+    # On Alpine
+    PROJECT_ROOT="/projects/kamil@colostate.edu/vidur-rl"
+    SCRATCH_ROOT="/scratch/alpine/kamil@colostate.edu"
+else
+    # Local (WSL)
+    PROJECT_ROOT="/home/kamil/vidur-rl-working"
+    SCRATCH_ROOT="/home/kamil/vidur-rl-working/outputs"
+fi
+
 CACHE_DIR="${PROJECT_ROOT}/cache"
 
 # Environment
