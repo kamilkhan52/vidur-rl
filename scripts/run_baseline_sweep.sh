@@ -239,8 +239,8 @@ run_baseline_single() {
             exit 1
         fi
 
-        # Collect metrics
-        local metrics_file="${run_dir}/request_metrics.csv"
+        # Collect metrics (vidur creates timestamped subdirectory)
+        local metrics_file=$(find "$run_dir" -name "request_metrics.csv" -type f 2>/dev/null | head -1)
         if [ -f "$metrics_file" ]; then
             local mean_e2e=$(python3 -c "import pandas as pd; print(pd.read_csv('$metrics_file')['request_e2e_time'].mean())")
             local p99_e2e=$(python3 -c "import pandas as pd; print(pd.read_csv('$metrics_file')['request_e2e_time'].quantile(0.99))")
