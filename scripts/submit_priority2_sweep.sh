@@ -5,8 +5,8 @@
 #SBATCH --qos=normal
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=18
-#SBATCH --mem=64G
+#SBATCH --cpus-per-task=9
+#SBATCH --mem=32G
 #SBATCH --time=02:00:00
 #SBATCH --output=/scratch/alpine/kamil@colostate.edu/vidur-rl/baselines/slurm/slurm-%A_%a.out
 #SBATCH --error=/scratch/alpine/kamil@colostate.edu/vidur-rl/baselines/slurm/slurm-%A_%a.err
