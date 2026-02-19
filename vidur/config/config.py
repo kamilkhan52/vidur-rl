@@ -766,6 +766,10 @@ class RLCacheAwareGlobalSchedulerConfig(BaseGlobalSchedulerConfig):
         default="",
         metadata={"help": "Path to CSV file for logging (state, action, reward) transitions. Empty to disable."},
     )
+    lookahead_k: int = field(
+        default=5,
+        metadata={"help": "Number of requests to look ahead in the queue for RL state extraction"},
+    )
 
     @staticmethod
     def get_type():

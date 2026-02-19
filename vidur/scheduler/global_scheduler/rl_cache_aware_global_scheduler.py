@@ -107,6 +107,7 @@ class RLCacheAwareGlobalScheduler(BaseGlobalScheduler):
             num_replicas=len(replicas),
             replica_schedulers=self._replica_schedulers,
             enable_prefix_caching=enable_prefix_caching,
+            lookahead_k=rl_config.lookahead_k,
         )
 
         # RL Agent (Policy Network)

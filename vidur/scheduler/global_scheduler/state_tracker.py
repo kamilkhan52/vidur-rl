@@ -27,6 +27,7 @@ class StateTracker:
         num_replicas: int,
         replica_schedulers: Dict[ReplicaId, BaseReplicaScheduler],
         enable_prefix_caching: bool = False,
+        lookahead_k: int = 5,
     ):
         """
         Initialize state tracker.
@@ -35,10 +36,14 @@ class StateTracker:
             num_replicas: Number of replicas in the system
             replica_schedulers: Map of replica ID to replica scheduler
             enable_prefix_caching: Whether prefix caching is enabled (affects state dimension)
+            lookahead_k: Number of requests to look ahead in the queue
         """
         self._num_replicas = num_replicas
         self._replica_schedulers = replica_schedulers
         self._enable_prefix_caching = enable_prefix_caching
+        self._lookahead_k = lookahead_k
+
+        # Shadow state (updated on assignment and completion)
 
         # Shadow state (updated on assignment and completion)
         self._pending_prefills: Dict[ReplicaId, int] = {
@@ -71,25 +76,25 @@ class StateTracker:
         """
         Compute state vector dimensionality.
 
-        With prefix caching enabled (M replicas, K=5 lookahead):
+        With prefix caching enabled (M replicas, K lookahead):
         - Current request: 5
         - Per-replica features: M * 5
         - Cache hits: M
         - Lookahead: (K-1) * (5 + M)  # K-1 requests with cache features
         - Session affinity: M  # One affinity signal per replica
         - Global: 3
-        Total: 5 + M*5 + M + 4*(5+M) + M + 3 = 72 for M=4
+        Total: 5 + M*5 + M + (K-1)*(5+M) + M + 3
 
-        Without prefix caching (M replicas, K=5 lookahead):
+        Without prefix caching (M replicas, K lookahead):
         - Current request: 5
         - Per-replica features: M * 5
         - Lookahead: (K-1) * 5  # K-1 requests without cache features
         - Session affinity: M  # One affinity signal per replica
         - Global: 3
-        Total: 5 + M*5 + 4*5 + M + 3
+        Total: 5 + M*5 + (K-1)*5 + M + 3
         """
         M = self._num_replicas
-        K = 5  # Lookahead window
+        K = self._lookahead_k
 
         if self._enable_prefix_caching:
             # Include cache hit features + session affinity
@@ -111,7 +116,7 @@ class StateTracker:
         """
         names = []
         M = self._num_replicas
-        K = 5  # Lookahead window
+        K = self._lookahead_k
 
         # 1. Current request features (5)
         names.extend([
@@ -207,7 +212,7 @@ class StateTracker:
             cache_hits = self._extract_cache_hits_with_shadow(current_request)
 
         # 4. Extract lookahead features
-        lookahead_features = self._extract_lookahead_features(queue, K=5)
+        lookahead_features = self._extract_lookahead_features(queue, K=self._lookahead_k)
 
         # 5. Extract session affinity features (M dims)
         session_affinity = self._extract_session_affinity(current_request)
