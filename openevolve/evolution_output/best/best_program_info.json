@@ -1,16 +1,16 @@
 {
-  "id": "9f75ef6d-e3fa-4bb2-a324-a77748addaad",
+  "id": "4b29f119-bacf-4806-8eef-94a32b001bb6",
   "generation": 1,
-  "iteration": 2,
-  "timestamp": 1771634176.1191885,
-  "parent_id": "525414ff-4208-48f0-bbc0-662cf7dd7bbe",
+  "iteration": 1,
+  "timestamp": 1771639263.0763297,
+  "parent_id": "2277d03e-e50e-49ed-a15b-58b0564b7a4c",
   "metrics": {
-    "combined_score": -0.09458247585028166,
-    "rl_e2e": 3.314603662122107,
+    "combined_score": -0.09194278513379865,
+    "rl_e2e": 3.306610177200902,
     "baseline_e2e": 3.0281899585020238,
-    "improvement_pct": -9.458247585028166,
+    "improvement_pct": -9.194278513379865,
     "stderr": ""
   },
   "language": "python",
-  "saved_at": 1771634176.1335223
+  "saved_at": 1771639263.0910282
 }
