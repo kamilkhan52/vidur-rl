@@ -8,10 +8,36 @@ Usage:
 import argparse
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
+
+import yaml
 
 REPO_ROOT = Path(__file__).parent.parent
 OPENEVOLVE_DIR = Path(__file__).parent
+
+
+def _make_patched_config(output_dir: Path) -> str:
+    """
+    Load config.yaml and override evolution_trace.output_path to be
+    inside output_dir (so traces follow the run, not the project dir).
+    Returns path to a temp YAML file.
+    """
+    config_path = OPENEVOLVE_DIR / "config.yaml"
+    with open(config_path) as f:
+        cfg = yaml.safe_load(f)
+
+    if "evolution_trace" in cfg:
+        cfg["evolution_trace"]["output_path"] = str(
+            output_dir / "traces" / "evolution_trace.jsonl"
+        )
+
+    tmp = tempfile.NamedTemporaryFile(
+        mode="w", suffix=".yaml", delete=False, dir=str(output_dir)
+    )
+    yaml.dump(cfg, tmp)
+    tmp.close()
+    return tmp.name
 
 
 def main():
@@ -41,10 +67,12 @@ def main():
 
     import openevolve
 
+    patched_config = _make_patched_config(output_dir)
+
     result = openevolve.run_evolution(
         initial_program=str(OPENEVOLVE_DIR / "initial_program.py"),
         evaluator=str(OPENEVOLVE_DIR / "evaluator.py"),
-        config=str(OPENEVOLVE_DIR / "config.yaml"),
+        config=patched_config,
         iterations=args.iterations,
         output_dir=str(output_dir),
     )
