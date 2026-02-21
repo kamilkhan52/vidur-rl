@@ -187,4 +187,4 @@ prefill_throughput_output
 .dev_notes/
 results/
 rl_models/
-simulator_output/
+simulator_output/openevolve/evolution_output/

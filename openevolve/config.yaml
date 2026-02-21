@@ -1,0 +1,70 @@
+max_iterations: 100
+random_seed: 42
+diff_based_evolution: false   # full-program rewrites; Gemini 3 Flash doesn't reliably follow SEARCH/REPLACE
+
+llm:
+  api_base: "https://generativelanguage.googleapis.com/v1beta/openai/"
+  api_key: "${OPENAI_API_KEY}"
+  name: "models/gemini-3-flash-preview"
+  temperature: 0.8
+  models:
+    - name: "models/gemini-3-flash-preview"
+      api_base: "https://generativelanguage.googleapis.com/v1beta/openai/"
+      api_key: "${OPENAI_API_KEY}"
+      temperature: 0.8
+      weight: 1.0
+
+database:
+  population_size: 20   # small — evals are 2-5 min each
+  num_islands: 3
+  migration_interval: 10
+
+evaluator:
+  enable_artifacts: true
+  timeout: 600           # 10 min hard cap per eval
+  cascade_evaluation: false   # we don't implement evaluate_stage1
+
+evolution_trace:
+  enabled: true
+  format: "jsonl"
+  include_code: true        # full program source per iteration
+  include_prompts: true     # LLM prompt + response (reasoning traces)
+  output_path: "openevolve/evolution_output/traces/evolution_trace.jsonl"
+  buffer_size: 1            # flush after every trace (safe for live viewing)
+
+prompt:
+  system_message: |
+    You are an expert in deep reinforcement learning for LLM inference scheduling.
+
+    CONTEXT:
+    - The RL agent is a Double DQN that routes incoming LLM requests to one of 8 replicas.
+    - The state includes: per-request token counts, per-replica pending work (prefill/decode),
+      cache hit ratios, session affinity flags, lookahead queue features, and global load stats.
+    - Training is online: reward arrives when a request completes. No batched episodes.
+    - The primary failure mode is "policy poisoning": extreme latency spikes early in training
+      cause massive negative rewards, causing the policy to collapse (e.g., always route to
+      replica 0). The reward clamp (-10.0) was introduced to mitigate this.
+
+    WHAT YOU CAN CHANGE:
+    ✅ get_rl_config(): any numeric hyperparameter (LR, batch_size, epsilon schedule, etc.)
+    ✅ get_rl_config(): hidden_dims (string like "512,512,256,128" — at least 2 layers)
+    ✅ get_rl_config(): lookahead_k (integer 1-15)
+    ✅ compute_reward(): any Python logic using e2e_time, ttft, scheduling_delay
+       — must return a float; keep clamping to prevent policy poisoning
+
+    WHAT YOU MUST NOT CHANGE:
+    ❌ Function signatures of get_rl_config() and compute_reward()
+    ❌ The import structure or module interface
+
+    OPTIMIZATION GOAL:
+    Maximize (STICKY_LOR_e2e - RL_e2e) / STICKY_LOR_e2e
+    A positive score means RL beats the best heuristic baseline.
+    STICKY_LOR uses session affinity + least-outstanding-requests routing.
+
+    KNOWN INSIGHTS FROM PRIOR EXPERIMENTS:
+    - TTFT reward tends to outperform E2E reward in the tension zone (~1.5x improvement)
+    - Policy collapse is the main failure mode — prioritize stable training
+    - More training steps (lower update_frequency) may help convergence
+    - 1024-layer architectures outperform 512 in stable runs
+    - epsilon_decay_steps=1000 at update_frequency=100 gives ~25 iterations of exploration
+      before switching to exploitation (for a 2000-request run)

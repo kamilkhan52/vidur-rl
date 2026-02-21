@@ -3,6 +3,14 @@
 from vidur.entities import Request
 from vidur.types import RewardType
 
+_reward_plugin_fn = None
+
+
+def set_reward_plugin(fn):
+    """Set a custom reward function to override the default computation."""
+    global _reward_plugin_fn
+    _reward_plugin_fn = fn
+
 
 class RewardCalculator:
     """
@@ -42,6 +50,13 @@ class RewardCalculator:
         Returns:
             Reward (negative normalized latency)
         """
+        if _reward_plugin_fn is not None:
+            return _reward_plugin_fn(
+                e2e_time=request.e2e_time,
+                ttft=request.prefill_completed_at - request.arrived_at,
+                scheduling_delay=request.scheduling_delay,
+            )
+
         # Select latency metric based on reward type
         if self._reward_type == RewardType.TTFT:
             # Time to first token: prefill_completed_at - arrived_at

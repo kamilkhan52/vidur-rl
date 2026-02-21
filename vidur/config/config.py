@@ -770,6 +770,10 @@ class RLCacheAwareGlobalSchedulerConfig(BaseGlobalSchedulerConfig):
         default=5,
         metadata={"help": "Number of requests to look ahead in the queue for RL state extraction"},
     )
+    reward_plugin_path: str = field(
+        default="",
+        metadata={"help": "Path to Python module defining compute_reward(e2e_time, ttft, scheduling_delay) -> float"},
+    )
 
     @staticmethod
     def get_type():

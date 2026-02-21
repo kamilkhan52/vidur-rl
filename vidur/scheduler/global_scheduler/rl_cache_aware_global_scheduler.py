@@ -164,6 +164,17 @@ class RLCacheAwareGlobalScheduler(BaseGlobalScheduler):
         )
         print(f"[RL Scheduler] Reward type: {rl_config.reward_type}")
 
+        # Load reward plugin if specified (overrides reward_type)
+        if rl_config.reward_plugin_path:
+            import importlib.util
+            spec = importlib.util.spec_from_file_location("rl_formulation", rl_config.reward_plugin_path)
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            if hasattr(mod, "compute_reward"):
+                from vidur.scheduler.global_scheduler.reward_calculator import set_reward_plugin
+                set_reward_plugin(mod.compute_reward)
+                print(f"[RL Scheduler] Loaded reward plugin from: {rl_config.reward_plugin_path}")
+
         # Pending transitions (awaiting rewards)
         # Maps request.id -> {'state': state, 'action': replica_id}
         self._pending_transitions = {}
