@@ -22,12 +22,15 @@ def get_rl_config() -> Dict[str, Any]:
         "target_network_update_frequency": 1000,
         "replay_buffer_size": 10000,
         # Exploration schedule (epsilon-greedy)
+        # ~230 training steps per iteration (23k requests / 100 update_freq)
+        # ~1150 total steps across 5 iterations
+        # decay_steps=300 → epsilon near minimum by iteration 2
         "epsilon_start": 1.0,
         "epsilon_end": 0.05,
-        "epsilon_decay_steps": 1000,      # Steps to decay ~99% toward epsilon_end
+        "epsilon_decay_steps": 300,
         # State features
         "lookahead_k": 5,                 # Lookahead queue depth (1-15)
-        # Reward normalization (used only if compute_reward is not overriding)
+        # Reward normalization
         "reward_normalization_factor": 100.0,
     }
 

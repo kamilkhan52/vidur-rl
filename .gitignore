@@ -188,4 +188,3 @@ prefill_throughput_output
 results/
 rl_models/
 simulator_output/openevolve/evolution_output/
-openevolve/submit_alpine.sbatch

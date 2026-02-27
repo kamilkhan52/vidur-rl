@@ -2,10 +2,11 @@
 # Launch OpenEvolve on Alpine (login node, inside a tmux session).
 #
 # Run from the repo root on Alpine:
-#   export OPENAI_API_KEY="your-gemini-api-key"
 #   tmux new-session -d -s openevolve \
 #     "cd /projects/kamil@colostate.edu/vidur-rl && bash openevolve/run_alpine.sh --iterations 50"
 #   tmux attach -t openevolve
+#
+# API key is loaded from openevolve/.env
 #
 # Options:
 #   --iterations N      Number of evolution iterations (default: 50)
@@ -27,9 +28,16 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-if [ -z "$OPENAI_API_KEY" ]; then
-    echo "ERROR: OPENAI_API_KEY not set."
-    echo "  export OPENAI_API_KEY='your-gemini-api-key'"
+# Load API key from .env
+ENV_FILE="$REPO_ROOT/openevolve/.env"
+if [ -f "$ENV_FILE" ]; then
+    set -a
+    source "$ENV_FILE"
+    set +a
+fi
+
+if [ -z "$OPENROUTER_API_KEY" ]; then
+    echo "ERROR: OPENROUTER_API_KEY not set. Add it to openevolve/.env"
     exit 1
 fi
 
@@ -60,7 +68,7 @@ BASELINE_DST="$OUTPUT_DIR/baselines/sticky_lor_e2e.json"
 if [ -f "$BASELINE_SRC" ] && [ ! -f "$BASELINE_DST" ]; then
     mkdir -p "$(dirname "$BASELINE_DST")"
     cp "$BASELINE_SRC" "$BASELINE_DST"
-    echo "Copied baseline from repo: STICKY_LOR=$(python3 -c "import json; print(json.load(open('$BASELINE_DST'))['sticky_lor_e2e'])")"
+    echo "Copied baseline from repo"
 fi
 
 echo ""

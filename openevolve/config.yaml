@@ -1,70 +1,67 @@
 max_iterations: 100
 random_seed: 42
-diff_based_evolution: false   # full-program rewrites; Gemini 3 Flash doesn't reliably follow SEARCH/REPLACE
+diff_based_evolution: false   # full-program rewrites; Flash doesn't reliably follow SEARCH/REPLACE
 
 llm:
-  api_base: "https://generativelanguage.googleapis.com/v1beta/openai/"
-  api_key: "${OPENAI_API_KEY}"
-  name: "models/gemini-3-flash-preview"
+  api_base: "https://openrouter.ai/api/v1"
+  api_key: "${OPENROUTER_API_KEY}"
+  name: "google/gemini-3-flash-preview"
   temperature: 0.8
   models:
-    - name: "models/gemini-3-flash-preview"
-      api_base: "https://generativelanguage.googleapis.com/v1beta/openai/"
-      api_key: "${OPENAI_API_KEY}"
+    - name: "google/gemini-3-flash-preview"
+      api_base: "https://openrouter.ai/api/v1"
+      api_key: "${OPENROUTER_API_KEY}"
       temperature: 0.8
       weight: 1.0
 
 database:
-  population_size: 20   # small — evals are 2-5 min each
+  population_size: 20
   num_islands: 3
   migration_interval: 10
 
 evaluator:
   enable_artifacts: true
-  timeout: 600           # 10 min hard cap per eval
-  cascade_evaluation: false   # we don't implement evaluate_stage1
+  timeout: 64800         # 18 hours hard cap per eval (6 passes × 3h max each)
+  cascade_evaluation: false
 
 evolution_trace:
   enabled: true
   format: "jsonl"
-  include_code: true        # full program source per iteration
-  include_prompts: true     # LLM prompt + response (reasoning traces)
+  include_code: true
+  include_prompts: true
   output_path: "openevolve/evolution_output/traces/evolution_trace.jsonl"
-  buffer_size: 1            # flush after every trace (safe for live viewing)
+  buffer_size: 1
 
 prompt:
   system_message: |
-    You are an expert in deep reinforcement learning for LLM inference scheduling.
+    You are evolving a reinforcement learning formulation for an LLM request scheduler.
 
-    CONTEXT:
-    - The RL agent is a Double DQN that routes incoming LLM requests to one of 8 replicas.
-    - The state includes: per-request token counts, per-replica pending work (prefill/decode),
-      cache hit ratios, session affinity flags, lookahead queue features, and global load stats.
-    - Training is online: reward arrives when a request completes. No batched episodes.
-    - The primary failure mode is "policy poisoning": extreme latency spikes early in training
-      cause massive negative rewards, causing the policy to collapse (e.g., always route to
-      replica 0). The reward clamp (-10.0) was introduced to mitigate this.
+    SYSTEM DESCRIPTION:
+    - A Double DQN agent routes incoming LLM inference requests to one of 16 GPU replicas.
+    - Model: Llama-2-7b, 16 replicas, A100 GPUs, vLLM-style batched serving.
+    - Workload: Tool-agent trace (~23,000 requests) at Scale 1.5 (high load).
+    - State features: per-request token counts, per-replica pending work (prefill/decode
+      tokens), prefix cache hit ratios, session affinity flags, lookahead queue features,
+      and global load statistics.
+    - Training is online: reward is received when each request completes. No episodes.
+    - Each candidate is trained for 5 iterations over the full trace, with checkpoints
+      saved/loaded between iterations. A final inference pass (no exploration) determines
+      the score.
+    - The baseline is STICKY_LOR (session affinity + least-outstanding-requests).
+    - The latency distribution has a long tail — a few requests can have very high
+      latency due to KV cache pressure. Scoring uses median E2E (robust to outliers).
+      Mean, p95, p99 are also reported.
 
-    WHAT YOU CAN CHANGE:
-    ✅ get_rl_config(): any numeric hyperparameter (LR, batch_size, epsilon schedule, etc.)
-    ✅ get_rl_config(): hidden_dims (string like "512,512,256,128" — at least 2 layers)
-    ✅ get_rl_config(): lookahead_k (integer 1-15)
-    ✅ compute_reward(): any Python logic using e2e_time, ttft, scheduling_delay
-       — must return a float; keep clamping to prevent policy poisoning
+    WHAT YOU CONTROL:
+    - get_rl_config(): hyperparameters dict (architecture, learning rate, exploration
+      schedule, buffer sizes, lookahead depth, etc.)
+    - compute_reward(e2e_time, ttft, scheduling_delay): reward signal returned to the
+      DQN when a request completes. Arguments are in seconds.
 
-    WHAT YOU MUST NOT CHANGE:
-    ❌ Function signatures of get_rl_config() and compute_reward()
-    ❌ The import structure or module interface
+    CONSTRAINTS:
+    - Function signatures must not change.
+    - compute_reward must return a finite float.
 
-    OPTIMIZATION GOAL:
-    Maximize (STICKY_LOR_e2e - RL_e2e) / STICKY_LOR_e2e
-    A positive score means RL beats the best heuristic baseline.
-    STICKY_LOR uses session affinity + least-outstanding-requests routing.
-
-    KNOWN INSIGHTS FROM PRIOR EXPERIMENTS:
-    - TTFT reward tends to outperform E2E reward in the tension zone (~1.5x improvement)
-    - Policy collapse is the main failure mode — prioritize stable training
-    - More training steps (lower update_frequency) may help convergence
-    - 1024-layer architectures outperform 512 in stable runs
-    - epsilon_decay_steps=1000 at update_frequency=100 gives ~25 iterations of exploration
-      before switching to exploitation (for a 2000-request run)
+    SCORING:
+    score = (STICKY_LOR_median - RL_median) / STICKY_LOR_median
+    Positive = RL is faster than the heuristic baseline.

@@ -5,18 +5,25 @@ This module is called by OpenEvolve to evaluate a candidate RL formulation.
 It runs a Vidur simulation with the evolved RL config + reward function,
 compares against the precomputed STICKY_LOR baseline, and returns a score dict.
 
+Multi-iteration training: Runs NUM_TRAINING_ITERATIONS training iterations
+using the full toolagent trace (~23k requests), saving/loading checkpoints
+between iterations so the policy converges. After training, runs a final
+inference pass (no exploration) and scores based on that.
+
 Usage (standalone test):
     python openevolve/evaluator.py openevolve/initial_program.py
 
-Score:
-    combined_score = improvement = (baseline_e2e - rl_e2e) / baseline_e2e
+Score (based on median E2E, robust to tail latency outliers):
+    combined_score = (baseline_median - rl_median) / baseline_median
     Positive = RL beats STICKY_LOR, Negative = RL worse.
     Crashes/timeouts → score = -1.0
+    Artifacts include mean, p95, p99 for LLM to reason about tail behavior.
 """
 
 import csv
 import importlib.util
 import json
+import math
 import os
 import subprocess
 import sys
@@ -30,25 +37,29 @@ REPO_ROOT = Path(__file__).parent.parent
 # Use the venv Python if available (for correct dependency resolution)
 _VENV_PYTHON = REPO_ROOT / ".venv" / "bin" / "python3"
 VIDUR_PYTHON = str(_VENV_PYTHON) if _VENV_PYTHON.exists() else sys.executable
-TRACE_FILE = str(REPO_ROOT / "data/processed_traces/mooncake_synthetic_trace.csv")
+TRACE_FILE = str(REPO_ROOT / "data/processed_traces/mooncake_toolagent_trace.csv")
 BASELINE_FILE = Path(__file__).parent / "baselines" / "sticky_lor_e2e.json"
 
+# 7b-16R Tool Scale 1.5 — tension zone config, full trace (~23k requests)
 FIXED_ARGS = [
     "--replica_config_device", "a100",
     "--replica_config_model_name", "meta-llama/Llama-2-7b-hf",
     "--replica_config_tensor_parallel_size", "1",
-    "--cluster_config_num_replicas", "8",
+    "--cluster_config_num_replicas", "16",
     "--replica_scheduler_config_type", "vllm_v1",
     "--request_generator_config_type", "trace",
     "--trace_request_generator_config_trace_file", TRACE_FILE,
-    "--trace_request_generator_config_time_scale_factor", "6.0",
-    "--trace_request_generator_config_num_requests", "2000",
+    "--trace_request_generator_config_time_scale_factor", "1.5",
     "--cache_config_enable_prefix_caching",
     "--no-metrics_config_enable_chrome_trace",
     "--no-metrics_config_write_json_trace",
 ]
 
-TIMEOUT_SECONDS = 600
+# Multi-iteration training config
+NUM_TRAINING_ITERATIONS = int(os.environ.get("NUM_TRAINING_ITERATIONS", "5"))
+
+# Per-iteration timeout (full toolagent trace ~23k requests)
+TIMEOUT_PER_ITERATION = int(os.environ.get("TIMEOUT_PER_ITERATION", "10800"))
 
 
 def load_program(program_path: str):
@@ -66,16 +77,16 @@ def write_reward_plugin(compute_reward_fn, plugin_path: str):
     """
     import inspect
     src = inspect.getsource(compute_reward_fn)
-    # Strip leading indentation in case function was defined inside a class
     src = textwrap.dedent(src)
     Path(plugin_path).write_text(src)
 
 
-def build_rl_args(config: dict, plugin_path: str) -> list:
+def build_rl_args(config: dict, plugin_path: str, checkpoint_path: str = "",
+                  mode: str = "training") -> list:
     """Build CLI args for the RL cache-aware scheduler."""
-    return [
+    args = [
         "--global_scheduler_config_type", "rl_cache_aware",
-        "--r_l_cache_aware_global_scheduler_config_mode", "training",
+        "--r_l_cache_aware_global_scheduler_config_mode", mode,
         "--r_l_cache_aware_global_scheduler_config_reward_plugin_path", plugin_path,
         "--r_l_cache_aware_global_scheduler_config_hidden_dims",
             config.get("hidden_dims", "1024,1024,512"),
@@ -94,16 +105,36 @@ def build_rl_args(config: dict, plugin_path: str) -> list:
         "--r_l_cache_aware_global_scheduler_config_epsilon_end",
             str(config.get("epsilon_end", 0.05)),
         "--r_l_cache_aware_global_scheduler_config_epsilon_decay_steps",
-            str(config.get("epsilon_decay_steps", 1000)),
+            str(config.get("epsilon_decay_steps", 300)),
         "--r_l_cache_aware_global_scheduler_config_lookahead_k",
             str(config.get("lookahead_k", 5)),
         "--r_l_cache_aware_global_scheduler_config_reward_normalization_factor",
             str(config.get("reward_normalization_factor", 100.0)),
     ]
+    if checkpoint_path:
+        args += [
+            "--r_l_cache_aware_global_scheduler_config_model_checkpoint_path",
+            checkpoint_path,
+        ]
+    return args
 
 
-def parse_mean_e2e(output_dir: str):
-    """Parse request_metrics.csv from the vidur output directory. Returns float or None."""
+def _percentile(sorted_vals: list, p: float) -> float:
+    """Compute percentile from a pre-sorted list (0-100 scale)."""
+    k = (len(sorted_vals) - 1) * (p / 100.0)
+    f = math.floor(k)
+    c = math.ceil(k)
+    if f == c:
+        return sorted_vals[int(k)]
+    return sorted_vals[f] * (c - k) + sorted_vals[c] * (k - f)
+
+
+def parse_e2e_stats(output_dir: str) -> dict | None:
+    """Parse request_metrics.csv and return latency distribution stats.
+
+    Returns dict with: median, mean, p95, p99, min, max, n_requests.
+    Returns None if no data found.
+    """
     base = Path(output_dir)
     csv_files = list(base.rglob("request_metrics.csv"))
     if not csv_files:
@@ -122,11 +153,24 @@ def parse_mean_e2e(output_dir: str):
     if not e2e_times:
         return None
 
-    return sum(e2e_times) / len(e2e_times)
+    e2e_times.sort()
+    n = len(e2e_times)
+    return {
+        "median": _percentile(e2e_times, 50),
+        "mean": sum(e2e_times) / n,
+        "p95": _percentile(e2e_times, 95),
+        "p99": _percentile(e2e_times, 99),
+        "min": e2e_times[0],
+        "max": e2e_times[-1],
+        "n_requests": n,
+    }
 
 
-def run_simulation(extra_args: list, output_dir: str):
-    """Run vidur.main, return (mean_e2e or None, stderr_tail str)."""
+def run_simulation(extra_args: list, output_dir: str, timeout: int = 2400):
+    """Run vidur.main, return (stats_dict or None, stderr_tail str).
+
+    stats_dict contains: median, mean, p95, p99, min, max, n_requests.
+    """
     cmd = [VIDUR_PYTHON, "-m", "vidur.main"] + FIXED_ARGS + extra_args + [
         "--metrics_config_output_dir", output_dir,
     ]
@@ -135,16 +179,16 @@ def run_simulation(extra_args: list, output_dir: str):
             cmd,
             capture_output=True,
             text=True,
-            timeout=TIMEOUT_SECONDS,
+            timeout=timeout,
             cwd=str(REPO_ROOT),
         )
         stderr_tail = result.stderr[-3000:] if result.stderr else ""
         if result.returncode != 0:
             return None, f"EXIT {result.returncode}\n{stderr_tail}"
-        mean_e2e = parse_mean_e2e(output_dir)
-        return mean_e2e, stderr_tail
+        stats = parse_e2e_stats(output_dir)
+        return stats, stderr_tail
     except subprocess.TimeoutExpired:
-        return None, f"TIMEOUT after {TIMEOUT_SECONDS}s"
+        return None, f"TIMEOUT after {timeout}s"
     except Exception as e:
         return None, str(e)
 
@@ -153,13 +197,19 @@ def evaluate(program_path: str) -> dict:
     """
     Main evaluation function called by OpenEvolve.
 
+    Training phase: Runs NUM_TRAINING_ITERATIONS iterations using the full trace,
+    saving/loading checkpoints between iterations. Epsilon state persists across
+    iterations via checkpoint, so exploration decays naturally over the full run.
+
+    Evaluation phase: After training, runs one final inference pass (mode=inference,
+    epsilon-greedy disabled) using the trained checkpoint. Score is based on this
+    evaluation E2E only.
+
     Args:
-        program_path: Path to the evolved Python file (written by OpenEvolve to a temp file)
+        program_path: Path to the evolved Python file
 
     Returns:
-        Dict with:
-          - combined_score: primary optimisation target (improvement over STICKY_LOR)
-          - rl_e2e, baseline_e2e, improvement_pct: for LLM feedback artifacts
+        Dict with combined_score, training/eval E2E, per-iteration details.
     """
     # Load baseline
     if not BASELINE_FILE.exists():
@@ -168,7 +218,7 @@ def evaluate(program_path: str) -> dict:
             "Run: python openevolve/precompute_baseline.py"
         )
     baseline_data = json.loads(BASELINE_FILE.read_text())
-    baseline_e2e = baseline_data["sticky_lor_e2e"]
+    baseline_median = baseline_data["sticky_lor_median"]
 
     # Load evolved program
     try:
@@ -178,39 +228,111 @@ def evaluate(program_path: str) -> dict:
     except Exception as e:
         return {
             "combined_score": -1.0,
-            "rl_e2e": -1.0,
-            "baseline_e2e": baseline_e2e,
+            "rl_median": -1.0,
+            "baseline_median": baseline_median,
             "improvement_pct": -100.0,
             "error": str(e),
         }
 
-    with tempfile.TemporaryDirectory() as plugin_dir, \
-         tempfile.TemporaryDirectory() as output_dir:
+    num_iters = NUM_TRAINING_ITERATIONS
+    per_iteration_stats = []
+    last_stderr = ""
 
-        plugin_path = os.path.join(plugin_dir, "reward_plugin.py")
+    with tempfile.TemporaryDirectory() as work_dir:
+        plugin_path = os.path.join(work_dir, "reward_plugin.py")
         write_reward_plugin(compute_reward_fn, plugin_path)
+        checkpoint_path = os.path.join(work_dir, "model.pt")
 
-        rl_args = build_rl_args(rl_config, plugin_path)
-        rl_e2e, stderr = run_simulation(rl_args, output_dir)
+        # === Training phase ===
+        for iteration in range(num_iters):
+            output_dir = os.path.join(work_dir, f"output_iter{iteration}")
+            os.makedirs(output_dir, exist_ok=True)
 
-    if rl_e2e is None:
-        return {
-            "combined_score": -1.0,
-            "rl_e2e": -1.0,
-            "baseline_e2e": baseline_e2e,
-            "improvement_pct": -100.0,
-            "stderr": stderr[-500:] if stderr else "",
-        }
+            # First iteration: no checkpoint to load (fresh policy)
+            # Subsequent iterations: load from previous checkpoint
+            ckpt = checkpoint_path if iteration > 0 and os.path.exists(checkpoint_path) else ""
+            rl_args = build_rl_args(rl_config, plugin_path, checkpoint_path=ckpt,
+                                    mode="training")
 
-    improvement = (baseline_e2e - rl_e2e) / baseline_e2e
+            # Always set checkpoint path for saving (even iter 0)
+            if not ckpt:
+                rl_args += [
+                    "--r_l_cache_aware_global_scheduler_config_model_checkpoint_path",
+                    checkpoint_path,
+                ]
+
+            stats, stderr = run_simulation(
+                rl_args, output_dir, timeout=TIMEOUT_PER_ITERATION
+            )
+            last_stderr = stderr
+
+            if stats is None:
+                # If training iteration fails, abort
+                if per_iteration_stats:
+                    print(f"  [Eval] Training iter {iteration+1} failed, proceeding to eval with {len(per_iteration_stats)} iters", flush=True)
+                    break
+                else:
+                    return {
+                        "combined_score": -1.0,
+                        "rl_median": -1.0,
+                        "baseline_median": baseline_median,
+                        "improvement_pct": -100.0,
+                        "per_iteration_stats": [],
+                        "num_iterations_completed": 0,
+                        "stderr": stderr[-500:] if stderr else "",
+                    }
+
+            per_iteration_stats.append(stats)
+            print(f"  [Eval] Training iter {iteration+1}/{num_iters}: "
+                  f"median={stats['median']:.2f}s  mean={stats['mean']:.2f}s  "
+                  f"p95={stats['p95']:.2f}s  p99={stats['p99']:.2f}s", flush=True)
+
+        # === Evaluation phase (inference mode, no exploration) ===
+        eval_stats = None
+        if os.path.exists(checkpoint_path):
+            eval_output_dir = os.path.join(work_dir, "output_eval")
+            os.makedirs(eval_output_dir, exist_ok=True)
+
+            eval_args = build_rl_args(rl_config, plugin_path,
+                                      checkpoint_path=checkpoint_path,
+                                      mode="inference")
+
+            print(f"  [Eval] Running inference evaluation (no exploration)...", flush=True)
+            eval_stats, eval_stderr = run_simulation(
+                eval_args, eval_output_dir, timeout=TIMEOUT_PER_ITERATION
+            )
+            if eval_stats is not None:
+                print(f"  [Eval] Inference: median={eval_stats['median']:.2f}s  "
+                      f"mean={eval_stats['mean']:.2f}s  p95={eval_stats['p95']:.2f}s  "
+                      f"p99={eval_stats['p99']:.2f}s", flush=True)
+            else:
+                print(f"  [Eval] Inference run failed, falling back to last training stats", flush=True)
+                last_stderr = eval_stderr
+
+    # Score based on median improvement from evaluation pass (or last training as fallback)
+    final_stats = eval_stats if eval_stats is not None else per_iteration_stats[-1]
+    final_median = final_stats["median"]
+    improvement = (baseline_median - final_median) / baseline_median
     score = max(-1.0, improvement)
+
+    # Build per-iteration summary (medians only, for compactness)
+    iter_medians = [s["median"] for s in per_iteration_stats]
 
     return {
         "combined_score": score,
-        "rl_e2e": rl_e2e,
-        "baseline_e2e": baseline_e2e,
+        "rl_median": final_median,
+        "rl_mean": final_stats["mean"],
+        "rl_p95": final_stats["p95"],
+        "rl_p99": final_stats["p99"],
+        "baseline_median": baseline_median,
         "improvement_pct": improvement * 100,
-        "stderr": stderr[-500:] if stderr else "",
+        "per_iteration_medians": iter_medians,
+        "eval_median": eval_stats["median"] if eval_stats else None,
+        "eval_mean": eval_stats["mean"] if eval_stats else None,
+        "eval_p95": eval_stats["p95"] if eval_stats else None,
+        "eval_p99": eval_stats["p99"] if eval_stats else None,
+        "num_iterations_completed": len(per_iteration_stats),
+        "stderr": last_stderr[-500:] if last_stderr else "",
     }
 
 
@@ -221,5 +343,7 @@ if __name__ == "__main__":
 
     program_path = sys.argv[1]
     print(f"Evaluating: {program_path}")
+    print(f"Config: 7b-16R Tool Scale 1.5, full trace (~23k req), "
+          f"{NUM_TRAINING_ITERATIONS} training iters + 1 eval")
     result = evaluate(program_path)
     print(json.dumps(result, indent=2))

@@ -2,8 +2,9 @@
 # Launch OpenEvolve RL formulation search (local / WSL).
 #
 # Usage:
-#   export OPENAI_API_KEY="your-gemini-api-key"
 #   bash openevolve/run.sh [--iterations N]
+#
+# API key is loaded from openevolve/.env
 
 set -e
 
@@ -18,8 +19,16 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-if [ -z "$OPENAI_API_KEY" ]; then
-    echo "ERROR: OPENAI_API_KEY not set."
+# Load API key from .env
+ENV_FILE="$REPO_ROOT/openevolve/.env"
+if [ -f "$ENV_FILE" ]; then
+    set -a
+    source "$ENV_FILE"
+    set +a
+fi
+
+if [ -z "$OPENROUTER_API_KEY" ]; then
+    echo "ERROR: OPENROUTER_API_KEY not set. Add it to openevolve/.env"
     exit 1
 fi
 
