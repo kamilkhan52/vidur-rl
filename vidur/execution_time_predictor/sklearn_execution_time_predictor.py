@@ -897,9 +897,22 @@ class SklearnExecutionTimePredictor(BaseExecutionTimePredictor):
         if batch.decode_batch_size == 0:
             return 0
 
-        return self._predictions["attn_decode"][
-            (batch.decode_batch_size, batch.decode_avg_kv_cache_size)
-        ] * (
+        key = (batch.decode_batch_size, batch.decode_avg_kv_cache_size)
+        predictions = self._predictions["attn_decode"]
+        if key not in predictions:
+            # Clamp to max available keys
+            if not hasattr(self, "_attn_decode_max_keys"):
+                self._attn_decode_max_batch = max(k[0] for k in predictions.keys())
+                self._attn_decode_max_kv = max(k[1] for k in predictions.keys())
+            clamped_key = (
+                min(batch.decode_batch_size, self._attn_decode_max_batch),
+                min(batch.decode_avg_kv_cache_size, self._attn_decode_max_kv),
+            )
+            if clamped_key in predictions:
+                key = clamped_key
+            # else: let it raise KeyError as before for truly unexpected shapes
+
+        return predictions[key] * (
             1
             + self._attention_decode_batching_overhead_fraction
             * int(batch.decode_batch_size > 1)
@@ -911,9 +924,20 @@ class SklearnExecutionTimePredictor(BaseExecutionTimePredictor):
         if batch.prefill_batch_size == 0:
             return 0
 
-        return self._predictions["attn_prefill"][
-            (batch.prefill_agg_kv_cache_size, batch.prefill_agg_chunk_size)
-        ] * (
+        key = (batch.prefill_agg_kv_cache_size, batch.prefill_agg_chunk_size)
+        predictions = self._predictions["attn_prefill"]
+        if key not in predictions:
+            # Clamp KV cache size to max in prediction table (monotonically increasing)
+            if not hasattr(self, "_attn_prefill_max_kv"):
+                self._attn_prefill_max_kv = max(k[0] for k in predictions.keys())
+            clamped_key = (self._attn_prefill_max_kv, batch.prefill_agg_chunk_size)
+            if clamped_key not in predictions:
+                # Also clamp chunk size
+                max_chunk = max(k[1] for k in predictions.keys() if k[0] == self._attn_prefill_max_kv)
+                clamped_key = (self._attn_prefill_max_kv, min(batch.prefill_agg_chunk_size, max_chunk))
+            key = clamped_key
+
+        return predictions[key] * (
             1
             + self._attention_prefill_batching_overhead_fraction
             * int(batch.prefill_batch_size > 1)
