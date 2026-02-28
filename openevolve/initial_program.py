@@ -16,18 +16,18 @@ def get_rl_config() -> Dict[str, Any]:
         # Q-network architecture (comma-separated hidden dims, at least 2 layers)
         "hidden_dims": "1024,1024,512",
         # Training hyperparameters
-        "learning_rate": 0.0003,
+        "learning_rate": 0.0001,
         "batch_size": 64,
         "update_frequency": 100,          # Train every N completed requests
         "target_network_update_frequency": 1000,
-        "replay_buffer_size": 10000,
+        "replay_buffer_size": 50000,
         # Exploration schedule (epsilon-greedy)
         # ~230 training steps per iteration (23k requests / 100 update_freq)
         # ~1150 total steps across 5 iterations
-        # decay_steps=300 → epsilon near minimum by iteration 2
+        # decay_steps=500 → exploration through iter 2, exploitation by iter 3
         "epsilon_start": 1.0,
         "epsilon_end": 0.05,
-        "epsilon_decay_steps": 300,
+        "epsilon_decay_steps": 500,
         # State features
         "lookahead_k": 5,                 # Lookahead queue depth (1-15)
         # Reward normalization
@@ -45,8 +45,12 @@ def compute_reward(e2e_time: float, ttft: float, scheduling_delay: float) -> flo
         scheduling_delay: Time spent waiting in the scheduler queue
 
     Returns:
-        Reward signal (float). Negative = penalize bad outcomes.
-        Must be clamped to prevent policy poisoning from extreme latency spikes.
+        Reward signal (float). Bounded to [-1, 1] range to prevent policy poisoning.
     """
-    reward = -ttft / 100.0
-    return max(-10.0, reward)
+    # Bounded reward: good requests (ttft < 5s) get positive reward,
+    # bad requests get negative, saturating at -1 for ttft > 30s.
+    # This keeps the reward scale tight and prevents extreme outliers
+    # from dominating the replay buffer.
+    target_ttft = 5.0
+    reward = 1.0 - (ttft / target_ttft)
+    return max(-1.0, min(1.0, reward))
