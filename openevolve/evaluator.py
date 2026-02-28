@@ -56,7 +56,7 @@ FIXED_ARGS = [
 ]
 
 # Multi-iteration training config
-NUM_TRAINING_ITERATIONS = int(os.environ.get("NUM_TRAINING_ITERATIONS", "5"))
+NUM_TRAINING_ITERATIONS = int(os.environ.get("NUM_TRAINING_ITERATIONS", "8"))
 
 # Per-iteration timeout (full toolagent trace ~23k requests)
 TIMEOUT_PER_ITERATION = int(os.environ.get("TIMEOUT_PER_ITERATION", "10800"))

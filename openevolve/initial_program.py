@@ -23,8 +23,8 @@ def get_rl_config() -> Dict[str, Any]:
         "replay_buffer_size": 50000,
         # Exploration schedule (epsilon-greedy)
         # ~230 training steps per iteration (23k requests / 100 update_freq)
-        # ~1150 total steps across 5 iterations
-        # decay_steps=500 → exploration through iter 2, exploitation by iter 3
+        # ~1840 total steps across 8 iterations
+        # decay_steps=500 → exploration through iter 2, exploitation iters 3-8
         "epsilon_start": 1.0,
         "epsilon_end": 0.05,
         "epsilon_decay_steps": 500,

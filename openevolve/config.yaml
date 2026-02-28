@@ -21,7 +21,7 @@ database:
 
 evaluator:
   enable_artifacts: true
-  timeout: 64800         # 18 hours hard cap per eval (6 passes × 3h max each)
+  timeout: 86400         # 24 hours hard cap per eval (8 iters × 3h max each)
   cascade_evaluation: false
 
 evolution_trace:
@@ -44,7 +44,7 @@ prompt:
       tokens), prefix cache hit ratios, session affinity flags, lookahead queue features,
       and global load statistics.
     - Training is online: reward is received when each request completes. No episodes.
-    - Each candidate is trained for 5 iterations over the full trace, with checkpoints
+    - Each candidate is trained for 8 iterations over the full trace, with checkpoints
       saved/loaded between iterations. The best iteration's median E2E determines
       the score.
     - The baseline is STICKY_LOR (session affinity + least-outstanding-requests).
