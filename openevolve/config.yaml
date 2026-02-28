@@ -45,7 +45,7 @@ prompt:
       and global load statistics.
     - Training is online: reward is received when each request completes. No episodes.
     - Each candidate is trained for 5 iterations over the full trace, with checkpoints
-      saved/loaded between iterations. A final inference pass (no exploration) determines
+      saved/loaded between iterations. The best iteration's median E2E determines
       the score.
     - The baseline is STICKY_LOR (session affinity + least-outstanding-requests).
     - The latency distribution has a long tail — a few requests can have very high

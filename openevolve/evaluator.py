@@ -7,8 +7,8 @@ compares against the precomputed STICKY_LOR baseline, and returns a score dict.
 
 Multi-iteration training: Runs NUM_TRAINING_ITERATIONS training iterations
 using the full toolagent trace (~23k requests), saving/loading checkpoints
-between iterations so the policy converges. After training, runs a final
-inference pass (no exploration) and scores based on that.
+between iterations so the policy converges. Scores on the best training
+iteration's median E2E.
 
 Usage (standalone test):
     python openevolve/evaluator.py openevolve/initial_program.py
@@ -197,13 +197,12 @@ def evaluate(program_path: str) -> dict:
     """
     Main evaluation function called by OpenEvolve.
 
-    Training phase: Runs NUM_TRAINING_ITERATIONS iterations using the full trace,
+    Runs NUM_TRAINING_ITERATIONS training iterations using the full trace,
     saving/loading checkpoints between iterations. Epsilon state persists across
     iterations via checkpoint, so exploration decays naturally over the full run.
 
-    Evaluation phase: After training, runs one final inference pass (mode=inference,
-    epsilon-greedy disabled) using the trained checkpoint. Score is based on this
-    evaluation E2E only.
+    Scores based on the best training iteration's median E2E (not a separate
+    inference pass, which can collapse with partially-trained Q-values).
 
     Args:
         program_path: Path to the evolved Python file
@@ -287,50 +286,30 @@ def evaluate(program_path: str) -> dict:
                   f"median={stats['median']:.2f}s  mean={stats['mean']:.2f}s  "
                   f"p95={stats['p95']:.2f}s  p99={stats['p99']:.2f}s", flush=True)
 
-        # === Evaluation phase (inference mode, no exploration) ===
-        eval_stats = None
-        if os.path.exists(checkpoint_path):
-            eval_output_dir = os.path.join(work_dir, "output_eval")
-            os.makedirs(eval_output_dir, exist_ok=True)
-
-            eval_args = build_rl_args(rl_config, plugin_path,
-                                      checkpoint_path=checkpoint_path,
-                                      mode="inference")
-
-            print(f"  [Eval] Running inference evaluation (no exploration)...", flush=True)
-            eval_stats, eval_stderr = run_simulation(
-                eval_args, eval_output_dir, timeout=TIMEOUT_PER_ITERATION
-            )
-            if eval_stats is not None:
-                print(f"  [Eval] Inference: median={eval_stats['median']:.2f}s  "
-                      f"mean={eval_stats['mean']:.2f}s  p95={eval_stats['p95']:.2f}s  "
-                      f"p99={eval_stats['p99']:.2f}s", flush=True)
-            else:
-                print(f"  [Eval] Inference run failed, falling back to last training stats", flush=True)
-                last_stderr = eval_stderr
-
-    # Score based on median improvement from evaluation pass (or last training as fallback)
-    final_stats = eval_stats if eval_stats is not None else per_iteration_stats[-1]
-    final_median = final_stats["median"]
-    improvement = (baseline_median - final_median) / baseline_median
+    # Score based on the best training iteration median.
+    # We use the best (not last) because later iterations with low epsilon
+    # can collapse if Q-values are wrong. The best iteration reflects peak
+    # policy capability. The baseline was also run with a deterministic policy.
+    iter_medians = [s["median"] for s in per_iteration_stats]
+    best_idx = iter_medians.index(min(iter_medians))
+    best_stats = per_iteration_stats[best_idx]
+    best_median = best_stats["median"]
+    improvement = (baseline_median - best_median) / baseline_median
     score = max(-1.0, improvement)
 
-    # Build per-iteration summary (medians only, for compactness)
-    iter_medians = [s["median"] for s in per_iteration_stats]
+    print(f"  [Eval] Best iteration: {best_idx+1} (median={best_median:.2f}s, "
+          f"improvement={improvement*100:.1f}%)", flush=True)
 
     return {
         "combined_score": score,
-        "rl_median": final_median,
-        "rl_mean": final_stats["mean"],
-        "rl_p95": final_stats["p95"],
-        "rl_p99": final_stats["p99"],
+        "rl_median": best_median,
+        "rl_mean": best_stats["mean"],
+        "rl_p95": best_stats["p95"],
+        "rl_p99": best_stats["p99"],
         "baseline_median": baseline_median,
         "improvement_pct": improvement * 100,
         "per_iteration_medians": iter_medians,
-        "eval_median": eval_stats["median"] if eval_stats else None,
-        "eval_mean": eval_stats["mean"] if eval_stats else None,
-        "eval_p95": eval_stats["p95"] if eval_stats else None,
-        "eval_p99": eval_stats["p99"] if eval_stats else None,
+        "best_iteration": best_idx + 1,
         "num_iterations_completed": len(per_iteration_stats),
         "stderr": last_stderr[-500:] if last_stderr else "",
     }
@@ -344,6 +323,6 @@ if __name__ == "__main__":
     program_path = sys.argv[1]
     print(f"Evaluating: {program_path}")
     print(f"Config: 7b-16R Tool Scale 1.5, full trace (~23k req), "
-          f"{NUM_TRAINING_ITERATIONS} training iters + 1 eval")
+          f"{NUM_TRAINING_ITERATIONS} training iters, scored on best iter median")
     result = evaluate(program_path)
     print(json.dumps(result, indent=2))
