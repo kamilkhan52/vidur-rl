@@ -119,12 +119,8 @@ class RLAgent:
         """
         Update Q-network using Double DQN.
 
-        Double DQN update rule:
-        - Action selection: a* = argmax_a' Q(s', a'; θ)
-        - Value estimation: y = r + γ * Q(s', a*; θ^-)
-
         Args:
-            batch: Dictionary with 'states', 'actions', 'rewards' tensors
+            batch: Dictionary with 'states', 'actions', 'rewards', 'next_states', 'dones' tensors
             gamma: Discount factor
 
         Returns:
@@ -133,14 +129,16 @@ class RLAgent:
         states = batch["states"]  # [batch_size, state_dim]
         actions = batch["actions"]  # [batch_size]
         rewards = batch["rewards"]  # [batch_size]
+        next_states = batch["next_states"]  # [batch_size, state_dim]
+        dones = batch["dones"]  # [batch_size]
 
         # Current Q-values: Q(s, a; θ)
         current_q = self._q_network(states).gather(1, actions.unsqueeze(1)).squeeze(1)
 
-        # Target Q-values for terminal transitions (no next state)
-        # Since each routing decision is terminal in our formulation,
-        # the target is just the reward
-        target_q = rewards
+        with torch.no_grad():
+            next_actions = self._q_network(next_states).argmax(dim=1, keepdim=True)
+            next_q_target = self._target_network(next_states).gather(1, next_actions).squeeze(1)
+            target_q = rewards + gamma * (1.0 - dones) * next_q_target
 
         # Compute loss (MSE)
         loss = F.mse_loss(current_q, target_q)

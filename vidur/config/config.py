@@ -724,7 +724,7 @@ class RLCacheAwareGlobalSchedulerConfig(BaseGlobalSchedulerConfig):
     )
     epsilon_decay_steps: int = field(
         default=500,
-        metadata={"help": "Training steps for epsilon to decay ~99%% toward epsilon_end (exponential decay)"},
+        metadata={"help": "Requests for epsilon to decay ~99%% toward epsilon_end (exponential decay)"},
     )
     reset_epsilon_on_load: bool = field(
         default=False,
@@ -764,7 +764,7 @@ class RLCacheAwareGlobalSchedulerConfig(BaseGlobalSchedulerConfig):
     )
     transition_log_path: str = field(
         default="",
-        metadata={"help": "Path to CSV file for logging (state, action, reward) transitions. Empty to disable."},
+        metadata={"help": "Path to CSV file for logging (state, action, reward, next_state, done) transitions. Empty to disable."},
     )
     lookahead_k: int = field(
         default=5,

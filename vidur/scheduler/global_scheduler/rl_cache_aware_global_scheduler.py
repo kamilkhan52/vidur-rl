@@ -120,6 +120,7 @@ class RLCacheAwareGlobalScheduler(BaseGlobalScheduler):
         # Initialize epsilon parameters BEFORE loading checkpoint (so we have defaults)
         if self._mode == "training":
             self._num_training_steps = 0
+            self._num_requests_seen = 0
             self._epsilon_start = rl_config.epsilon_start
             self._epsilon_end = rl_config.epsilon_end
             self._epsilon_decay_steps = rl_config.epsilon_decay_steps
@@ -145,11 +146,15 @@ class RLCacheAwareGlobalScheduler(BaseGlobalScheduler):
 
                             epsilon_state = torch.load(epsilon_path, map_location='cpu')
                             self._num_training_steps = epsilon_state.get('num_training_steps', 0)
+                            self._num_requests_seen = epsilon_state.get(
+                                'num_requests_seen',
+                                self._num_training_steps,
+                            )
                             self._epsilon_start = epsilon_state.get('epsilon_start', self._epsilon_start)
                             self._epsilon_end = epsilon_state.get('epsilon_end', self._epsilon_end)
                             self._epsilon_decay_steps = epsilon_state.get('epsilon_decay_steps', self._epsilon_decay_steps)
                             current_epsilon = self._get_epsilon()
-                            print(f"[RL Scheduler] Restored epsilon state: step {self._num_training_steps}, epsilon {current_epsilon:.4f}")
+                            print(f"[RL Scheduler] Restored epsilon state: requests {self._num_requests_seen}, updates {self._num_training_steps}, epsilon {current_epsilon:.4f}")
                         else:
                             print(f"[RL Scheduler] No epsilon state found, starting epsilon decay from beginning")
             else:
@@ -198,7 +203,6 @@ class RLCacheAwareGlobalScheduler(BaseGlobalScheduler):
 
             # Training metrics
             self._training_losses = []
-            self._num_requests_seen = 0
             # Note: _num_training_steps and epsilon params initialized earlier (before loading checkpoint)
 
             # Checkpoint saving
@@ -229,11 +233,11 @@ class RLCacheAwareGlobalScheduler(BaseGlobalScheduler):
         if self._mode != "training":
             return 0.0  # No exploration during inference
 
-        # Exponential decay: reaches ~1% of (start - end) at epsilon_decay_steps
+        # Exponential decay: reaches ~1% of (start - end) at epsilon_decay_steps requests
         # decay_constant = -ln(0.01) / decay_steps ≈ 4.605 / decay_steps
         decay_constant = 4.605 / self._epsilon_decay_steps
         epsilon = self._epsilon_end + (self._epsilon_start - self._epsilon_end) * math.exp(
-            -decay_constant * self._num_training_steps
+            -decay_constant * self._num_requests_seen
         )
         return epsilon
 
@@ -320,12 +324,26 @@ class RLCacheAwareGlobalScheduler(BaseGlobalScheduler):
         if len(self._recent_rewards) > 100:
             self._recent_rewards.pop(0)
 
+        # Update shadow state before constructing the next decision state.
+        self._state_tracker.on_request_completed(request)
+
         # Add to replay buffer and train (if in training mode)
         if self._mode == "training":
+            if self._request_queue:
+                next_request = self._request_queue[0]
+                next_queue = self._request_queue[1:]
+                next_state = self._state_tracker.extract_state(next_request, next_queue)
+                done = False
+            else:
+                next_state = transition['state'] * 0.0
+                done = True
+
             self._replay_buffer.add(
                 state=transition['state'],
                 action=transition['action'],
                 reward=reward,
+                next_state=next_state,
+                done=done,
             )
 
             # Debug: Log first time we get enough samples
@@ -352,9 +370,6 @@ class RLCacheAwareGlobalScheduler(BaseGlobalScheduler):
             ):
                 self._save_checkpoint()
                 self._last_checkpoint_request = self._num_requests_seen
-
-        # Update shadow state
-        self._state_tracker.on_request_completed(request)
 
     def _train_step(self):
         """
@@ -416,6 +431,7 @@ class RLCacheAwareGlobalScheduler(BaseGlobalScheduler):
         # Save epsilon state separately (so it persists across restarts)
         epsilon_state = {
             'num_training_steps': self._num_training_steps,
+            'num_requests_seen': self._num_requests_seen,
             'epsilon_start': self._epsilon_start,
             'epsilon_end': self._epsilon_end,
             'epsilon_decay_steps': self._epsilon_decay_steps,

@@ -13,7 +13,7 @@ class ReplayBuffer:
     """
     Experience replay buffer for storing and sampling transitions.
 
-    Stores (state, action, reward) tuples for training the RL agent.
+    Stores (state, action, reward, next_state, done) tuples for training the RL agent.
     Uses circular buffer with fixed capacity.
 
     Optionally logs all transitions to a CSV file for analysis.
@@ -65,19 +65,32 @@ class ReplayBuffer:
         else:
             # Generic feature names if not provided
             headers.append("state_vector")
-        headers.extend(["action", "reward"])
+            if self._feature_names:
+                headers.extend([f"next_{name}" for name in self._feature_names])
+            else:
+                headers.append("next_state_vector")
+            headers.extend(["action", "reward", "done"])
 
         self._csv_writer.writerow(headers)
         print(f"[ReplayBuffer] Logging transitions to: {self._log_file_path}")
 
-    def add(self, state: np.ndarray, action: int, reward: float) -> None:
+    def add(
+        self,
+        state: np.ndarray,
+        action: int,
+        reward: float,
+        next_state: np.ndarray,
+        done: bool,
+    ) -> None:
         """
         Add a transition to the buffer.
 
         Args:
             state: State representation (numpy array)
             action: Action taken (replica ID)
-            reward: Reward received (negative latency)
+            reward: Reward received
+            next_state: State after environment transition
+            done: Whether the transition terminates the episode/decision chain
         """
         if len(self._buffer) < self._capacity:
             self._buffer.append(None)
@@ -86,17 +99,24 @@ class ReplayBuffer:
             "state": state,
             "action": action,
             "reward": reward,
+            "next_state": next_state,
+            "done": done,
         }
         self._position = (self._position + 1) % self._capacity
 
         # Log to CSV if enabled
         if self._csv_writer:
-            self._log_transition(state, action, reward)
+            self._log_transition(state, action, reward, next_state, done)
 
         self._transition_count += 1
 
     def _log_transition(
-        self, state: np.ndarray, action: int, reward: float
+        self,
+        state: np.ndarray,
+        action: int,
+        reward: float,
+        next_state: np.ndarray,
+        done: bool,
     ) -> None:
         """Write a transition to the CSV log file."""
         row = [self._transition_count, time.time()]
@@ -108,7 +128,12 @@ class ReplayBuffer:
             # Single column with stringified state
             row.append(state.tolist())
 
-        row.extend([action, reward])
+        if self._feature_names:
+            row.extend(next_state.tolist())
+        else:
+            row.append(next_state.tolist())
+
+        row.extend([action, reward, int(done)])
         self._csv_writer.writerow(row)
 
     def sample(self, batch_size: int) -> Dict[str, torch.Tensor]:
@@ -119,7 +144,7 @@ class ReplayBuffer:
             batch_size: Number of transitions to sample
 
         Returns:
-            Dictionary with 'states', 'actions', 'rewards' tensors
+            Dictionary with 'states', 'actions', 'rewards', 'next_states', 'dones' tensors
         """
         if len(self._buffer) < batch_size:
             raise ValueError(
@@ -134,11 +159,15 @@ class ReplayBuffer:
         states = np.array([t["state"] for t in batch])
         actions = np.array([t["action"] for t in batch])
         rewards = np.array([t["reward"] for t in batch])
+        next_states = np.array([t["next_state"] for t in batch])
+        dones = np.array([t["done"] for t in batch], dtype=np.float32)
 
         return {
             "states": torch.from_numpy(states).float(),
             "actions": torch.from_numpy(actions).long(),
             "rewards": torch.from_numpy(rewards).float(),
+            "next_states": torch.from_numpy(next_states).float(),
+            "dones": torch.from_numpy(dones).float(),
         }
 
     def __len__(self) -> int:
