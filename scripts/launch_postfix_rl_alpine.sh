@@ -11,7 +11,14 @@ if [[ ! -f "$CONFIG_FILE" ]]; then
     exit 1
 fi
 
-TASK_COUNT=$(tail -n +2 "$CONFIG_FILE" | sed '/^\s*$/d' | wc -l)
+TASK_COUNT=$(python3 - <<PY
+import csv
+
+with open("$CONFIG_FILE", newline="") as f:
+    reader = csv.DictReader(f)
+    print(sum(1 for row in reader if any(str(v).strip() for v in row.values())))
+PY
+)
 if [[ "$TASK_COUNT" -le 0 ]]; then
     echo "Error: No experiment rows found in $CONFIG_FILE"
     exit 1
