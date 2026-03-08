@@ -103,19 +103,36 @@ class RLAgent:
         Returns:
             Action (replica ID as integer index)
         """
-        with torch.no_grad():
-            # Convert state to tensor
-            state_tensor = torch.FloatTensor(state).unsqueeze(0)  # [1, state_dim]
-
-            # Forward pass
-            q_values = self._q_network(state_tensor)  # [1, num_actions]
-
-            # Select action with highest Q-value
-            action = q_values.argmax(dim=1).item()
-
+        action, _ = self.select_action_with_diagnostics(state)
         return action
 
-    def update(self, batch: Dict[str, torch.Tensor], gamma: float = 0.99) -> float:
+    def select_action_with_diagnostics(self, state: np.ndarray) -> tuple[int, Dict[str, float]]:
+        """
+        Select greedy action and return lightweight Q-value diagnostics.
+
+        Args:
+            state: State vector (numpy array)
+
+        Returns:
+            Tuple of (greedy action index, diagnostics dict)
+        """
+        with torch.no_grad():
+            state_tensor = torch.FloatTensor(state).unsqueeze(0)
+            q_values = self._q_network(state_tensor).squeeze(0)
+            action = q_values.argmax().item()
+            q_np = q_values.cpu().numpy()
+            q_sorted = np.sort(q_np)
+            q_gap = float(q_sorted[-1] - q_sorted[-2]) if len(q_sorted) >= 2 else 0.0
+            diagnostics = {
+                "q_mean": float(np.mean(q_np)),
+                "q_std": float(np.std(q_np)),
+                "q_max": float(np.max(q_np)),
+                "q_min": float(np.min(q_np)),
+                "q_gap": q_gap,
+            }
+        return action, diagnostics
+
+    def update(self, batch: Dict[str, torch.Tensor], gamma: float = 0.99) -> Dict[str, float]:
         """
         Update Q-network using Double DQN.
 
@@ -124,7 +141,7 @@ class RLAgent:
             gamma: Discount factor
 
         Returns:
-            Loss value
+            Diagnostic dictionary including loss and Q/TD statistics
         """
         states = batch["states"]  # [batch_size, state_dim]
         actions = batch["actions"]  # [batch_size]
@@ -142,6 +159,7 @@ class RLAgent:
 
         # Compute loss (MSE)
         loss = F.mse_loss(current_q, target_q)
+        td_error = current_q - target_q
 
         # Optimize
         self._optimizer.zero_grad()
@@ -155,7 +173,13 @@ class RLAgent:
         # Track updates
         self._update_count += 1
 
-        return loss.item()
+        return {
+            "loss": float(loss.item()),
+            "current_q_mean": float(current_q.mean().item()),
+            "target_q_mean": float(target_q.mean().item()),
+            "td_abs_mean": float(td_error.abs().mean().item()),
+            "td_abs_max": float(td_error.abs().max().item()),
+        }
 
     def update_target_network(self):
         """

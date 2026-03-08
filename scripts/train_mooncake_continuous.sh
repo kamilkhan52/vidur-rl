@@ -13,18 +13,49 @@
 #   EPSILON_START=1.0          # Initial epsilon (default: 1.0)
 #   EPSILON_END=0.05           # Final epsilon (default: 0.05)
 #   EPSILON_DECAY_STEPS=2500    # Decay over N steps (default: 2500)
+#   MAX_ITERS=                 # Optional max training iterations (default: infinite)
+#   CHECKPOINT_TAG=            # Optional suffix for checkpoint/log namespace
+#   REWARD_TYPE=e2e_time|ttft  # Reward signal (default: e2e_time)
+#   LOOKAHEAD_K=5              # State lookahead depth (default: 5)
+#   HIDDEN_DIMS=1024,1024,512  # RL network architecture override
+#   LEARNING_RATE=0.0001       # Optimizer LR override
+#   BATCH_SIZE=128             # Batch size override
+#   UPDATE_FREQUENCY=50        # Train every N completed requests
+#   REPLAY_BUFFER_SIZE=10000   # Replay capacity override
 #   LOG_TRANSITIONS=0          # Set to 1 to log (state, action, reward) to CSV
 #   TRACE_NAME=conversation_v2 # conversation|conversation_v2|toolagent|synthetic
 #   TRACE_MAX_TOKENS=          # Optional override for max tokens (KV cache cap)
 #   MAX_TOKENS_CAP=122752      # Default KV cache cap for auto max token detection
 #   MODEL_NAME=meta-llama/Llama-2-7b-hf  # Model name override
+#   LOG_BASE_DIR=./tmp/mooncake_training_logs # Base directory for run logs
+#   RESULTS_BASE_DIR=./results              # Base directory for iteration outputs
+#   CHECKPOINT_BASE_DIR=./rl_models         # Base directory for checkpoints
 
 set -e
+
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+VENV_PYTHON="$REPO_ROOT/.venv/bin/python3"
+PYTHON_BIN="$(command -v python3)"
+if [ -x "$VENV_PYTHON" ]; then
+    PYTHON_BIN="$VENV_PYTHON"
+fi
 
 # Epsilon configuration
 EPSILON_START="${EPSILON_START:-1.0}"
 EPSILON_END="${EPSILON_END:-0.005}"
 EPSILON_DECAY_STEPS="${EPSILON_DECAY_STEPS:-5000}"
+MAX_ITERS="${MAX_ITERS:-}"
+CHECKPOINT_TAG="${CHECKPOINT_TAG:-}"
+REWARD_TYPE="${REWARD_TYPE:-e2e_time}"
+LOOKAHEAD_K="${LOOKAHEAD_K:-5}"
+HIDDEN_DIMS="${HIDDEN_DIMS:-1024,1024,512}"
+LEARNING_RATE="${LEARNING_RATE:-0.0001}"
+BATCH_SIZE="${BATCH_SIZE:-128}"
+UPDATE_FREQUENCY="${UPDATE_FREQUENCY:-50}"
+REPLAY_BUFFER_SIZE="${REPLAY_BUFFER_SIZE:-10000}"
+LOG_BASE_DIR="${LOG_BASE_DIR:-./tmp/mooncake_training_logs}"
+RESULTS_BASE_DIR="${RESULTS_BASE_DIR:-./results}"
+CHECKPOINT_BASE_DIR="${CHECKPOINT_BASE_DIR:-./rl_models}"
 
 # Transition logging (set LOG_TRANSITIONS=1 to enable)
 LOG_TRANSITIONS="${LOG_TRANSITIONS:-0}"
@@ -47,10 +78,27 @@ echo "==========================================================================
 echo "  Continuous Mooncake RL Training - Press Ctrl+C to stop"
 echo "================================================================================"
 echo ""
+echo "Python: $PYTHON_BIN"
+echo ""
 echo "Epsilon Configuration:"
 echo "  Start: $EPSILON_START"
 echo "  End: $EPSILON_END"
 echo "  Decay steps: $EPSILON_DECAY_STEPS"
+if [ -n "$MAX_ITERS" ]; then
+    echo "  Max iterations: $MAX_ITERS"
+else
+    echo "  Max iterations: infinite"
+fi
+    echo "  Reward type: $REWARD_TYPE"
+    echo "  Lookahead K: $LOOKAHEAD_K"
+    echo "  Hidden dims: $HIDDEN_DIMS"
+    echo "  Learning rate: $LEARNING_RATE"
+    echo "  Batch size: $BATCH_SIZE"
+    echo "  Update frequency: $UPDATE_FREQUENCY"
+    echo "  Replay buffer size: $REPLAY_BUFFER_SIZE"
+    echo "  Log base dir: $LOG_BASE_DIR"
+    echo "  Results base dir: $RESULTS_BASE_DIR"
+    echo "  Checkpoint base dir: $CHECKPOINT_BASE_DIR"
 echo ""
 echo "Transition Logging:"
 if [ "$LOG_TRANSITIONS" = "1" ]; then
@@ -92,7 +140,7 @@ esac
 
 TRACE_MAX_TOKENS="${TRACE_MAX_TOKENS:-}"
 if [ -z "$TRACE_MAX_TOKENS" ]; then
-    TRACE_MAX_TOKENS=$(TRACE_FILE="$TRACE_FILE" MAX_TOKENS_CAP="$MAX_TOKENS_CAP" python3 - <<'PY' || echo "$MAX_TOKENS_CAP"
+    TRACE_MAX_TOKENS=$(TRACE_FILE="$TRACE_FILE" MAX_TOKENS_CAP="$MAX_TOKENS_CAP" "$PYTHON_BIN" - <<'PY' || echo "$MAX_TOKENS_CAP"
 import os
 import pandas as pd
 
@@ -109,10 +157,15 @@ print(min(int(max_tokens), cap))
 PY
     )
 fi
-RUN_TAG="${TRACE_NAME}_scale${TIME_SCALE_FACTOR}_$(date +%Y%m%d_%H%M%S)_$$"
-LOG_DIR="./tmp/mooncake_training_logs/${RUN_TAG}"
-CHECKPOINT_DIR="rl_models"
-CHECKPOINT_NAME="mooncake_continuous_${TRACE_NAME}_scale${TIME_SCALE_FACTOR}"
+NAME_SUFFIX=""
+if [ -n "$CHECKPOINT_TAG" ]; then
+    NAME_SUFFIX="_${CHECKPOINT_TAG}"
+fi
+
+RUN_TAG="${TRACE_NAME}_scale${TIME_SCALE_FACTOR}${NAME_SUFFIX}_$(date +%Y%m%d_%H%M%S)_$$"
+LOG_DIR="${LOG_BASE_DIR%/}/${RUN_TAG}"
+CHECKPOINT_DIR="${CHECKPOINT_BASE_DIR%/}"
+CHECKPOINT_NAME="mooncake_continuous_${TRACE_NAME}_scale${TIME_SCALE_FACTOR}${NAME_SUFFIX}"
 
 # Optional: Load existing model
 LOAD_MODEL_PATH="${1:-}"
@@ -145,9 +198,13 @@ echo "  Trace:       $TRACE_LABEL ($TRACE_FILE)"
 echo "  Max tokens:  $TRACE_MAX_TOKENS (cap: $MAX_TOKENS_CAP)"
 echo "  Caching:     ENABLED (68-dim state with cache features)"
 echo "  Model:       $MODEL_NAME"
+echo "  Reward:      $REWARD_TYPE"
+echo "  Lookahead:   K=$LOOKAHEAD_K"
+echo "  Hidden dims: $HIDDEN_DIMS"
 echo "  Checkpoint:  $CHECKPOINT_DIR/${CHECKPOINT_NAME}_latest.pt"
 echo "  Log:         $LOG_DIR/training.log"
 echo "  History:     $LOG_DIR/training_history.txt"
+echo "  Summary CSV: $LOG_DIR/iteration_summary.csv"
 echo ""
 echo "How it works:"
 echo "  • Each iteration runs full Mooncake trace (12K requests)"
@@ -165,6 +222,7 @@ echo ""
 # Clear logs
 rm -f "$LOG_DIR/training.log"
 rm -f "$LOG_DIR/training_history.txt"
+rm -f "$LOG_DIR/iteration_summary.csv"
 
 # Training loop
 ITERATION=1
@@ -173,20 +231,26 @@ BEST_E2E=999999.0
 
 echo "Training Progress History:" | tee "$LOG_DIR/training_history.txt"
 echo "======================================================" | tee -a "$LOG_DIR/training_history.txt"
+echo "iteration,total_training_steps,updates_this_iter,final_epsilon,avg_loss,avg_reward,avg_current_q,avg_target_q,avg_td_abs,avg_rand_frac,avg_q_gap,completed_requests,mean_e2e,median_e2e,p95_e2e,p99_e2e,load_imbalance,output_dir" > "$LOG_DIR/iteration_summary.csv"
 
 while true; do
+    if [ -n "$MAX_ITERS" ] && [ "$ITERATION" -gt "$MAX_ITERS" ]; then
+        echo "Reached MAX_ITERS=$MAX_ITERS, stopping."
+        break
+    fi
+
     echo "================================================================================"
     echo "Iteration $ITERATION (Total steps: $TOTAL_TRAINING_STEPS)"
     echo "================================================================================"
     echo ""
 
     # Create output directory
-    OUTPUT_DIR="results/mooncake_continuous_iter${ITERATION}_$(date +%Y%m%d_%H%M%S)"
+    OUTPUT_DIR="${RESULTS_BASE_DIR%/}/mooncake_continuous_iter${ITERATION}_$(date +%Y%m%d_%H%M%S)"
     mkdir -p "$OUTPUT_DIR"
 
     # Build command
     CMD=(
-        python3 -m vidur.main
+        "$PYTHON_BIN" -m vidur.main
         --replica_config_device a100
         --replica_config_model_name "$MODEL_NAME"
         --replica_config_tensor_parallel_size "$TP_SIZE"
@@ -197,10 +261,13 @@ while true; do
         --r_l_cache_aware_global_scheduler_config_epsilon_start "$EPSILON_START"
         --r_l_cache_aware_global_scheduler_config_epsilon_end "$EPSILON_END"
         --r_l_cache_aware_global_scheduler_config_epsilon_decay_steps "$EPSILON_DECAY_STEPS"
-        --r_l_cache_aware_global_scheduler_config_learning_rate 0.0001
-        --r_l_cache_aware_global_scheduler_config_batch_size 128
-        --r_l_cache_aware_global_scheduler_config_update_frequency 50
-        --r_l_cache_aware_global_scheduler_config_replay_buffer_size 10000
+        --r_l_cache_aware_global_scheduler_config_learning_rate "$LEARNING_RATE"
+        --r_l_cache_aware_global_scheduler_config_batch_size "$BATCH_SIZE"
+        --r_l_cache_aware_global_scheduler_config_update_frequency "$UPDATE_FREQUENCY"
+        --r_l_cache_aware_global_scheduler_config_replay_buffer_size "$REPLAY_BUFFER_SIZE"
+        --r_l_cache_aware_global_scheduler_config_reward_type "$REWARD_TYPE"
+        --r_l_cache_aware_global_scheduler_config_lookahead_k "$LOOKAHEAD_K"
+        --r_l_cache_aware_global_scheduler_config_hidden_dims "$HIDDEN_DIMS"
         --request_generator_config_type trace
         --trace_request_generator_config_trace_file "$TRACE_FILE"
         --trace_request_generator_config_time_scale_factor "$TIME_SCALE_FACTOR"
@@ -237,16 +304,33 @@ while true; do
     FINAL_STEP=$(grep -oP 'Steps: \K\d+' "$OUTPUT_DIR/simulation.log" | tail -1)
     if [ -n "$FINAL_STEP" ]; then
         TOTAL_TRAINING_STEPS=$((TOTAL_TRAINING_STEPS + FINAL_STEP))
+    else
+        FINAL_STEP=0
     fi
+
+    FINAL_EPSILON=$(grep -oP 'Epsilon: \K[0-9.]+' "$OUTPUT_DIR/simulation.log" | tail -1)
+    AVG_LOSS=$(grep -oP 'Loss: \K[-0-9.]+' "$OUTPUT_DIR/simulation.log" | awk '{sum+=$1; n+=1} END {if (n>0) printf "%.6f", sum/n; else print ""}')
+    AVG_REWARD=$(grep -oP 'Reward: \K[-0-9.]+' "$OUTPUT_DIR/simulation.log" | awk '{sum+=$1; n+=1} END {if (n>0) printf "%.6f", sum/n; else print ""}')
+    AVG_CURRENT_Q=$(grep -oP 'CurrQ: \K[-0-9.]+' "$OUTPUT_DIR/simulation.log" | awk '{sum+=$1; n+=1} END {if (n>0) printf "%.6f", sum/n; else print ""}')
+    AVG_TARGET_Q=$(grep -oP 'TgtQ: \K[-0-9.]+' "$OUTPUT_DIR/simulation.log" | awk '{sum+=$1; n+=1} END {if (n>0) printf "%.6f", sum/n; else print ""}')
+    AVG_TD_ABS=$(grep -oP 'TDAbs: \K[-0-9.]+' "$OUTPUT_DIR/simulation.log" | awk '{sum+=$1; n+=1} END {if (n>0) printf "%.6f", sum/n; else print ""}')
+    AVG_RAND_FRAC=$(grep -oP 'RandFrac: \K[-0-9.]+' "$OUTPUT_DIR/simulation.log" | awk '{sum+=$1; n+=1} END {if (n>0) printf "%.6f", sum/n; else print ""}')
+    AVG_Q_GAP=$(grep -oP 'QGap: \K[-0-9.]+' "$OUTPUT_DIR/simulation.log" | awk '{sum+=$1; n+=1} END {if (n>0) printf "%.6f", sum/n; else print ""}')
 
     # Extract metrics
     METRICS_FILE=$(find "$OUTPUT_DIR" -name "request_metrics.csv" | head -1)
     if [ -f "$METRICS_FILE" ]; then
-        # Calculate mean E2E
-        MEAN_E2E=$(python3 -c "import pandas as pd; df = pd.read_csv('$METRICS_FILE'); print(f'{df[\"request_e2e_time\"].mean():.3f}')")
+        # Calculate latency summary
+        read -r COMPLETED_REQS MEAN_E2E MEDIAN_E2E P95_E2E P99_E2E <<< "$("$PYTHON_BIN" - <<PY
+import pandas as pd
+df = pd.read_csv('$METRICS_FILE')
+e2e = df['request_e2e_time']
+print(len(df), f'{e2e.mean():.3f}', f'{e2e.median():.3f}', f'{e2e.quantile(0.95):.3f}', f'{e2e.quantile(0.99):.3f}')
+PY
+)"
 
         # Calculate load distribution
-        LOAD_DIST=$(python3 -c "
+        LOAD_INFO=$("$PYTHON_BIN" -c "
 import pandas as pd
 df = pd.read_csv('$METRICS_FILE')
 counts = df['replica'].value_counts().sort_index()
@@ -257,13 +341,26 @@ max_load = counts.max()
 min_load = counts.min()
 imbalance = (max_load - min_load) / len(df)
 print(f'    Load imbalance: {imbalance:.4f}')
+
 ")
+        LOAD_DIST=$(printf "%s\n" "$LOAD_INFO" | sed '$d')
+        LOAD_IMBALANCE=$(printf "%s\n" "$LOAD_INFO" | tail -1 | awk '{print $3}')
 
         echo ""
         echo "================================================================================"
         echo "Iteration $ITERATION Complete"
         echo "  Total training steps: $TOTAL_TRAINING_STEPS"
-        echo "  Mean E2E latency: ${MEAN_E2E}s"
+        echo "  Updates this iteration: $FINAL_STEP"
+        echo "  Final epsilon: ${FINAL_EPSILON:-N/A}"
+        echo "  Avg loss: ${AVG_LOSS:-N/A}"
+        echo "  Avg reward: ${AVG_REWARD:-N/A}"
+        echo "  Avg current/target Q: ${AVG_CURRENT_Q:-N/A} / ${AVG_TARGET_Q:-N/A}"
+        echo "  Avg TD abs: ${AVG_TD_ABS:-N/A}"
+        echo "  Avg random fraction: ${AVG_RAND_FRAC:-N/A}"
+        echo "  Avg Q gap: ${AVG_Q_GAP:-N/A}"
+        echo "  Completed requests: ${COMPLETED_REQS}"
+        echo "  Mean/Median E2E latency: ${MEAN_E2E}s / ${MEDIAN_E2E}s"
+        echo "  P95/P99 E2E latency: ${P95_E2E}s / ${P99_E2E}s"
         echo ""
         echo "  Load Distribution:"
         echo "$LOAD_DIST"
@@ -282,14 +379,18 @@ print(f'    Load imbalance: {imbalance:.4f}')
         echo ""
 
         # Save to history
-        echo "Iter $ITERATION | Steps: $TOTAL_TRAINING_STEPS | E2E: ${MEAN_E2E}s" >> "$LOG_DIR/training_history.txt"
+        echo "Iter $ITERATION | Steps: $TOTAL_TRAINING_STEPS | E2E: ${MEAN_E2E}s | Median: ${MEDIAN_E2E}s | P99: ${P99_E2E}s | Eps: ${FINAL_EPSILON:-N/A}" >> "$LOG_DIR/training_history.txt"
+        echo "$ITERATION,$TOTAL_TRAINING_STEPS,$FINAL_STEP,${FINAL_EPSILON:-},${AVG_LOSS:-},${AVG_REWARD:-},${AVG_CURRENT_Q:-},${AVG_TARGET_Q:-},${AVG_TD_ABS:-},${AVG_RAND_FRAC:-},${AVG_Q_GAP:-},$COMPLETED_REQS,$MEAN_E2E,$MEDIAN_E2E,$P95_E2E,$P99_E2E,${LOAD_IMBALANCE:-},$OUTPUT_DIR" >> "$LOG_DIR/iteration_summary.csv"
 
         # Generate training progress plot
         PLOT_PATH="$LOG_DIR/training_progress.png"
-        if python3 scripts/plot_training_progress.py "$PLOT_PATH" 2>/dev/null; then
+        if "$PYTHON_BIN" scripts/plot_training_progress.py "$PLOT_PATH" 2>/dev/null; then
             echo ""
             echo "  📊 Training plot: $PLOT_PATH"
         fi
+    else
+        echo "Iteration $ITERATION failed: request_metrics.csv not found. Stopping."
+        exit 1
     fi
 
     ITERATION=$((ITERATION + 1))

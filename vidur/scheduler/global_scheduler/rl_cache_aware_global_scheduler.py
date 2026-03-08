@@ -203,6 +203,10 @@ class RLCacheAwareGlobalScheduler(BaseGlobalScheduler):
 
             # Training metrics
             self._training_losses = []
+            self._training_current_q_means = []
+            self._training_target_q_means = []
+            self._training_td_abs_means = []
+            self._training_td_abs_maxes = []
             # Note: _num_training_steps and epsilon params initialized earlier (before loading checkpoint)
 
             # Checkpoint saving
@@ -218,6 +222,24 @@ class RLCacheAwareGlobalScheduler(BaseGlobalScheduler):
         # Metrics tracking
         self._episode_rewards = []
         self._recent_rewards = []  # Track last 100 rewards for moving average
+        self._decision_action_counts = [0 for _ in replicas]
+        self._decision_random_count = 0
+        self._decision_greedy_count = 0
+        self._decision_q_mean_sum = 0.0
+        self._decision_q_std_sum = 0.0
+        self._decision_q_gap_sum = 0.0
+        self._decision_q_gap_max = 0.0
+        self._decision_count_since_log = 0
+
+    def _reset_decision_diagnostics(self):
+        self._decision_action_counts = [0 for _ in self._decision_action_counts]
+        self._decision_random_count = 0
+        self._decision_greedy_count = 0
+        self._decision_q_mean_sum = 0.0
+        self._decision_q_std_sum = 0.0
+        self._decision_q_gap_sum = 0.0
+        self._decision_q_gap_max = 0.0
+        self._decision_count_since_log = 0
 
     def _get_epsilon(self) -> float:
         """
@@ -272,14 +294,24 @@ class RLCacheAwareGlobalScheduler(BaseGlobalScheduler):
             # 2. Select action (replica)
             if self._mode == "training":
                 epsilon = self._get_epsilon()
+                greedy_action_idx, q_diag = self._rl_agent.select_action_with_diagnostics(state)
                 if self._random_number_generator.random() < epsilon:
                     # Explore: random action
                     action_idx = self._random_number_generator.randint(
                         0, len(replica_ids) - 1
                     )
+                    self._decision_random_count += 1
                 else:
                     # Exploit: use RL agent
-                    action_idx = self._rl_agent.select_action(state)
+                    action_idx = greedy_action_idx
+                    self._decision_greedy_count += 1
+
+                self._decision_action_counts[action_idx] += 1
+                self._decision_q_mean_sum += q_diag["q_mean"]
+                self._decision_q_std_sum += q_diag["q_std"]
+                self._decision_q_gap_sum += q_diag["q_gap"]
+                self._decision_q_gap_max = max(self._decision_q_gap_max, q_diag["q_gap"])
+                self._decision_count_since_log += 1
             else:
                 # Inference mode: always exploit
                 action_idx = self._rl_agent.select_action(state)
@@ -377,13 +409,16 @@ class RLCacheAwareGlobalScheduler(BaseGlobalScheduler):
         """
         batch_size = self._config.cluster_config.global_scheduler_config.batch_size
         batch = self._replay_buffer.sample(batch_size)
-        
 
-
-        loss = self._rl_agent.update(batch)
+        update_stats = self._rl_agent.update(batch)
+        loss = update_stats["loss"]
 
         # Track loss for logging
         self._training_losses.append(loss)
+        self._training_current_q_means.append(update_stats["current_q_mean"])
+        self._training_target_q_means.append(update_stats["target_q_mean"])
+        self._training_td_abs_means.append(update_stats["td_abs_mean"])
+        self._training_td_abs_maxes.append(update_stats["td_abs_max"])
         self._num_training_steps += 1
 
         # Periodic target network update
@@ -398,6 +433,28 @@ class RLCacheAwareGlobalScheduler(BaseGlobalScheduler):
             avg_loss = sum(self._training_losses[-100:]) / min(100, len(self._training_losses))
             avg_reward = sum(self._recent_rewards) / len(self._recent_rewards) if self._recent_rewards else 0.0
             epsilon = self._get_epsilon()
+            avg_current_q = sum(self._training_current_q_means[-100:]) / min(100, len(self._training_current_q_means))
+            avg_target_q = sum(self._training_target_q_means[-100:]) / min(100, len(self._training_target_q_means))
+            avg_td_abs = sum(self._training_td_abs_means[-100:]) / min(100, len(self._training_td_abs_means))
+            max_td_abs = max(self._training_td_abs_maxes[-100:]) if self._training_td_abs_maxes else 0.0
+
+            if self._decision_count_since_log > 0:
+                rand_frac = self._decision_random_count / self._decision_count_since_log
+                greedy_frac = self._decision_greedy_count / self._decision_count_since_log
+                avg_q_mean = self._decision_q_mean_sum / self._decision_count_since_log
+                avg_q_std = self._decision_q_std_sum / self._decision_count_since_log
+                avg_q_gap = self._decision_q_gap_sum / self._decision_count_since_log
+                action_dist = ",".join(
+                    f"{i}:{count / self._decision_count_since_log:.2f}"
+                    for i, count in enumerate(self._decision_action_counts)
+                )
+            else:
+                rand_frac = 0.0
+                greedy_frac = 0.0
+                avg_q_mean = 0.0
+                avg_q_std = 0.0
+                avg_q_gap = 0.0
+                action_dist = ""
 
             # DEBUG: Log reward statistics
             if self._recent_rewards:
@@ -412,10 +469,22 @@ class RLCacheAwareGlobalScheduler(BaseGlobalScheduler):
                 f"Loss: {avg_loss:.4f} | "
                 f"Reward: {avg_reward:.4f} | "
                 f"Epsilon: {epsilon:.3f} | "
-                f"Buffer: {len(self._replay_buffer)}\n"
+                f"Buffer: {len(self._replay_buffer)} | "
+                f"CurrQ: {avg_current_q:.4f} | "
+                f"TgtQ: {avg_target_q:.4f} | "
+                f"TDAbs: {avg_td_abs:.4f} | "
+                f"TDMax: {max_td_abs:.4f} | "
+                f"RandFrac: {rand_frac:.3f} | "
+                f"GreedyFrac: {greedy_frac:.3f} | "
+                f"QMean: {avg_q_mean:.4f} | "
+                f"QStd: {avg_q_std:.4f} | "
+                f"QGap: {avg_q_gap:.4f} | "
+                f"QGapMax: {self._decision_q_gap_max:.4f} | "
+                f"ActionDist: {action_dist}\n"
             )
             print(msg, flush=True)
             self._training_log_file.write(msg)
+            self._reset_decision_diagnostics()
 
     def _save_checkpoint(self):
         """Save model checkpoint during training."""

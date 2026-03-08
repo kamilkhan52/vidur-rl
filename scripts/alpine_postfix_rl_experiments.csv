@@ -1,0 +1,5 @@
+task_id,model,replicas,trace,scale,tp,reward_type,lookahead_k,hidden_dims,epsilon_start,epsilon_end,epsilon_decay_steps,learning_rate,batch_size,update_frequency,replay_buffer_size,max_iters,checkpoint_tag
+1,meta-llama/Llama-2-7b-hf,4,toolagent,20.0,1,e2e_time,5,"1024,1024,512",0.60,0.05,150000,0.0001,128,50,10000,15,exp05_e2e_k5
+2,meta-llama/Llama-2-7b-hf,4,toolagent,20.0,1,e2e_time,15,"1024,1024,512",0.60,0.05,150000,0.0001,128,50,10000,15,exp05_e2e_k15
+3,meta-llama/Llama-2-7b-hf,4,toolagent,20.0,1,ttft,5,"1024,1024,512",0.60,0.05,150000,0.0001,128,50,10000,15,exp05_ttft_k5
+4,meta-llama/Llama-2-7b-hf,4,toolagent,20.0,1,ttft,15,"1024,1024,512",0.60,0.05,150000,0.0001,128,50,10000,15,exp05_ttft_k15

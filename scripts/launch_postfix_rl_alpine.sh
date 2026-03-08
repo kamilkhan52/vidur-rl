@@ -1,0 +1,24 @@
+#!/bin/bash
+
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+CONFIG_FILE="$REPO_ROOT/scripts/alpine_postfix_rl_experiments.csv"
+SBATCH_SCRIPT="$REPO_ROOT/scripts/submit_postfix_rl_alpine_array.sbatch"
+
+if [[ ! -f "$CONFIG_FILE" ]]; then
+    echo "Error: Missing config file: $CONFIG_FILE"
+    exit 1
+fi
+
+TASK_COUNT=$(tail -n +2 "$CONFIG_FILE" | sed '/^\s*$/d' | wc -l)
+if [[ "$TASK_COUNT" -le 0 ]]; then
+    echo "Error: No experiment rows found in $CONFIG_FILE"
+    exit 1
+fi
+
+cd "$REPO_ROOT"
+mkdir -p slurm_logs
+
+echo "Submitting EXP05 Alpine RL tasks ($TASK_COUNT rows) from $CONFIG_FILE"
+sbatch --array="1-${TASK_COUNT}" "$SBATCH_SCRIPT"
