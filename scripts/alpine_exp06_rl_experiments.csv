@@ -1,0 +1,9 @@
+task_id,model,replicas,trace,scale,tp,reward_type,lookahead_k,hidden_dims,epsilon_start,epsilon_end,epsilon_decay_steps,learning_rate,batch_size,update_frequency,replay_buffer_size,max_iters,checkpoint_tag
+1,meta-llama/Llama-2-7b-hf,4,toolagent,20.0,1,ttft,10,"1024,1024,512",0.60,0.05,150000,0.0001,128,50,10000,20,exp06_ttft_k10_h1024
+2,meta-llama/Llama-2-7b-hf,4,toolagent,20.0,1,ttft,15,"1024,1024,512",0.60,0.05,150000,0.0001,128,50,10000,20,exp06_ttft_k15_h1024
+3,meta-llama/Llama-2-7b-hf,4,toolagent,20.0,1,ttft,20,"1024,1024,512",0.60,0.05,150000,0.0001,128,50,10000,20,exp06_ttft_k20_h1024
+4,meta-llama/Llama-2-7b-hf,4,toolagent,20.0,1,ttft,25,"1024,1024,512",0.60,0.05,150000,0.0001,128,50,10000,20,exp06_ttft_k25_h1024
+5,meta-llama/Llama-2-7b-hf,4,toolagent,20.0,1,ttft,10,"2048,1024,512",0.60,0.05,150000,0.0001,128,50,10000,20,exp06_ttft_k10_h2048
+6,meta-llama/Llama-2-7b-hf,4,toolagent,20.0,1,ttft,15,"2048,1024,512",0.60,0.05,150000,0.0001,128,50,10000,20,exp06_ttft_k15_h2048
+7,meta-llama/Llama-2-7b-hf,4,toolagent,20.0,1,ttft,20,"2048,1024,512",0.60,0.05,150000,0.0001,128,50,10000,20,exp06_ttft_k20_h2048
+8,meta-llama/Llama-2-7b-hf,4,toolagent,20.0,1,ttft,25,"2048,1024,512",0.60,0.05,150000,0.0001,128,50,10000,20,exp06_ttft_k25_h2048
