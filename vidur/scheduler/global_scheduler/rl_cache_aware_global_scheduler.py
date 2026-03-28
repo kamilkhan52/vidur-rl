@@ -253,7 +253,9 @@ class RLCacheAwareGlobalScheduler(BaseGlobalScheduler):
             Epsilon value for ε-greedy exploration
         """
         if self._mode != "training":
-            return 0.0  # No exploration during inference
+            # Inference/evaluation keeps a small fixed exploration rate by default.
+            # Override with --r_l_cache_aware_global_scheduler_config_inference_epsilon <value>.
+            return float(getattr(self._config, 'inference_epsilon', 0.05))
 
         # Exponential decay: reaches ~1% of (start - end) at epsilon_decay_steps requests
         # decay_constant = -ln(0.01) / decay_steps ≈ 4.605 / decay_steps

@@ -16,13 +16,14 @@
 
 set -euo pipefail
 
-if [[ $# -ne 2 ]]; then
-    echo "Usage: $0 <task_file.tsv> <run_root>"
+if [[ $# -lt 2 || $# -gt 3 ]]; then
+    echo "Usage: $0 <task_file.tsv> <run_root> [inference_epsilon]"
     exit 1
 fi
 
 TASK_FILE="$1"
 RUN_ROOT="$2"
+INFERENCE_EPSILON="${3:-0.05}"
 VIDUR_ROOT="/projects/kamil@colostate.edu/vidur-rl"
 
 echo "========================================================"
@@ -78,6 +79,7 @@ echo "  Experiment family: $EXP_FAMILY"
 echo "  Checkpoint: $CHECKPOINT_PATH"
 echo "  Completed iterations at launch: ${COMPLETED_ITERS:-unknown}"
 echo "  Output dir: $OUTPUT_DIR"
+echo "  Inference epsilon: $INFERENCE_EPSILON"
 echo ""
 
 CMD=(
@@ -95,6 +97,7 @@ CMD=(
     --cache_config_enable_prefix_caching
     --r_l_cache_aware_global_scheduler_config_mode inference
     --r_l_cache_aware_global_scheduler_config_model_checkpoint_path "$CHECKPOINT_PATH"
+    --r_l_cache_aware_global_scheduler_config_inference_epsilon "$INFERENCE_EPSILON"
     --metrics_config_output_dir "$OUTPUT_DIR"
     --no-metrics_config_write_json_trace
     --no-metrics_config_store_operation_metrics

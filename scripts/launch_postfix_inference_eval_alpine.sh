@@ -75,11 +75,14 @@ with open("$TASK_FILE", newline="") as f:
 PY
 )
 
+INFERENCE_EPSILON="${INFERENCE_EPSILON:-0.05}"
+
 echo "Discovered $TASK_COUNT checkpoints for postfix inference evaluation"
 echo "Run root: $RUN_ROOT"
 echo "Task file: $TASK_FILE"
+echo "Inference epsilon (default 5% exploration): $INFERENCE_EPSILON"
 
 cd "$REPO_ROOT"
 mkdir -p slurm_logs
 
-sbatch --array="1-${TASK_COUNT}" "$SBATCH_SCRIPT" "$TASK_FILE" "$RUN_ROOT"
+sbatch --array="1-${TASK_COUNT}" "$SBATCH_SCRIPT" "$TASK_FILE" "$RUN_ROOT" "$INFERENCE_EPSILON"

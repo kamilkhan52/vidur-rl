@@ -726,6 +726,10 @@ class RLCacheAwareGlobalSchedulerConfig(BaseGlobalSchedulerConfig):
         default=500,
         metadata={"help": "Requests for epsilon to decay ~99%% toward epsilon_end (exponential decay)"},
     )
+    inference_epsilon: float = field(
+        default=0.05,
+        metadata={"help": "Fixed epsilon used in inference mode (evaluation). Default is 5%% exploration."},
+    )
     reset_epsilon_on_load: bool = field(
         default=False,
         metadata={"help": "When True, ignore loaded epsilon state and start fresh with config values. Useful for forcing exploration on a loaded model."},
