@@ -12,7 +12,7 @@
 #SBATCH --output=slurm_logs/vidur_grad_pf_%A_%a.out
 #SBATCH --error=slurm_logs/vidur_grad_pf_%A_%a.err
 #SBATCH --mail-type=BEGIN,END,FAIL
-#SBATCH --mail-user=kamil@colostate.edu
+#SBATCH --mail-user=kamil@colostate.edu,zeeraktya@gmail.com
 
 set -euo pipefail
 

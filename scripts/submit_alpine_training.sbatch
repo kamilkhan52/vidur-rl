@@ -10,8 +10,8 @@
 #SBATCH --time=24:00:00
 #SBATCH --output=slurm_logs/vidur_rl_train_%j.out
 #SBATCH --error=slurm_logs/vidur_rl_train_%j.err
-#SBATCH --mail-type=END,FAIL
-#SBATCH --mail-user=kamil@colostate.edu
+#SBATCH --mail-type=BEGIN,END,FAIL
+#SBATCH --mail-user=kamil@colostate.edu,zeeraktya@gmail.com
 
 # Vidur RL Training - Cache-Aware Global Scheduler
 # Trains an RL agent for LLM inference scheduling

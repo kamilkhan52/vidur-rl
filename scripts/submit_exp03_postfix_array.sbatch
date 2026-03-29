@@ -11,8 +11,8 @@
 #SBATCH --array=1-8
 #SBATCH --output=slurm_logs/exp03_pf_rl_%A_%a.out
 #SBATCH --error=slurm_logs/exp03_pf_rl_%A_%a.err
-#SBATCH --mail-type=END,FAIL
-#SBATCH --mail-user=kamil@colostate.edu
+#SBATCH --mail-type=BEGIN,END,FAIL
+#SBATCH --mail-user=kamil@colostate.edu,zeeraktya@gmail.com
 
 set -euo pipefail
 

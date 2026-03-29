@@ -11,7 +11,7 @@
 #SBATCH --output=slurm_logs/vidur_sweep_%j.out
 #SBATCH --error=slurm_logs/vidur_sweep_%j.err
 #SBATCH --mail-type=BEGIN,END,FAIL
-#SBATCH --mail-user=kamil@colostate.edu
+#SBATCH --mail-user=kamil@colostate.edu,zeeraktya@gmail.com
 
 # Vidur Global Sweep - RL Cache-Aware Scheduling
 # Runs a comprehensive grid sweep across models, replicas, and schedulers
