@@ -24,7 +24,7 @@ SCALE_PROGRESSION = [48.0, 24.0, 12.0, 6.0, 3.0, 1.5, 0.75]
 
 CONFIG_DIR_PATTERN = re.compile(
     r"^grad_"
-    r"(?P<model>\d+b)-(?P<replicas>\d+R)-(?P<trace>\w+)"
+    r"(?P<model>\d+b)-(?P<replicas>\d+R)-(?P<trace>\w+(?:-PF)?)"
     r"_h(?P<hidden>[\d_]+)"
     r"_r(?P<reward>.+)$"
 )
