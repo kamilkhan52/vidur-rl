@@ -140,7 +140,7 @@ def compute_stats(metrics_path):
     e2e = df["request_e2e_time"].dropna()
     if len(e2e) == 0:
         return None
-    return {
+    stats = {
         "mean_e2e": float(np.mean(e2e)),
         "p99_e2e": float(np.percentile(e2e, 99)),
         "median_e2e": float(np.median(e2e)),
@@ -148,6 +148,13 @@ def compute_stats(metrics_path):
         "max_e2e": float(np.max(e2e)),
         "count": len(e2e),
     }
+    if "prefill_e2e_time" in df.columns:
+        ttft = df["prefill_e2e_time"].dropna()
+        if len(ttft) > 0:
+            stats["mean_ttft"] = float(np.mean(ttft))
+            stats["median_ttft"] = float(np.median(ttft))
+            stats["p99_ttft"] = float(np.percentile(ttft, 99))
+    return stats
 
 
 def scan_graduation_dir(input_dir):
@@ -267,6 +274,7 @@ def main():
         "config", "model", "replicas", "trace", "hidden", "reward",
         "scale", "iter_num", "num_iterations",
         "mean_e2e", "p99_e2e", "median_e2e", "min_e2e", "max_e2e", "count",
+        "mean_ttft", "median_ttft", "p99_ttft",
         "min_scale_reached", "graduated",
     ]
     df = pd.DataFrame(results)
