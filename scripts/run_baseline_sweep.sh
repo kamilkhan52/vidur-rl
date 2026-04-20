@@ -73,7 +73,7 @@ declare -A SCHEDULER_MAP=(
 declare -A TRACE_MAP=(
     ["Synth"]="synthetic_trace"
     ["Tool"]="toolagent_trace"
-    ["Conv"]="conversation_trace_v2"
+    ["Conv"]="conversation_trace"
 )
 
 # ============================================================================
@@ -131,6 +131,21 @@ get_tensor_parallel() {
         echo "4"  # 70b needs TP=4 for 80GB A100
     else
         echo "1"
+    fi
+}
+
+resolve_trace_file() {
+    local trace_name=$1
+    local v2="data/processed_traces/mooncake_${trace_name}_v2.csv"
+    local base="data/processed_traces/mooncake_${trace_name}.csv"
+
+    if [ -f "$v2" ]; then
+        echo "$v2"
+    elif [ -f "$base" ]; then
+        echo "$base"
+    else
+        # Return default path for clear downstream error message
+        echo "$base"
     fi
 }
 
@@ -194,6 +209,7 @@ run_baseline_single() {
     # Derive parameters
     local scheduler_type="${SCHEDULER_MAP[$scheduler]}"
     local trace_name="${TRACE_MAP[$trace]}"
+    local trace_file=$(resolve_trace_file "$trace_name")
     local model_name=$(get_model_name $model)
     local tp_size=$(get_tensor_parallel $model)
     
@@ -226,7 +242,7 @@ run_baseline_single() {
             --replica_scheduler_config_type vllm_v1 \
             --global_scheduler_config_type "$scheduler_type" \
             --trace_request_generator_config_time_scale_factor "$scale" \
-            --trace_request_generator_config_trace_file "data/processed_traces/mooncake_${trace_name}.csv" \
+            --trace_request_generator_config_trace_file "$trace_file" \
             --metrics_config_output_dir "$run_dir" \
             --no-metrics_config_write_json_trace \
             --request_generator_config_type trace \
@@ -244,7 +260,7 @@ run_baseline_single() {
         if [ -f "$metrics_file" ]; then
             local mean_e2e=$(python3 -c "import pandas as pd; print(pd.read_csv('$metrics_file')['request_e2e_time'].mean())")
             local p99_e2e=$(python3 -c "import pandas as pd; print(pd.read_csv('$metrics_file')['request_e2e_time'].quantile(0.99))")
-            local throughput=$(python3 -c "import pandas as pd; df = pd.read_csv('$metrics_file'); print(len(df) / (df['request_e2e_time'].max() - df['request_arrival_time'].min()))")
+            local throughput=$(python3 -c "import pandas as pd, numpy as np; df=pd.read_csv('$metrics_file'); n=len(df); arr='request_arrival_time' if 'request_arrival_time' in df.columns else ('request_arrived_at' if 'request_arrived_at' in df.columns else None); dur=(df['request_e2e_time'].max()-df[arr].min()) if arr else np.nan; print((n/dur) if (pd.notna(dur) and dur>0) else np.nan)")
 
             echo "$scheduler,$model,$replicas,$trace,$scale,$i,$mean_e2e,$p99_e2e,$throughput" >> "${output_dir}/metrics.csv"
         else
