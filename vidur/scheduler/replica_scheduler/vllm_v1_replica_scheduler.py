@@ -1,8 +1,9 @@
 from collections import deque
-from typing import Deque, Dict, List
+from typing import Deque, Dict, List, Optional, Tuple
 
 from vidur.entities.batch import Batch, Request
 from vidur.kv_cache.replica_kv_cache_manager import ReplicaKVCacheManager
+from vidur.metrics.queue_diagnostics import get_queue_diagnostics_writer
 from vidur.scheduler.replica_scheduler.base_replica_scheduler import (
     BaseReplicaScheduler,
 )
@@ -70,6 +71,91 @@ class VLLMV1ReplicaScheduler(BaseReplicaScheduler):
         # No negative answer
         next_num_tokens = max(0, next_num_tokens)
         return next_num_tokens
+
+    def _get_budget_feasible_num_new_tokens(self, request: Request, token_budget: int) -> Tuple[int, bool]:
+        """
+        Lightweight feasibility approximation for top-K lookahead diagnostics.
+
+        This intentionally avoids mutating KV-cache state. It checks budget feasibility
+        using current cache-hit estimates for each request. Allocation feasibility may be
+        stricter (e.g., `allocate_slots` can still fail due to block constraints).
+        """
+        _computed_blocks, num_computed_tokens = self._kv_cache_manager.get_computed_blocks(request)
+        num_new_tokens = request.num_prefill_tokens - num_computed_tokens
+
+        if num_new_tokens == 0:
+            needed = self._cache_config.block_size
+            feasible = token_budget >= needed and needed > 0
+            return needed, feasible
+
+        # Chunked prefill supports partial scheduling as long as there is positive budget.
+        scheduled_tokens = min(num_new_tokens, token_budget)
+        feasible = scheduled_tokens > 0
+        return scheduled_tokens, feasible
+
+    def _collect_topk_lookahead_budget_stats(self, token_budget: int) -> Dict[str, Optional[int]]:
+        waiting_requests = sorted(
+            self._waiting_queue.to_list(), key=lambda x: (x.arrived_at, x.id)
+        )
+
+        stats: Dict[str, Optional[int]] = {
+            "feasible_count_top2": 0,
+            "feasible_count_top4": 0,
+            "feasible_count_top8": 0,
+            "best_feasible_num_new_tokens_top2": 0,
+            "best_feasible_num_new_tokens_top4": 0,
+            "best_feasible_num_new_tokens_top8": 0,
+        }
+
+        for k in (2, 4, 8):
+            feasible_count = 0
+            best_tokens = 0
+            for req in waiting_requests[:k]:
+                cand_tokens, feasible = self._get_budget_feasible_num_new_tokens(req, token_budget)
+                if feasible:
+                    feasible_count += 1
+                    best_tokens = max(best_tokens, cand_tokens)
+            stats[f"feasible_count_top{k}"] = feasible_count
+            stats[f"best_feasible_num_new_tokens_top{k}"] = best_tokens
+
+        return stats
+
+    def _log_replica_diag_event(
+        self,
+        current_time: float,
+        waiting_depth_before: int,
+        token_budget_before: int,
+        head_num_new_tokens: Optional[int],
+        head_is_feasible: int,
+        break_reason: str,
+        lookahead_stats: Dict[str, Optional[int]],
+    ) -> None:
+        qdiag = get_queue_diagnostics_writer()
+        if qdiag is None:
+            return
+
+        qdiag.log(
+            "replica",
+            time=current_time,
+            replica_id=self._replica_id,
+            waiting_depth_before=waiting_depth_before,
+            token_budget_before=token_budget_before,
+            head_num_new_tokens=head_num_new_tokens,
+            head_is_feasible=head_is_feasible,
+            break_reason=break_reason,
+            feasible_count_top2=lookahead_stats.get("feasible_count_top2", ""),
+            feasible_count_top4=lookahead_stats.get("feasible_count_top4", ""),
+            feasible_count_top8=lookahead_stats.get("feasible_count_top8", ""),
+            best_feasible_num_new_tokens_top2=lookahead_stats.get(
+                "best_feasible_num_new_tokens_top2", ""
+            ),
+            best_feasible_num_new_tokens_top4=lookahead_stats.get(
+                "best_feasible_num_new_tokens_top4", ""
+            ),
+            best_feasible_num_new_tokens_top8=lookahead_stats.get(
+                "best_feasible_num_new_tokens_top8", ""
+            ),
+        )
 
     def _get_next_batch(self, current_time: float) -> ReplicaSchedulerOutput:
         # NOTE(woosuk) on the scheduling algorithm:
@@ -141,7 +227,20 @@ class VLLMV1ReplicaScheduler(BaseReplicaScheduler):
         # Next, schedule the WAITING requests.
         if not preempted_reqs:
             while len(self._waiting_queue) and token_budget > 0:
+                waiting_depth_before = len(self._waiting_queue)
+                token_budget_before = token_budget
+                lookahead_stats = self._collect_topk_lookahead_budget_stats(token_budget_before)
+
                 if len(self._running) >= self._max_micro_batch_size:
+                    self._log_replica_diag_event(
+                        current_time,
+                        waiting_depth_before,
+                        token_budget_before,
+                        head_num_new_tokens=None,
+                        head_is_feasible=0,
+                        break_reason="batch_cap",
+                        lookahead_stats=lookahead_stats,
+                    )
                     break
 
                 request = self._waiting_queue.peek()
@@ -169,6 +268,15 @@ class VLLMV1ReplicaScheduler(BaseReplicaScheduler):
                     # Note: This causes head-of-line blocking (skips remaining waiting
                     # requests), which is acceptable for FIFO but could be revisited.
                     if token_budget < self._cache_config.block_size:
+                        self._log_replica_diag_event(
+                            current_time,
+                            waiting_depth_before,
+                            token_budget_before,
+                            head_num_new_tokens=self._cache_config.block_size,
+                            head_is_feasible=0,
+                            break_reason="insufficient_budget_for_forced_block",
+                            lookahead_stats=lookahead_stats,
+                        )
                         break
 
                     num_computed_tokens -= self._cache_config.block_size
@@ -184,7 +292,26 @@ class VLLMV1ReplicaScheduler(BaseReplicaScheduler):
                 )
                 if new_blocks is None:
                     # The request cannot be scheduled.
+                    self._log_replica_diag_event(
+                        current_time,
+                        waiting_depth_before,
+                        token_budget_before,
+                        head_num_new_tokens=num_new_tokens,
+                        head_is_feasible=0,
+                        break_reason="kv_allocation_failed",
+                        lookahead_stats=lookahead_stats,
+                    )
                     break
+
+                self._log_replica_diag_event(
+                    current_time,
+                    waiting_depth_before,
+                    token_budget_before,
+                    head_num_new_tokens=num_new_tokens,
+                    head_is_feasible=1,
+                    break_reason="scheduled",
+                    lookahead_stats=lookahead_stats,
+                )
 
                 self._waiting_queue.pop()
                 req_index += 1

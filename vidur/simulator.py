@@ -11,6 +11,7 @@ from vidur.entities import Cluster
 from vidur.events import BaseEvent, RequestArrivalEvent
 from vidur.logger import init_logger
 from vidur.metrics.cluster_metrics_store import ClusterMetricsStore
+from vidur.metrics.queue_diagnostics import configure_queue_diagnostics
 from vidur.request_generator import RequestGeneratorRegistry
 from vidur.scheduler import GlobalSchedulerRegistry
 from vidur.scheduler.global_scheduler.base_global_scheduler import BaseGlobalScheduler
@@ -51,6 +52,9 @@ class Simulator:
             self._config,
             self._cluster.replicas,
         )
+
+        # Optional queue diagnostics telemetry (enabled via ENABLE_QUEUE_DIAGNOSTICS=1)
+        configure_queue_diagnostics(self._config)
 
         self._init_event_queue()
         atexit.register(self._write_output)
