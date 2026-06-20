@@ -1,0 +1,78 @@
+
+================ METRIC: E2E (18 fixed scenarios) ================
+  median SLI_mean=0.463  median SLI_p99=0.552
+  p90    SLI_mean=0.986  p90    SLI_p99=0.998
+  scenarios SLI_p99>SLI_mean: 11/18
+  best-scheduler CHANGES mean->p99 in 7/18 scenarios
+  BEST  | mean:{'STICKY_LOR': 7, 'LOR': 6, 'ROUND_ROBIN': 5}  p99:{'STICKY_LOR': 2, 'LOR': 6, 'ROUND_ROBIN': 9, 'RANDOM': 1}
+  WORST | mean:{'ROUND_ROBIN': 3, 'RANDOM': 9, 'LOR': 6} p99:{'ROUND_ROBIN': 4, 'RANDOM': 7, 'LOR': 3, 'STICKY_LOR': 4}
+    7b-16R-Tool-2.0      SLI_mean=0.997 SLI_p99=0.999  mean[w=RANDOM,b=LOR] p99[w=RANDOM,b=LOR]
+    7b-8R-Synth-1.5      SLI_mean=0.982 SLI_p99=0.998  mean[w=LOR,b=ROUND_ROBIN] p99[w=LOR,b=ROUND_ROBIN]
+    7b-16R-Conv-3.0      SLI_mean=0.980 SLI_p99=0.997  mean[w=ROUND_ROBIN,b=LOR] p99[w=ROUND_ROBIN,b=LOR]
+    7b-16R-Tool-3.0      SLI_mean=0.944 SLI_p99=0.995  mean[w=ROUND_ROBIN,b=LOR] p99[w=ROUND_ROBIN,b=LOR]
+    7b-16R-Conv-2.0      SLI_mean=0.993 SLI_p99=0.995  mean[w=ROUND_ROBIN,b=STICKY_LOR] p99[w=ROUND_ROBIN,b=STICKY_LOR]
+    7b-16R-Tool-1.5      SLI_mean=0.982 SLI_p99=0.921  mean[w=RANDOM,b=STICKY_LOR] p99[w=RANDOM,b=STICKY_LOR]
+    7b-8R-Synth-2.0      SLI_mean=0.507 SLI_p99=0.800  mean[w=LOR,b=ROUND_ROBIN] p99[w=LOR,b=ROUND_ROBIN]
+    7b-16R-Conv-1.5      SLI_mean=0.905 SLI_p99=0.749  mean[w=RANDOM,b=LOR] p99[w=ROUND_ROBIN,b=LOR]
+    7b-8R-Synth-3.0      SLI_mean=0.304 SLI_p99=0.640  mean[w=LOR,b=ROUND_ROBIN] p99[w=LOR,b=ROUND_ROBIN]
+    7b-8R-Conv-3.0       SLI_mean=0.727 SLI_p99=0.465  mean[w=RANDOM,b=ROUND_ROBIN] p99[w=STICKY_LOR,b=ROUND_ROBIN]
+    7b-8R-Tool-1.5       SLI_mean=0.282 SLI_p99=0.341  mean[w=LOR,b=STICKY_LOR] p99[w=STICKY_LOR,b=ROUND_ROBIN]  <-rank flip
+    7b-8R-Tool-3.0       SLI_mean=0.418 SLI_p99=0.316  mean[w=LOR,b=ROUND_ROBIN] p99[w=STICKY_LOR,b=ROUND_ROBIN]
+    7b-16R-Synth-2.0     SLI_mean=0.184 SLI_p99=0.278  mean[w=RANDOM,b=STICKY_LOR] p99[w=RANDOM,b=LOR]  <-rank flip
+    7b-16R-Synth-1.5     SLI_mean=0.221 SLI_p99=0.247  mean[w=RANDOM,b=STICKY_LOR] p99[w=RANDOM,b=ROUND_ROBIN]  <-rank flip
+    7b-8R-Tool-2.0       SLI_mean=0.415 SLI_p99=0.228  mean[w=LOR,b=STICKY_LOR] p99[w=RANDOM,b=ROUND_ROBIN]  <-rank flip
+    7b-16R-Synth-3.0     SLI_mean=0.163 SLI_p99=0.212  mean[w=RANDOM,b=STICKY_LOR] p99[w=RANDOM,b=LOR]  <-rank flip
+    7b-8R-Conv-1.5       SLI_mean=0.222 SLI_p99=0.115  mean[w=RANDOM,b=LOR] p99[w=STICKY_LOR,b=RANDOM]  <-rank flip
+    7b-8R-Conv-2.0       SLI_mean=0.234 SLI_p99=0.068  mean[w=RANDOM,b=LOR] p99[w=RANDOM,b=ROUND_ROBIN]  <-rank flip
+
+================ METRIC: TTFT (18 fixed scenarios) ================
+  median SLI_mean=0.529  median SLI_p99=0.612
+  p90    SLI_mean=0.996  p90    SLI_p99=0.999
+  scenarios SLI_p99>SLI_mean: 9/18
+  best-scheduler CHANGES mean->p99 in 8/18 scenarios
+  BEST  | mean:{'STICKY_LOR': 7, 'LOR': 6, 'ROUND_ROBIN': 5}  p99:{'STICKY_LOR': 3, 'LOR': 3, 'ROUND_ROBIN': 11, 'RANDOM': 1}
+  WORST | mean:{'ROUND_ROBIN': 3, 'RANDOM': 9, 'LOR': 6} p99:{'ROUND_ROBIN': 4, 'RANDOM': 7, 'LOR': 3, 'STICKY_LOR': 4}
+    7b-16R-Tool-2.0      SLI_mean=0.999 SLI_p99=0.999  mean[w=RANDOM,b=LOR] p99[w=RANDOM,b=LOR]
+    7b-16R-Conv-2.0      SLI_mean=0.998 SLI_p99=0.999  mean[w=ROUND_ROBIN,b=STICKY_LOR] p99[w=ROUND_ROBIN,b=STICKY_LOR]
+    7b-8R-Synth-1.5      SLI_mean=0.993 SLI_p99=0.999  mean[w=LOR,b=ROUND_ROBIN] p99[w=LOR,b=ROUND_ROBIN]
+    7b-16R-Conv-3.0      SLI_mean=0.995 SLI_p99=0.999  mean[w=ROUND_ROBIN,b=LOR] p99[w=ROUND_ROBIN,b=LOR]
+    7b-16R-Tool-3.0      SLI_mean=0.983 SLI_p99=0.998  mean[w=ROUND_ROBIN,b=LOR] p99[w=ROUND_ROBIN,b=STICKY_LOR]  <-rank flip
+    7b-16R-Tool-1.5      SLI_mean=0.988 SLI_p99=0.939  mean[w=RANDOM,b=STICKY_LOR] p99[w=RANDOM,b=STICKY_LOR]
+    7b-8R-Synth-2.0      SLI_mean=0.637 SLI_p99=0.894  mean[w=LOR,b=ROUND_ROBIN] p99[w=LOR,b=ROUND_ROBIN]
+    7b-16R-Conv-1.5      SLI_mean=0.916 SLI_p99=0.771  mean[w=RANDOM,b=LOR] p99[w=ROUND_ROBIN,b=LOR]
+    7b-8R-Synth-3.0      SLI_mean=0.414 SLI_p99=0.756  mean[w=LOR,b=ROUND_ROBIN] p99[w=LOR,b=ROUND_ROBIN]
+    7b-8R-Conv-3.0       SLI_mean=0.733 SLI_p99=0.467  mean[w=RANDOM,b=ROUND_ROBIN] p99[w=STICKY_LOR,b=ROUND_ROBIN]
+    7b-8R-Tool-1.5       SLI_mean=0.288 SLI_p99=0.340  mean[w=LOR,b=STICKY_LOR] p99[w=STICKY_LOR,b=ROUND_ROBIN]  <-rank flip
+    7b-8R-Tool-3.0       SLI_mean=0.421 SLI_p99=0.317  mean[w=LOR,b=ROUND_ROBIN] p99[w=STICKY_LOR,b=ROUND_ROBIN]
+    7b-16R-Synth-1.5     SLI_mean=0.248 SLI_p99=0.265  mean[w=RANDOM,b=STICKY_LOR] p99[w=RANDOM,b=ROUND_ROBIN]  <-rank flip
+    7b-8R-Tool-2.0       SLI_mean=0.420 SLI_p99=0.228  mean[w=LOR,b=STICKY_LOR] p99[w=RANDOM,b=ROUND_ROBIN]  <-rank flip
+    7b-16R-Synth-2.0     SLI_mean=0.245 SLI_p99=0.182  mean[w=RANDOM,b=STICKY_LOR] p99[w=RANDOM,b=ROUND_ROBIN]  <-rank flip
+    7b-8R-Conv-1.5       SLI_mean=0.225 SLI_p99=0.129  mean[w=RANDOM,b=LOR] p99[w=STICKY_LOR,b=RANDOM]  <-rank flip
+    7b-16R-Synth-3.0     SLI_mean=0.209 SLI_p99=0.094  mean[w=RANDOM,b=STICKY_LOR] p99[w=RANDOM,b=ROUND_ROBIN]  <-rank flip
+    7b-8R-Conv-2.0       SLI_mean=0.235 SLI_p99=0.065  mean[w=RANDOM,b=LOR] p99[w=RANDOM,b=ROUND_ROBIN]  <-rank flip
+
+================ METRIC: TPOT (18 fixed scenarios) ================
+  median SLI_mean=0.696  median SLI_p99=0.800
+  p90    SLI_mean=0.980  p90    SLI_p99=0.999
+  scenarios SLI_p99>SLI_mean: 14/18
+  best-scheduler CHANGES mean->p99 in 1/18 scenarios
+  BEST  | mean:{'STICKY_LOR': 6, 'LOR': 5, 'ROUND_ROBIN': 7}  p99:{'STICKY_LOR': 6, 'LOR': 4, 'ROUND_ROBIN': 8}
+  WORST | mean:{'RANDOM': 11, 'STICKY_LOR': 1, 'LOR': 5, 'ROUND_ROBIN': 1} p99:{'RANDOM': 11, 'LOR': 4, 'ROUND_ROBIN': 1, 'STICKY_LOR': 2}
+    7b-8R-Synth-1.5      SLI_mean=0.993 SLI_p99=0.999  mean[w=LOR,b=ROUND_ROBIN] p99[w=LOR,b=ROUND_ROBIN]
+    7b-16R-Conv-2.0      SLI_mean=0.982 SLI_p99=0.999  mean[w=RANDOM,b=STICKY_LOR] p99[w=RANDOM,b=STICKY_LOR]
+    7b-16R-Tool-2.0      SLI_mean=0.977 SLI_p99=0.999  mean[w=RANDOM,b=LOR] p99[w=RANDOM,b=LOR]
+    7b-16R-Conv-3.0      SLI_mean=0.978 SLI_p99=0.990  mean[w=RANDOM,b=LOR] p99[w=RANDOM,b=LOR]
+    7b-16R-Tool-1.5      SLI_mean=0.905 SLI_p99=0.979  mean[w=RANDOM,b=STICKY_LOR] p99[w=RANDOM,b=STICKY_LOR]
+    7b-8R-Tool-2.0       SLI_mean=0.670 SLI_p99=0.892  mean[w=LOR,b=STICKY_LOR] p99[w=RANDOM,b=STICKY_LOR]
+    7b-8R-Tool-3.0       SLI_mean=0.569 SLI_p99=0.885  mean[w=LOR,b=STICKY_LOR] p99[w=LOR,b=STICKY_LOR]
+    7b-16R-Conv-1.5      SLI_mean=0.836 SLI_p99=0.879  mean[w=RANDOM,b=LOR] p99[w=RANDOM,b=LOR]
+    7b-16R-Tool-3.0      SLI_mean=0.872 SLI_p99=0.819  mean[w=ROUND_ROBIN,b=LOR] p99[w=ROUND_ROBIN,b=LOR]
+    7b-8R-Tool-1.5       SLI_mean=0.411 SLI_p99=0.781  mean[w=RANDOM,b=STICKY_LOR] p99[w=RANDOM,b=STICKY_LOR]
+    7b-16R-Synth-3.0     SLI_mean=0.182 SLI_p99=0.745  mean[w=RANDOM,b=ROUND_ROBIN] p99[w=RANDOM,b=ROUND_ROBIN]
+    7b-16R-Synth-2.0     SLI_mean=0.685 SLI_p99=0.732  mean[w=STICKY_LOR,b=ROUND_ROBIN] p99[w=RANDOM,b=ROUND_ROBIN]
+    7b-8R-Conv-3.0       SLI_mean=0.600 SLI_p99=0.612  mean[w=RANDOM,b=ROUND_ROBIN] p99[w=STICKY_LOR,b=ROUND_ROBIN]
+    7b-16R-Synth-1.5     SLI_mean=0.279 SLI_p99=0.547  mean[w=RANDOM,b=ROUND_ROBIN] p99[w=RANDOM,b=ROUND_ROBIN]
+    7b-8R-Synth-3.0      SLI_mean=0.707 SLI_p99=0.464  mean[w=LOR,b=ROUND_ROBIN] p99[w=LOR,b=ROUND_ROBIN]
+    7b-8R-Conv-2.0       SLI_mean=0.210 SLI_p99=0.329  mean[w=RANDOM,b=LOR] p99[w=STICKY_LOR,b=ROUND_ROBIN]  <-rank flip
+    7b-8R-Conv-1.5       SLI_mean=0.298 SLI_p99=0.266  mean[w=RANDOM,b=STICKY_LOR] p99[w=RANDOM,b=STICKY_LOR]
+    7b-8R-Synth-2.0      SLI_mean=0.896 SLI_p99=0.225  mean[w=LOR,b=ROUND_ROBIN] p99[w=LOR,b=ROUND_ROBIN]
