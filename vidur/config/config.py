@@ -727,8 +727,18 @@ class RLCacheAwareGlobalSchedulerConfig(BaseGlobalSchedulerConfig):
         metadata={"help": "Requests for epsilon to decay ~99%% toward epsilon_end (exponential decay)"},
     )
     inference_epsilon: float = field(
-        default=0.05,
-        metadata={"help": "Fixed epsilon used in inference mode (evaluation). Default is 5%% exploration."},
+        default=0.0,
+        metadata={
+            "help": "Fixed epsilon-greedy exploration used in inference mode. Default 0 = pure greedy. "
+            "NOTE: before 2026-09-21 this flag was accepted but ignored (inference was always greedy)."
+        },
+    )
+    gamma: float = field(
+        default=0.99,
+        metadata={
+            "help": "Discount factor for the bootstrapped Double-DQN target. 0 reduces to a contextual "
+            "bandit on the immediate per-request reward (the effective behaviour of all runs before 2026-09-21)."
+        },
     )
     reset_epsilon_on_load: bool = field(
         default=False,
@@ -764,7 +774,10 @@ class RLCacheAwareGlobalSchedulerConfig(BaseGlobalSchedulerConfig):
     )
     hidden_dims: str = field(
         default="512,512,256,128",
-        metadata={"help": "Comma-separated list of hidden layer dimensions"},
+        metadata={
+            "help": "Comma-separated Q-network hidden layer sizes. NOTE: before 2026-09-21 this flag was "
+            "accepted but never reached the agent; every run trained the 512,512,256,128 default."
+        },
     )
     transition_log_path: str = field(
         default="",

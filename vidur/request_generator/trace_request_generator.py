@@ -118,6 +118,13 @@ class TraceRequestGenerator(BaseRequestGenerator):
         # Free the DataFrame to save memory (we no longer need it)
         del self.trace_df
 
+    def max_request_total_tokens(self) -> int:
+        """Largest prefill+decode token count among the requests that will be replayed."""
+        n = self.num_requests
+        if n == 0:
+            return 0
+        return int((self._num_prefill_tokens[:n] + self._num_decode_tokens[:n]).max())
+
     def get_next_request_arrival_time(self) -> Optional[float]:
         if self.num_requests_generated >= self.num_requests:
             return None

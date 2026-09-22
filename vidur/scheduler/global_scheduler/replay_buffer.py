@@ -58,18 +58,16 @@ class ReplayBuffer:
         self._csv_file = open(self._log_file_path, "w", newline="", buffering=1)
         self._csv_writer = csv.writer(self._csv_file)
 
-        # Build header row
-        headers = ["transition_idx", "timestamp"]
+        # Build header row: bookkeeping, state features, next-state features, then
+        # action/reward/done. (Before 2026-09-21 the feature-named branch omitted the
+        # next_state/action/reward/done headers, so rows had more columns than the header.)
+        headers = ["transition_idx", "timestamp", "request_id", "decision_idx"]
         if self._feature_names:
             headers.extend(self._feature_names)
+            headers.extend([f"next_{name}" for name in self._feature_names])
         else:
-            # Generic feature names if not provided
-            headers.append("state_vector")
-            if self._feature_names:
-                headers.extend([f"next_{name}" for name in self._feature_names])
-            else:
-                headers.append("next_state_vector")
-            headers.extend(["action", "reward", "done"])
+            headers.extend(["state_vector", "next_state_vector"])
+        headers.extend(["action", "reward", "done"])
 
         self._csv_writer.writerow(headers)
         print(f"[ReplayBuffer] Logging transitions to: {self._log_file_path}")
@@ -81,6 +79,7 @@ class ReplayBuffer:
         reward: float,
         next_state: np.ndarray,
         done: bool,
+        meta: Optional[Dict[str, int]] = None,
     ) -> None:
         """
         Add a transition to the buffer.
@@ -91,6 +90,7 @@ class ReplayBuffer:
             reward: Reward received
             next_state: State after environment transition
             done: Whether the transition terminates the episode/decision chain
+            meta: Optional bookkeeping (request_id, decision_idx) for the CSV log
         """
         if len(self._buffer) < self._capacity:
             self._buffer.append(None)
@@ -106,7 +106,7 @@ class ReplayBuffer:
 
         # Log to CSV if enabled
         if self._csv_writer:
-            self._log_transition(state, action, reward, next_state, done)
+            self._log_transition(state, action, reward, next_state, done, meta or {})
 
         self._transition_count += 1
 
@@ -117,9 +117,15 @@ class ReplayBuffer:
         reward: float,
         next_state: np.ndarray,
         done: bool,
+        meta: Dict[str, int],
     ) -> None:
         """Write a transition to the CSV log file."""
-        row = [self._transition_count, time.time()]
+        row = [
+            self._transition_count,
+            time.time(),
+            meta.get("request_id", -1),
+            meta.get("decision_idx", -1),
+        ]
 
         if self._feature_names:
             # Individual feature columns

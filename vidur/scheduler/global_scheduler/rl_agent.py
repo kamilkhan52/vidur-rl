@@ -2,7 +2,7 @@
 
 import copy
 import os
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 import numpy as np
 import torch
@@ -58,7 +58,7 @@ class RLAgent:
     - Target network: Updated periodically for stable targets
     """
 
-    def __init__(self, state_dim: int, num_actions: int, config, hidden_dims: List[int] = [512, 512, 256, 128]):
+    def __init__(self, state_dim: int, num_actions: int, config, hidden_dims: Optional[List[int]] = None):
         """
         Initialize RL agent.
 
@@ -71,7 +71,8 @@ class RLAgent:
         self._state_dim = state_dim
         self._num_actions = num_actions
         self._config = config
-        self._hidden_dims = hidden_dims
+        self._hidden_dims = list(hidden_dims) if hidden_dims else [512, 512, 256, 128]
+        hidden_dims = self._hidden_dims
 
         # Build Q-networks
         self._q_network = QNetwork(state_dim, num_actions, hidden_dims)
@@ -232,7 +233,7 @@ class RLAgent:
             path: Path to checkpoint file
         """
         try:
-            checkpoint = torch.load(path, map_location="cpu")
+            checkpoint = torch.load(path, map_location="cpu", weights_only=False)
 
             # Validate checkpoint
             if checkpoint.get("state_dim") != self._state_dim:
@@ -251,12 +252,21 @@ class RLAgent:
                 )
                 return
 
+            ckpt_dims = checkpoint.get("hidden_dims")
+            if ckpt_dims is not None and [int(d) for d in ckpt_dims] != self._hidden_dims:
+                print(
+                    f"Warning: Hidden dims mismatch. "
+                    f"Checkpoint: {ckpt_dims}, Current: {self._hidden_dims}"
+                )
+                return
+
             # Load state dicts
             self._q_network.load_state_dict(checkpoint["q_network_state_dict"])
             self._target_network.load_state_dict(checkpoint["target_network_state_dict"])
             self._optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
             self._update_count = checkpoint.get("update_count", 0)
-            self._hidden_dims = checkpoint.get("hidden_dims", [256, 128, 64])
+            if ckpt_dims is not None:
+                self._hidden_dims = [int(d) for d in ckpt_dims]
 
             print(f"Checkpoint loaded from {path}")
             print(f"Resuming from update {self._update_count}")

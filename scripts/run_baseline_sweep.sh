@@ -21,7 +21,9 @@
 # Environment Variables:
 #   ENABLE_CHROME_TRACE=0    # Always off to save disk space
 #   OUTPUT_DIR_BASE           # Defaults to SCRATCH_DIR
-#   NUM_ITERATIONS           # Number of iterations per config (default: 5)
+#   NUM_RUNS                 # Runs per config (default: 1; identical unless SEED_BASE set)
+#   SEED_BASE                # If set, run i uses seed SEED_BASE+i (simulator, trace, scheduler RNG)
+#   MAX_TOKENS_7B/70B        # Trace filter = per-replica KV capacity (122752 / 525920)
 #
 # Best Practices Incorporated:
 #   ✓ Chrome traces DISABLED (default=False in config)
@@ -52,7 +54,17 @@ CACHE_DIR="${PROJECT_ROOT}/cache"
 # Environment
 export ENABLE_CHROME_TRACE=${ENABLE_CHROME_TRACE:-0}
 export OUTPUT_DIR_BASE="${OUTPUT_DIR_BASE:-${SCRATCH_ROOT}/vidur-rl/baselines}"
-export NUM_RUNS="${NUM_RUNS:-5}"
+# NOTE (2026-09-21): the simulator is deterministic for a given seed, so repeated
+# runs with the same seed are bit-identical. NUM_RUNS>1 only adds information when
+# SEED_BASE is set (run i uses seed SEED_BASE+i for the simulator, the request
+# generator and the scheduler's own tie-break RNG).
+export NUM_RUNS="${NUM_RUNS:-1}"
+export SEED_BASE="${SEED_BASE:-}"
+# Requests larger than a replica's KV cache can never be scheduled and used to
+# wedge the replica silently (see vidur/simulator.py::_validate_request_capacity).
+# Per-replica capacity on an 80 GB A100: 7b/TP1 = 122752 tokens, 70b/TP4 = 525920.
+MAX_TOKENS_7B="${MAX_TOKENS_7B:-122752}"
+MAX_TOKENS_70B="${MAX_TOKENS_70B:-525920}"
 
 # Scheduler Type Mapping (config file names)
 declare -A SCHEDULER_MAP=(
@@ -124,6 +136,30 @@ get_model_name() {
         echo "meta-llama/Llama-2-7b-hf"
     fi
 }
+
+get_max_tokens() {
+    local model=$1
+    if [ "$model" == "70b" ]; then
+        echo "$MAX_TOKENS_70B"
+    else
+        echo "$MAX_TOKENS_7B"
+    fi
+}
+
+# Flag name of the per-scheduler RNG seed (Vidur derives it from the config class name).
+declare -A SEED_FLAG_MAP=(
+    ["random"]="random_global_scheduler_config_seed"
+    ["round_robin"]="round_robin_global_scheduler_config_seed"
+    ["lor"]="l_o_r_global_scheduler_config_seed"
+    ["lop"]="l_o_p_global_scheduler_config_seed"
+    ["lop_binary"]="l_o_p_binary_global_scheduler_config_seed"
+    ["lop_batch_end"]="l_o_p_batch_end_global_scheduler_config_seed"
+    ["lop_uncached"]="l_o_p_uncached_global_scheduler_config_seed"
+    ["sticky_round_robin"]="sticky_round_robin_global_scheduler_config_seed"
+    ["sticky_lor"]="sticky_lor_global_scheduler_config_seed"
+    ["ranked_sticky_lop_uncached"]="ranked_sticky_lop_uncached_global_scheduler_config_seed"
+    ["tolerant_sticky_lop_uncached"]="tolerant_sticky_lop_uncached_global_scheduler_config_seed"
+)
 
 get_tensor_parallel() {
     local model=$1
@@ -212,6 +248,7 @@ run_baseline_single() {
     local trace_file=$(resolve_trace_file "$trace_name")
     local model_name=$(get_model_name $model)
     local tp_size=$(get_tensor_parallel $model)
+    local max_tokens=$(get_max_tokens $model)
     
     # Output directory for this run
     local timestamp=$(date +%Y%m%d_%H%M%S)
@@ -232,9 +269,19 @@ run_baseline_single() {
         mkdir -p "$run_dir"
         
         log_info "Run $i/$NUM_RUNS"
-        
-        # EXACT PARAMETERS MATCHING RL SWEEP (job 23714214)
+
+        local seed_args=()
+        if [ -n "$SEED_BASE" ]; then
+            local run_seed=$((SEED_BASE + i))
+            seed_args=(--seed "$run_seed" --trace_request_generator_config_seed "$run_seed"
+                       "--${SEED_FLAG_MAP[$scheduler_type]}" "$run_seed")
+            log_info "Seed: $run_seed"
+        fi
+
+        # EXACT PARAMETERS MATCHING RL SWEEP (job 23714214), plus the KV-capacity filter
         python3 -m vidur.main \
+            "${seed_args[@]}" \
+            --trace_request_generator_config_max_tokens "$max_tokens" \
             --replica_config_device a100 \
             --replica_config_model_name "$model_name" \
             --replica_config_tensor_parallel_size "$tp_size" \
@@ -318,7 +365,9 @@ usage() {
     echo "Environment Variables:"
     echo "  ENABLE_CHROME_TRACE=0    # Always disabled (default)"
     echo "  OUTPUT_DIR_BASE         # Default: SCRATCH/baselines"
-    echo "  NUM_ITERATIONS=5        # Iterations per config"
+    echo "  NUM_RUNS=1              # Runs per config (identical unless SEED_BASE is set)"
+    echo "  SEED_BASE=              # If set, run i uses seed SEED_BASE+i"
+    echo "  MAX_TOKENS_7B/70B       # KV-capacity trace filter (defaults 122752 / 525920)"
 }
 
 # Parse arguments

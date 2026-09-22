@@ -53,7 +53,23 @@ class VLLMV1ReplicaScheduler(BaseReplicaScheduler):
         _, num_computed_tokens = self._kv_cache_manager.get_computed_blocks(request)
         return num_computed_tokens
 
+    @property
+    def max_request_total_tokens(self) -> int:
+        """Largest request (prefill+decode tokens) this replica's KV cache can ever hold."""
+        return self._cache_config.num_blocks * self._cache_config.block_size
+
     def add_request(self, request: Request):
+        # A request larger than the whole KV cache can never be allocated. Under the
+        # FCFS waiting queue it would sit at the head forever and wedge this replica
+        # (every request routed here afterwards silently never completes). Real vLLM
+        # rejects such prompts at admission; do the same instead of hanging.
+        if request.total_tokens > self.max_request_total_tokens:
+            raise ValueError(
+                f"Request {request.id} needs {request.total_tokens} tokens "
+                f"(prefill {request.num_prefill_tokens} + decode {request.num_decode_tokens}) but replica "
+                f"{self._replica_id} can hold at most {self.max_request_total_tokens}. Filter the trace with "
+                f"--trace_request_generator_config_max_tokens {self.max_request_total_tokens} (or smaller)."
+            )
         request.assign_replica(self._replica_id)
         self._waiting_queue.push(request)
         self._requests[request.id] = request

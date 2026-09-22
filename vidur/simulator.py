@@ -56,6 +56,8 @@ class Simulator:
         # Optional queue diagnostics telemetry (enabled via ENABLE_QUEUE_DIAGNOSTICS=1)
         configure_queue_diagnostics(self._config)
 
+        self._validate_request_capacity()
+
         self._init_event_queue()
         atexit.register(self._write_output)
 
@@ -115,6 +117,32 @@ class Simulator:
             )
 
         logger.info(f"Simulation ended at: {self._time}s")
+
+    def _validate_request_capacity(self) -> None:
+        """
+        Refuse to start a trace replay that contains a request larger than a
+        replica's whole KV cache. Such a request can never be scheduled; under
+        FCFS it wedges its replica and every later request routed there is
+        silently lost, corrupting completion counts and latency statistics.
+        """
+        get_max = getattr(self._request_generator, "max_request_total_tokens", None)
+        if get_max is None:
+            return
+        capacities = [
+            rs.max_request_total_tokens
+            for rs in self._scheduler._replica_schedulers.values()
+            if hasattr(rs, "max_request_total_tokens")
+        ]
+        if not capacities:
+            return
+        capacity = min(capacities)
+        largest = get_max()
+        if largest > capacity:
+            raise ValueError(
+                f"Trace contains a request of {largest} tokens (prefill+decode) but a replica's KV cache "
+                f"holds at most {capacity} tokens; it could never be scheduled and would wedge its replica. "
+                f"Pass --trace_request_generator_config_max_tokens {capacity} (or smaller) to filter the trace."
+            )
 
     def _write_output(self) -> None:
         logger.info("Writing output")
