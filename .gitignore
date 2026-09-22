@@ -188,3 +188,6 @@ prefill_throughput_output
 results/
 rl_models/
 simulator_output/openevolve/evolution_output/
+
+# Archived untracked working artifacts (kept on disk, not in git)
+archive/*/untracked/
