@@ -93,6 +93,7 @@ for ITER in $(seq 1 $NUM_ITERATIONS); do
         --r_l_cache_aware_global_scheduler_config_model_checkpoint_path "$CHECKPOINT_PATH" \
         --trace_request_generator_config_time_scale_factor "$SCALE" \
         --trace_request_generator_config_trace_file "$TRACE_FILE" \
+        --trace_request_generator_config_max_tokens "$([[ "$MODEL" == *70b* ]] && echo 525920 || echo 122752)" \
         --metrics_config_output_dir "$ITER_DIR" \
         --no-metrics_config_write_json_trace \
         --request_generator_config_type trace \

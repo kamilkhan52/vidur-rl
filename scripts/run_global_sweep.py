@@ -81,6 +81,8 @@ def run_vidur(sim: SimulationRun):
         "--request_generator_config_type", "trace",
         "--trace_request_generator_config_trace_file", sim.trace,
         "--trace_request_generator_config_time_scale_factor", str(sim.time_scale),
+        # KV-capacity filter (7b/TP1 122752 tokens, 70b/TP4 525920); larger requests wedge a replica
+        "--trace_request_generator_config_max_tokens", "525920" if "70b" in sim.model else "122752",
         "--cache_config_enable_prefix_caching",
         "--metrics_config_output_dir", output_dir,
         "--no-metrics_config_write_json_trace",

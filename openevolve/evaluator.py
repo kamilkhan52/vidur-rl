@@ -50,6 +50,8 @@ FIXED_ARGS = [
     "--replica_scheduler_config_type", "vllm_v1",
     "--request_generator_config_type", "trace",
     "--trace_request_generator_config_trace_file", TRACE_FILE,
+    # KV-capacity filter: 7b/TP1 replica holds 122752 tokens; larger requests wedge it
+    "--trace_request_generator_config_max_tokens", "122752",
     "--trace_request_generator_config_time_scale_factor", "1.5",
     "--cache_config_enable_prefix_caching",
     "--no-metrics_config_enable_chrome_trace",

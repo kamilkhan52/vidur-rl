@@ -85,6 +85,7 @@ CMD=(
   --r_l_cache_aware_global_scheduler_config_replay_buffer_size 10000
   --request_generator_config_type trace
   --trace_request_generator_config_trace_file "$TRACE"
+  --trace_request_generator_config_max_tokens 122752
   --no-cache_config_enable_prefix_caching
   --no-metrics_config_write_json_trace
   --no-metrics_config_store_operation_metrics

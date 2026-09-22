@@ -74,6 +74,7 @@ python3 -m vidur.main \
     --global_scheduler_config_type "$SCHEDULER" \
     --trace_request_generator_config_time_scale_factor "$SCALE" \
     --trace_request_generator_config_trace_file "data/processed_traces/mooncake_${TRACE_FILE}.csv" \
+    --trace_request_generator_config_max_tokens "$([[ "$MODEL_NAME" == *70b* ]] && echo 525920 || echo 122752)" \
     --metrics_config_output_dir "$OUTPUT_DIR" \
     --no-metrics_config_write_json_trace \
     --request_generator_config_type trace \
