@@ -62,6 +62,10 @@ class Request(BaseEntity):
         self._num_prefill_tokens = num_prefill_tokens
         self._num_prefill_tokens_cached = 0
         self._num_decode_tokens = num_decode_tokens
+        # restart() folds already-decoded tokens into the prefill count; keep the
+        # trace's original split for metrics that normalise per token.
+        self._original_num_prefill_tokens = num_prefill_tokens
+        self._original_num_decode_tokens = num_decode_tokens
         self._num_processed_tokens = 0
         self._block_hash_ids = block_hash_ids
         self._block_size = block_size
@@ -154,7 +158,7 @@ class Request(BaseEntity):
     @property
     @check_scheduled
     def e2e_time_normalized(self) -> float:
-        return self.e2e_time / self.num_decode_tokens
+        return self.e2e_time / self._original_num_decode_tokens
 
     @property
     @check_scheduled
@@ -207,6 +211,16 @@ class Request(BaseEntity):
     @property
     def total_tokens(self) -> int:
         return self._num_prefill_tokens + self._num_decode_tokens
+
+    @property
+    def original_num_prefill_tokens(self) -> int:
+        """Prefill tokens as given by the trace (unchanged by preemption restarts)."""
+        return self._original_num_prefill_tokens
+
+    @property
+    def original_num_decode_tokens(self) -> int:
+        """Decode tokens as given by the trace (unchanged by preemption restarts)."""
+        return self._original_num_decode_tokens
 
     @property
     def num_processed_prefill_tokens(self) -> int:
@@ -282,7 +296,12 @@ class Request(BaseEntity):
             num_tokens_cached <= self._num_prefill_tokens
         ), f"Request {self._id} has {num_tokens_cached} cached tokens, but only {self._num_prefill_tokens} prefill tokens."
         self._num_processed_tokens = num_tokens_cached
-        self._num_prefill_tokens_cached = num_tokens_cached
+        # Record the prefix-cache hit of the FIRST scheduling only. After a
+        # preemption restart the request's own previously computed blocks are
+        # "cached", which would otherwise inflate hit ratios exactly in the
+        # overloaded runs where preemption happens.
+        if self._num_restarts == 0:
+            self._num_prefill_tokens_cached = num_tokens_cached
 
     def restart(self):
         logger.debug(f"Restarting request {self._id}")

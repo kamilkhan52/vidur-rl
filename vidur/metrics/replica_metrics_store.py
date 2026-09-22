@@ -323,7 +323,7 @@ class ReplicaMetricsStore:
         ].put(
             request.id,
             (request.prefill_completed_at - request.arrived_at)
-            / request.num_prefill_tokens,
+            / request.original_num_prefill_tokens,
         )
         self._request_metrics_time_distributions[
             RequestMetricsTimeDistributions.PREFILL_TIME_EXECUTION_PLUS_PREEMPTION
@@ -333,14 +333,14 @@ class ReplicaMetricsStore:
         ].put(
             request.id,
             (request.prefill_completed_at - request.scheduled_at)
-            / request.num_prefill_tokens,
+            / request.original_num_prefill_tokens,
         )
         self._request_metrics_time_distributions[
             RequestMetricsTimeDistributions.DECODE_TIME_EXECUTION_PLUS_PREEMPTION_NORMALIZED
         ].put(
             request.id,
             (request.completed_at - request.prefill_completed_at)
-            / request.num_decode_tokens,
+            / request.original_num_decode_tokens,
         )
 
         self._request_metrics_histogram[
