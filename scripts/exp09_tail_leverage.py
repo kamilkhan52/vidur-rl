@@ -12,28 +12,41 @@ per-request data has been re-cut on Alpine.
 
 Usage: python3 exp09_tail_leverage.py --csv <per_run_csv> [--out <dir>]
 """
-import argparse, csv, math
+import argparse, csv, math, os, sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from tail_metrics import is_missing, percentile  # noqa: E402
 from collections import defaultdict, Counter
 
 KEY = ("scheduler", "model", "replicas", "trace", "scale")
 FIXED = ("model", "replicas", "trace", "scale")
 
 
-def pctl(v, q):
-    v = sorted(v); k = (len(v) - 1) * q; f = math.floor(k); c = math.ceil(k)
-    return v[int(k)] if f == c else v[f] * (c - k) + v[c] * (k - f)
+pctl = percentile
 
 
 def sli(items, metric):
-    vals = [(s, m[metric]) for s, m in items if m.get(metric) not in (None, "", float("nan"))]
+    # Before 2026-09-22 this filtered with `not in (None, "", float("nan"))`, which
+    # never excludes NaN (a fresh NaN compares unequal to every NaN).
+    vals = [(s, m[metric]) for s, m in items if not is_missing(m.get(metric))]
     worst = max(vals, key=lambda x: x[1]); best = min(vals, key=lambda x: x[1])
     return (worst[1] - best[1]) / worst[1] if worst[1] else 0.0, worst[0], best[0]
+
+
+def completion_mismatch(items, tol=0.0):
+    """Relative spread of completed-request counts across schedulers in one scenario."""
+    ns = [m["n_requests"] for _, m in items if not is_missing(m.get("n_requests"))]
+    if not ns or max(ns) == 0:
+        return 0.0
+    return (max(ns) - min(ns)) / max(ns)
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--csv", required=True)
     ap.add_argument("--out")
+    ap.add_argument("--max-completion-gap", type=float, default=0.0,
+                    help="flag scenarios whose completed-request counts differ by more than this fraction")
     args = ap.parse_args()
     rows = list(csv.DictReader(open(args.csv)))
     metrics = [m for m in ("e2e", "ttft", "tpot")
@@ -43,6 +56,10 @@ def main():
     agg = defaultdict(lambda: defaultdict(list))
     for r in rows:
         k = tuple(r[x] for x in KEY)
+        try:
+            agg[k]["n_requests"].append(float(r["n_requests"]))
+        except (ValueError, KeyError):
+            pass
         for m in metrics:
             for stat in (f"mean_{m}", f"p99_{m}"):
                 try:
@@ -55,6 +72,17 @@ def main():
         fixed[tuple(k[KEY.index(x)] for x in FIXED)].append((k[0], v))
 
     out_lines = []
+    # Tail statistics over completed requests only are not comparable when the
+    # schedulers completed different request sets (e.g. the pre-2026-09-21 runs,
+    # where oversize requests wedged replicas). Flag such scenarios loudly.
+    bad = {fk: completion_mismatch(items) for fk, items in fixed.items()}
+    bad = {fk: v for fk, v in bad.items() if v > args.max_completion_gap}
+    if bad:
+        out_lines.append(f"WARNING: {len(bad)}/{len(fixed)} scenarios have completed-request counts that "
+                         f"differ across schedulers by more than {args.max_completion_gap:.1%}; their "
+                         f"tail comparisons are biased:")
+        for fk, v in sorted(bad.items(), key=lambda x: -x[1]):
+            out_lines.append(f"    {'-'.join(fk):20s} completion gap {v:.1%}")
     for m in metrics:
         sli_mean, sli_p99, reversal = [], [], 0
         bestm, bestp, worstm, worstp = Counter(), Counter(), Counter(), Counter()
