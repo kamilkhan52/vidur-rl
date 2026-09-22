@@ -25,6 +25,7 @@ import importlib.util
 import json
 import math
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -60,6 +61,10 @@ NUM_TRAINING_ITERATIONS = int(os.environ.get("NUM_TRAINING_ITERATIONS", "8"))
 
 # Per-iteration timeout (full toolagent trace ~23k requests)
 TIMEOUT_PER_ITERATION = int(os.environ.get("TIMEOUT_PER_ITERATION", "10800"))
+
+# Optional: persist per-iteration artifacts for collapse debugging.
+# If set, checkpoints and output dirs are copied under this path.
+PERSIST_EVAL_ARTIFACTS_DIR = os.environ.get("PERSIST_EVAL_ARTIFACTS_DIR", "").strip()
 
 
 def load_program(program_path: str):
@@ -236,6 +241,13 @@ def evaluate(program_path: str) -> dict:
     num_iters = NUM_TRAINING_ITERATIONS
     per_iteration_stats = []
     last_stderr = ""
+    artifact_run_dir = ""
+
+    if PERSIST_EVAL_ARTIFACTS_DIR:
+        program_stem = Path(program_path).stem
+        artifact_run_dir = str(Path(PERSIST_EVAL_ARTIFACTS_DIR) / f"{program_stem}_{os.getpid()}")
+        os.makedirs(artifact_run_dir, exist_ok=True)
+        Path(os.path.join(artifact_run_dir, "program_path.txt")).write_text(program_path)
 
     with tempfile.TemporaryDirectory() as work_dir:
         plugin_path = os.path.join(work_dir, "reward_plugin.py")
@@ -278,10 +290,24 @@ def evaluate(program_path: str) -> dict:
                         "improvement_pct": -100.0,
                         "per_iteration_stats": [],
                         "num_iterations_completed": 0,
+                        "artifact_dir": artifact_run_dir,
                         "stderr": stderr[-500:] if stderr else "",
                     }
 
             per_iteration_stats.append(stats)
+
+            if artifact_run_dir:
+                if os.path.exists(checkpoint_path):
+                    shutil.copy2(
+                        checkpoint_path,
+                        os.path.join(artifact_run_dir, f"model_iter{iteration+1}.pt"),
+                    )
+                iter_artifact_dir = os.path.join(artifact_run_dir, f"output_iter{iteration+1}")
+                shutil.copytree(output_dir, iter_artifact_dir, dirs_exist_ok=True)
+                Path(os.path.join(artifact_run_dir, f"stats_iter{iteration+1}.json")).write_text(
+                    json.dumps(stats, indent=2)
+                )
+
             print(f"  [Eval] Training iter {iteration+1}/{num_iters}: "
                   f"median={stats['median']:.2f}s  mean={stats['mean']:.2f}s  "
                   f"p95={stats['p95']:.2f}s  p99={stats['p99']:.2f}s", flush=True)
@@ -311,6 +337,7 @@ def evaluate(program_path: str) -> dict:
         "per_iteration_medians": iter_medians,
         "best_iteration": best_idx + 1,
         "num_iterations_completed": len(per_iteration_stats),
+        "artifact_dir": artifact_run_dir,
         "stderr": last_stderr[-500:] if last_stderr else "",
     }
 

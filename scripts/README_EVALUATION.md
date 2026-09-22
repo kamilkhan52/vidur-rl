@@ -292,3 +292,10 @@ If you use this evaluation framework in your research, please cite:
 ## License
 
 Same as Vidur project.
+
+
+### Main Graduation Progress Plot
+To generate the main unified graduation progress plot comparing RL runs directly against Best Heuristic and Random routing ceilings for the same environments:
+```bash
+python3 scripts/plot_graduation_progress.py --input graduation_summary.csv --output graduation_progress_unified.png
+```
