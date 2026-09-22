@@ -3,8 +3,8 @@
 #SBATCH --output=/scratch/alpine/kamil@colostate.edu/vidur-rl/slurm/slurm-%A_%a.out
 #SBATCH --error=/scratch/alpine/kamil@colostate.edu/vidur-rl/slurm/slurm-%A_%a.err
 #SBATCH --time=24:00:00
-#SBATCH --partition=amilan
-#SBATCH --qos=normal
+#SBATCH --partition=acpu
+#SBATCH --qos=cpu-normal
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8

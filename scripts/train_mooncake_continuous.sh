@@ -67,7 +67,14 @@ TP_SIZE="${TP_SIZE:-1}"
 
 # Trace selection
 TRACE_NAME="${TRACE_NAME:-conversation_v2}"
-MAX_TOKENS_CAP="${MAX_TOKENS_CAP:-122752}"
+# KV-capacity cap for the trace filter: 7b/TP1 = 122752 tokens, 70b/TP4 = 525920.
+# (Before 2026-09-21 the cap was 122752 for every model, over-filtering 70b runs.)
+if [ -z "${MAX_TOKENS_CAP:-}" ]; then
+    case "$MODEL_NAME" in
+        *70b*) MAX_TOKENS_CAP=525920 ;;
+        *)     MAX_TOKENS_CAP=122752 ;;
+    esac
+fi
 
 # Time scale factor for trace replay (to match 4 GPU capacity vs 128 GPU original)
 # Original Mooncake trace: 3.4 QPS on 128 A800 GPUs (16 nodes × 8 GPUs)

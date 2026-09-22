@@ -30,6 +30,10 @@ MODEL_NAME="meta-llama/Llama-2-7b-hf"
 # Set tensor parallel size (70B models need TP=4 to fit in 80GB A100)
 TP_SIZE=1
 [[ "$CONFIG_NAME" == *"70b"* ]] && TP_SIZE=4
+# Trace filter = per-replica KV capacity (requests above it can never be scheduled;
+# the simulator refuses such traces since 2026-09-21). 7b/TP1 122752, 70b/TP4 525920.
+MAX_TOKENS=122752
+[[ "$CONFIG_NAME" == *"70b"* ]] && MAX_TOKENS=525920
 NUM_REPLICAS=8
 [[ "$CONFIG_NAME" == *"16R"* ]] && NUM_REPLICAS=16
 [[ "$CONFIG_NAME" == *"4R"* ]] && NUM_REPLICAS=4
@@ -102,6 +106,7 @@ while true; do
             --r_l_cache_aware_global_scheduler_config_model_checkpoint_path "$LATEST_MODEL" \
             --trace_request_generator_config_time_scale_factor "$CURRENT_SCALE" \
             --trace_request_generator_config_trace_file "data/processed_traces/mooncake_${TRACE_NAME}.csv" \
+            --trace_request_generator_config_max_tokens "$MAX_TOKENS" \
             --metrics_config_output_dir "$ITER_DIR" \
             --no-metrics_config_write_json_trace \
             --request_generator_config_type trace \

@@ -1,8 +1,8 @@
 #!/bin/bash
 #SBATCH --job-name=exp09_queue_diag_pilot
 #SBATCH --account=csu65_alpine1
-#SBATCH --partition=amilan
-#SBATCH --qos=normal
+#SBATCH --partition=acpu
+#SBATCH --qos=cpu-normal
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=9
