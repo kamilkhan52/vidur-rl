@@ -63,6 +63,9 @@ export SEED_BASE="${SEED_BASE:-}"
 # Optional: replay only the first NUM_REQUESTS requests of the trace (smoke tests,
 # cheap evaluation stages). Unset = full trace.
 export NUM_REQUESTS="${NUM_REQUESTS:-}"
+# Optional arrival jitter in trace seconds (see TraceRequestGeneratorConfig.arrival_jitter).
+# Mooncake conv/tool timestamps are 3 s buckets; 3.0 spreads each bucket. Unset/0 = exact replay.
+export ARRIVAL_JITTER="${ARRIVAL_JITTER:-}"
 # Requests larger than a replica's KV cache can never be scheduled and used to
 # wedge the replica silently (see vidur/simulator.py::_validate_request_capacity).
 # Per-replica capacity on an 80 GB A100: 7b/TP1 = 122752 tokens, 70b/TP4 = 525920.
@@ -284,6 +287,10 @@ run_baseline_single() {
         if [ -n "$NUM_REQUESTS" ]; then
             limit_args=(--trace_request_generator_config_num_requests "$NUM_REQUESTS")
             log_info "Request limit: $NUM_REQUESTS"
+        fi
+        if [ -n "$ARRIVAL_JITTER" ]; then
+            limit_args+=(--trace_request_generator_config_arrival_jitter "$ARRIVAL_JITTER")
+            log_info "Arrival jitter: $ARRIVAL_JITTER s"
         fi
 
         # EXACT PARAMETERS MATCHING RL SWEEP (job 23714214), plus the KV-capacity filter

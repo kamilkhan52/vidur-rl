@@ -60,6 +60,22 @@ class TraceRequestGenerator(BaseRequestGenerator):
                     f"Filtered {num_filtered} requests exceeding max_tokens={config.max_tokens}"
                 )
 
+        # Optional arrival jitter (trace seconds, before time scaling). Spreads each
+        # request uniformly over [t, t + jitter) with the generator's seeded RNG and
+        # re-sorts stably. With jitter <= the trace's bucket width this only reorders
+        # requests inside a bucket. Paired across schedulers when the seed is shared.
+        if config.arrival_jitter and config.arrival_jitter > 0:
+            offsets = self._random_number_generator.uniform(
+                0.0, config.arrival_jitter, size=len(self.trace_df)
+            )
+            self.trace_df["arrived_at"] = self.trace_df["arrived_at"] + offsets
+            self.trace_df = self.trace_df.sort_values(
+                "arrived_at", kind="mergesort"
+            ).reset_index(drop=True)
+            logger.info(
+                f"Applied arrival jitter U[0, {config.arrival_jitter}) s (seed {config.seed})"
+            )
+
         # Set num_requests AFTER filtering to ensure we have enough requests
         self.num_requests = (
             config.num_requests

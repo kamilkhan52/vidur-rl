@@ -281,7 +281,15 @@ class TraceRequestGeneratorConfig(BaseRequestGeneratorConfig):
     )
     num_requests: Optional[int] = field(
         default=None,
-        metadata={"help": "Maximum tokens for the trace request generator."},
+        metadata={"help": "Replay only the first N requests of the (filtered) trace."},
+    )
+    arrival_jitter: float = field(
+        default=0.0,
+        metadata={
+            "help": "Spread each arrival uniformly over [t, t + arrival_jitter) in trace seconds, "
+            "before time scaling, seeded by the generator seed. The public Mooncake conversation "
+            "and toolagent traces are bucketed to 3 s, so 3.0 de-quantises them; 0 replays exactly."
+        },
     )
 
     @staticmethod
