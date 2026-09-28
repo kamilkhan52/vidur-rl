@@ -60,6 +60,9 @@ export OUTPUT_DIR_BASE="${OUTPUT_DIR_BASE:-${SCRATCH_ROOT}/vidur-rl/baselines}"
 # generator and the scheduler's own tie-break RNG).
 export NUM_RUNS="${NUM_RUNS:-1}"
 export SEED_BASE="${SEED_BASE:-}"
+# Optional: replay only the first NUM_REQUESTS requests of the trace (smoke tests,
+# cheap evaluation stages). Unset = full trace.
+export NUM_REQUESTS="${NUM_REQUESTS:-}"
 # Requests larger than a replica's KV cache can never be scheduled and used to
 # wedge the replica silently (see vidur/simulator.py::_validate_request_capacity).
 # Per-replica capacity on an 80 GB A100: 7b/TP1 = 122752 tokens, 70b/TP4 = 525920.
@@ -277,10 +280,16 @@ run_baseline_single() {
                        "--${SEED_FLAG_MAP[$scheduler_type]}" "$run_seed")
             log_info "Seed: $run_seed"
         fi
+        local limit_args=()
+        if [ -n "$NUM_REQUESTS" ]; then
+            limit_args=(--trace_request_generator_config_num_requests "$NUM_REQUESTS")
+            log_info "Request limit: $NUM_REQUESTS"
+        fi
 
         # EXACT PARAMETERS MATCHING RL SWEEP (job 23714214), plus the KV-capacity filter
         python3 -m vidur.main \
             "${seed_args[@]}" \
+            "${limit_args[@]}" \
             --trace_request_generator_config_max_tokens "$max_tokens" \
             --replica_config_device a100 \
             --replica_config_model_name "$model_name" \
