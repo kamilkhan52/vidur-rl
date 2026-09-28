@@ -713,6 +713,18 @@ class RankedStickyLopUncachedGlobalSchedulerConfig(BaseGlobalSchedulerConfig):
 
 
 @dataclass
+class EvolvedGlobalSchedulerConfig(BaseGlobalSchedulerConfig):
+    policy_path: str = field(
+        default="",
+        metadata={"help": "Path to a routing policy module defining route(burst, replicas, ctx) or choose(request, replicas, ctx)."},
+    )
+
+    @staticmethod
+    def get_type():
+        return GlobalSchedulerType.EVOLVED
+
+
+@dataclass
 class RLCacheAwareGlobalSchedulerConfig(BaseGlobalSchedulerConfig):
     mode: str = field(
         default="inference",

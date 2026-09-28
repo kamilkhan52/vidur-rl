@@ -37,6 +37,23 @@ def tiny_trace(tmp_path_factory) -> Path:
 
 
 @pytest.fixture(scope="session")
+def conv_session_trace(tmp_path_factory) -> Path:
+    """Every request of the first 15 multi-request Conv sessions (exercises
+    session stickiness and prefix-cache hits, which the Synth slice barely does)."""
+    conv = REPO_ROOT / "data" / "processed_traces" / "mooncake_conversation_trace_v2.csv"
+    if not conv.exists():
+        pytest.skip(f"trace not available: {conv}")
+    df = pd.read_csv(conv, nrows=1500)
+    df = df[(df.num_prefill_tokens + df.num_decode_tokens) <= 32000]
+    counts = df.session_id.value_counts()
+    multi = [sid for sid in df.session_id.drop_duplicates() if counts[sid] >= 2][:15]
+    df = df[df.session_id.isin(multi)].reset_index(drop=True)
+    path = tmp_path_factory.mktemp("trace") / "conv_sessions.csv"
+    df.to_csv(path, index=False)
+    return path
+
+
+@pytest.fixture(scope="session")
 def tiny_trace_with_oversize(tmp_path_factory, tiny_trace) -> Path:
     """The tiny trace plus one request larger than the whole KV cache."""
     df = pd.read_csv(tiny_trace)
@@ -52,7 +69,7 @@ def tiny_trace_with_oversize(tmp_path_factory, tiny_trace) -> Path:
     return path
 
 
-def base_args(trace: Path, out_dir: Path, num_replicas: int = 2, **overrides):
+def base_args(trace: Path, out_dir: Path, num_replicas: int = 2, write_metrics: bool = False, **overrides):
     """CLI argument list for a small vLLM-v1 cluster replaying ``trace``."""
     args = {
         "replica_config_device": "a100",
@@ -80,9 +97,21 @@ def base_args(trace: Path, out_dir: Path, num_replicas: int = 2, **overrides):
         "--no-metrics_config_store_operation_metrics",
         "--no-metrics_config_store_batch_metrics",
         "--no-metrics_config_enable_chrome_trace",
-        "--no-metrics_config_write_metrics",
     ]
+    if not write_metrics:
+        argv.append("--no-metrics_config_write_metrics")
     return argv
+
+
+def reset_id_counters():
+    """Entity/event IDs are class-level counters; reset them so two simulations in one
+    process number requests and replicas identically."""
+    from vidur.entities import Batch, BatchStage, Cluster, ExecutionTime, Replica, Request
+    from vidur.events.base_event import BaseEvent
+
+    for cls in (Request, Replica, Batch, BatchStage, Cluster, ExecutionTime):
+        cls._id = -1
+    BaseEvent._id = 0
 
 
 def build_simulator(argv):
@@ -91,6 +120,7 @@ def build_simulator(argv):
     from vidur.simulator import Simulator
     from vidur.utils.random import set_seeds
 
+    reset_id_counters()
     saved = sys.argv
     sys.argv = list(argv)
     try:

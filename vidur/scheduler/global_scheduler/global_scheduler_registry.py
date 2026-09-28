@@ -30,6 +30,9 @@ from vidur.scheduler.global_scheduler.tolerant_sticky_lop_uncached_global_schedu
 from vidur.scheduler.global_scheduler.rl_cache_aware_global_scheduler import (
     RLCacheAwareGlobalScheduler,
 )
+from vidur.scheduler.global_scheduler.evolved_global_scheduler import (
+    EvolvedGlobalScheduler,
+)
 from vidur.types import GlobalSchedulerType
 from vidur.utils.base_registry import BaseRegistry
 
@@ -73,3 +76,4 @@ GlobalSchedulerRegistry.register(
     GlobalSchedulerType.RL_CACHE_AWARE,
     RLCacheAwareGlobalScheduler,
 )
+GlobalSchedulerRegistry.register(GlobalSchedulerType.EVOLVED, EvolvedGlobalScheduler)
