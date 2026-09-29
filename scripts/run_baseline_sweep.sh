@@ -177,18 +177,11 @@ get_tensor_parallel() {
 }
 
 resolve_trace_file() {
+    # Canonical traces only. Before 2026-09-28 this preferred an untracked *_v2.csv when
+    # present, so the same command replayed different Conv traces on the Mac (v2) and on
+    # Alpine (v1 only). v1 is what every Alpine experiment used.
     local trace_name=$1
-    local v2="data/processed_traces/mooncake_${trace_name}_v2.csv"
-    local base="data/processed_traces/mooncake_${trace_name}.csv"
-
-    if [ -f "$v2" ]; then
-        echo "$v2"
-    elif [ -f "$base" ]; then
-        echo "$base"
-    else
-        # Return default path for clear downstream error message
-        echo "$base"
-    fi
+    echo "data/processed_traces/mooncake_${trace_name}.csv"
 }
 
 check_existing_run() {
@@ -273,6 +266,9 @@ run_baseline_single() {
     for i in $(seq 1 $NUM_RUNS); do
         local run_dir="${output_dir}/run${i}"
         mkdir -p "$run_dir"
+        # Provenance: exactly which trace bytes and code were replayed.
+        { echo "trace_file $trace_file"; echo "trace_sha256 $(sha256sum "$trace_file" 2>/dev/null | cut -d' ' -f1 || shasum -a 256 "$trace_file" | cut -d' ' -f1)";
+          echo "repo_commit $(git -C "$PROJECT_ROOT" rev-parse --short HEAD 2>/dev/null)"; } > "${run_dir}/provenance.txt"
         
         log_info "Run $i/$NUM_RUNS"
 

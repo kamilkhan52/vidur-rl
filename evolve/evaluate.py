@@ -45,7 +45,9 @@ from tail_metrics import summarize_rows  # noqa: E402
 
 TRACES = {
     "Tool": REPO / "data/processed_traces/mooncake_toolagent_trace.csv",
-    "Conv": REPO / "data/processed_traces/mooncake_conversation_trace_v2.csv",
+    # v1 conversation trace: the file every Alpine experiment used (git-tracked; identical on all
+    # machines). The untracked v2 differs in prompt padding and inferred sessions.
+    "Conv": REPO / "data/processed_traces/mooncake_conversation_trace.csv",
     "Synth": REPO / "data/processed_traces/mooncake_synthetic_trace.csv",
 }
 BUCKETED = {"Tool", "Conv"}  # Mooncake conv/tool timestamps are 3 s buckets

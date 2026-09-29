@@ -40,7 +40,7 @@ NUM_REPLICAS=8
 
 TRACE_NAME="synthetic_trace"
 [[ "$CONFIG_NAME" == *"Tool"* ]] && TRACE_NAME="toolagent_trace"
-[[ "$CONFIG_NAME" == *"Conv"* ]] && TRACE_NAME="conversation_trace_v2"
+[[ "$CONFIG_NAME" == *"Conv"* ]] && TRACE_NAME="conversation_trace"  # canonical v1 (see run_baseline_sweep.sh)
 
 # Stable unique identifier for this "class" of model
 MODEL_CLASS="grad_${CONFIG_NAME}_h${HIDDEN_DIMS//,/_}_r${REWARD_TYPE}"

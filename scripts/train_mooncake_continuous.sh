@@ -66,7 +66,7 @@ NUM_REPLICAS="${NUM_REPLICAS:-4}"
 TP_SIZE="${TP_SIZE:-1}"
 
 # Trace selection
-TRACE_NAME="${TRACE_NAME:-conversation_v2}"
+TRACE_NAME="${TRACE_NAME:-conversation}"  # canonical v1; v2 exists only on the Mac
 # KV-capacity cap for the trace filter: 7b/TP1 = 122752 tokens, 70b/TP4 = 525920.
 # (Before 2026-09-21 the cap was 122752 for every model, over-filtering 70b runs.)
 if [ -z "${MAX_TOKENS_CAP:-}" ]; then

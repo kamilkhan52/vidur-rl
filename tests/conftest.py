@@ -40,7 +40,7 @@ def tiny_trace(tmp_path_factory) -> Path:
 def conv_session_trace(tmp_path_factory) -> Path:
     """Every request of the first 15 multi-request Conv sessions (exercises
     session stickiness and prefix-cache hits, which the Synth slice barely does)."""
-    conv = REPO_ROOT / "data" / "processed_traces" / "mooncake_conversation_trace_v2.csv"
+    conv = REPO_ROOT / "data" / "processed_traces" / "mooncake_conversation_trace.csv"
     if not conv.exists():
         pytest.skip(f"trace not available: {conv}")
     df = pd.read_csv(conv, nrows=1500)

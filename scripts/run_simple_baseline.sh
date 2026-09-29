@@ -60,7 +60,7 @@ REPLICAS_NUM="${REPLICAS%%R}"
 case "$TRACE" in
     Synth) TRACE_FILE="synthetic_trace" ;;
     Tool) TRACE_FILE="toolagent_trace" ;;
-    Conv) TRACE_FILE="conversation_trace_v2" ;;
+    Conv) TRACE_FILE="conversation_trace" ;;  # canonical v1
     *) TRACE_FILE="$TRACE" ;;
 esac
 
