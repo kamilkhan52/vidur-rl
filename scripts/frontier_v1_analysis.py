@@ -64,7 +64,7 @@ def main():
 
     L = []
     incomplete = [r for r in runs if r["n_requests"] != EXPECTED[r["trace"]]]
-    L.append(f"runs found: {len(runs)} (expected 288)")
+    L.append(f"runs found: {len(runs)}")
     L.append(f"completion check: {len(runs) - len(incomplete)} complete, {len(incomplete)} incomplete")
     for r in incomplete[:20]:
         L.append(f"   INCOMPLETE {r['scheduler']} {r['replicas']}-{r['trace']}-{r['scale']} p{r['perturbation']}: "
