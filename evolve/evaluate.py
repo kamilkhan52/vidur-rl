@@ -20,6 +20,7 @@ is better; 0 means "matches the per-scenario best heuristic on every tail".
 
 CLI:
     python -m evolve.evaluate --policy evolve/policies/lor.py --stage 1 --workers 8
+    python -m evolve.evaluate --policy <frozen finalist> --stage heldout --workers 16
 """
 
 import argparse
@@ -91,16 +92,22 @@ class Scenario:
         return f"{self.model}-{self.replicas}R-{self.trace}-s{self.scale}-{w}-p{self.perturbation}"
 
 
-# Stage-1 search set: loaded regimes where schedulers differ (8R, scale 1.5/2.0),
-# mid and late windows (arrival rate rises ~20 % across the trace), one jitter draw.
-# Held out from search entirely: Synth, 16R, scale 3.0, perturbations 2-3, other windows.
-STAGE1 = [
-    Scenario(t, 8, sc, start, 1000, 1)
-    for t in ("Tool", "Conv")
-    for sc in (1.5, 2.0)
-    for start in ({"Tool": 12000, "Conv": 6000}[t], {"Tool": 20000, "Conv": 10000}[t])
-]
+# Stage-1 search set (2026-09-29, from frontier v2): FULL traces in the band where
+# routing matters and different heuristics win — 8R Tool/Conv at scale 1.0 (moderate:
+# LOR best on E2E, LOP_UNCACHED 23-24 % better on TTFT) and 0.75 (knee: STICKY_LOR 0.44x
+# LOR's P99 E2E on Tool, LOP_UNCACHED 0.87x on Conv). Perturbation 1 only. With the
+# restart fix a full Tool/Conv run takes 10-15 min, so no windowing (windows start with
+# empty queues and cannot show backlog dynamics).
+STAGE1 = [Scenario(t, 8, sc, -1, 0, 1) for t in ("Tool", "Conv") for sc in (1.0, 0.75)]
 
+# Held out from search: never shown to the proposer or used for selection. Same band on
+# other perturbations, the Synth trace, and 16 replicas. Evaluate only frozen finalists.
+HELDOUT = (
+    [Scenario(t, 8, sc, -1, 0, p) for t in ("Tool", "Conv") for sc in (1.0, 0.75) for p in (2, 3)]
+    + [Scenario("Synth", 8, sc, -1, 0, p) for sc in (1.0, 0.75) for p in (1, 2, 3)]
+    + [Scenario(t, 16, 0.5, -1, 0, p) for t in ("Tool", "Conv", "Synth") for p in (1, 2)]
+)
+STAGES = {"1": STAGE1, "heldout": HELDOUT}
 
 _WINDOW_LOCK = threading.Lock()
 
@@ -309,22 +316,21 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--policy")
     ap.add_argument("--builtin", help="evaluate a built-in router instead, e.g. lor")
-    ap.add_argument("--stage", type=int, default=1)
+    ap.add_argument("--stage", choices=sorted(STAGES), default="1")
     ap.add_argument("--workers", type=int, default=4)
     ap.add_argument("--timeout", type=int, default=3600)
     ap.add_argument("--srun", action="store_true", help="launch each simulation with srun --exact (inside an allocation)")
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args()
     launcher = ["srun", "--exact", "-n1", "-c1", "--mem=6G"] if a.srun else None
-    if a.stage != 1:
-        raise SystemExit("only stage 1 is wired in the CLI so far")
+    scenarios = STAGES[a.stage]
     if a.builtin:  # sanity check: score a heuristic against the pool it belongs to
-        results = run_many([(a.builtin, sc, None) for sc in STAGE1], a.workers, launcher, a.timeout)
-        base = ensure_baselines(STAGE1, workers=a.workers, launcher=launcher, timeout=a.timeout)
-        res = score(dict(zip(STAGE1, results)), base)
+        results = run_many([(a.builtin, sc, None) for sc in scenarios], a.workers, launcher, a.timeout)
+        base = ensure_baselines(scenarios, workers=a.workers, launcher=launcher, timeout=a.timeout)
+        res = score(dict(zip(scenarios, results)), base)
         res["valid"] = True
     else:
-        res = evaluate_policy(a.policy, STAGE1, a.workers, launcher, a.timeout)
+        res = evaluate_policy(a.policy, scenarios, a.workers, launcher, a.timeout)
     print(json.dumps(res, indent=1) if a.json else feedback_text(res))
 
 

@@ -50,3 +50,10 @@ def test_broken_policy_is_invalid_not_crash(tmp_path):
     res = ev.evaluate_policy(str(p), SMALL[:1], workers=1, baselines=("lor",))
     assert res["valid"] is False and res["combined_score"] < -1e8
     assert "exit" in next(iter(res["failures"].values()))["reason"]
+
+
+def test_search_and_heldout_sets_are_disjoint():
+    assert not set(ev.STAGE1) & set(ev.HELDOUT)
+    assert {sc.perturbation for sc in ev.STAGE1} == {1}
+    assert all(sc.window_start < 0 for sc in ev.STAGE1 + ev.HELDOUT)  # full traces
+    assert {sc.trace for sc in ev.HELDOUT} >= {"Synth"} and {sc.replicas for sc in ev.HELDOUT} >= {16}
