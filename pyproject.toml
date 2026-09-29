@@ -5,6 +5,7 @@ description = "A LLM inference cluster simulator"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
+    "anthropic>=1.8.0",
     "ddsketch==3.0.1",
     "fasteners==0.17.3",
     "jupyterlab==4.2.3",

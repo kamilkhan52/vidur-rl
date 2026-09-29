@@ -191,3 +191,6 @@ simulator_output/openevolve/evolution_output/
 
 # Archived untracked working artifacts (kept on disk, not in git)
 archive/*/untracked/
+
+# evolve/ evaluator caches (windows, baseline results)
+evolve/.cache/
