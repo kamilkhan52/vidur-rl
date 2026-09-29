@@ -80,3 +80,20 @@ def test_driver_end_to_end_with_scripted_proposer(tmp_path, monkeypatch):
     assert all("## Parent policy" in p and "fitness" in p for p in prompts)
     # archive is append-only JSONL and reloads identically
     assert driver.Archive(tmp_path / "run").rows == rows
+
+
+def test_compare_counts_budgets(tmp_path):
+    import json as _json
+    from evolve import compare
+
+    rows = [{"id": "s", "valid": True, "fitness": -0.5, "stage_reached": "1", "proposer": {"seed": "lor"}},
+            {"id": "a", "valid": True, "fitness": -0.2, "stage_reached": "1", "proposer": {"cost_usd": 0.01, "proposal_s": 20}},
+            {"id": "b", "valid": False, "stage_reached": "0a", "proposer": {"cost_usd": 0.01, "proposal_s": 30}},
+            {"id": None, "valid": False, "stage_reached": "proposal", "proposer": {"cost_usd": 0.02}},
+            {"id": "c", "valid": True, "fitness": 0.1, "stage_reached": "1", "proposer": {"cost_usd": 0.01}}]
+    (tmp_path / "archive.jsonl").write_text("\n".join(_json.dumps(r) for r in rows))
+    seeds, props = compare.load(tmp_path)
+    s2 = compare.summarize(seeds, props, 2)
+    assert s2["best_fitness"] == -0.2 and s2["improvement_over_best_seed"] == 0.3 and s2["guard_rejected"] == 1
+    s4 = compare.summarize(seeds, props, 4)
+    assert s4["best_fitness"] == 0.1 and s4["no_code"] == 1 and s4["valid"] == 2 and s4["spend_usd"] == 0.05

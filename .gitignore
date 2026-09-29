@@ -194,3 +194,4 @@ archive/*/untracked/
 
 # evolve/ evaluator caches (windows, baseline results)
 evolve/.cache/
+evolve/runs/

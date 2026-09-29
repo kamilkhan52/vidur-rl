@@ -140,10 +140,12 @@ def run(run_dir: Path, iterations: int, batch: int, workers: int, propose: Calla
 
         def one(job):
             parent, prompt = job
+            t0 = time.time()
             try:
                 code, meta = propose(prompt)
             except Exception as e:  # API errors are recorded, never fatal to the run
                 code, meta = None, {"error": f"{type(e).__name__}: {e}"}
+            meta["proposal_s"] = round(time.time() - t0, 1)
             if not code:
                 why = "output limit reached before the answer" if meta.get("stop_reason") in ("length", "max_tokens") \
                     else "no code returned"
