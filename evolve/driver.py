@@ -30,6 +30,8 @@ from evolve.guard import check_policy_source
 REPO = Path(__file__).resolve().parents[1]
 SEEDS = ["lor", "sticky_lor", "lop_uncached", "round_robin"]
 STAGE0 = [ev.Scenario("Tool", 4, 1.5, 12000, 150, 1)]
+# Plumbing check only (seconds per simulation); not a research scenario set.
+SMOKE = [ev.Scenario("Tool", 4, 1.5, 12000, 200, 1), ev.Scenario("Conv", 4, 2.0, 6000, 200, 1)]
 
 
 class Archive:
@@ -112,8 +114,12 @@ def select(archive: Archive, rng: random.Random, k: int = 3, top: int = 10) -> t
     return parent, rng.sample(others, min(2, len(others)))
 
 
+def spent_usd(archive: Archive) -> float:
+    return sum((r.get("proposer") or {}).get("cost_usd") or 0.0 for r in archive.rows)
+
+
 def run(run_dir: Path, iterations: int, batch: int, workers: int, propose: Callable[[str], tuple],
-        stage1=None, launcher=None, seed: int = 0) -> Archive:
+        stage1=None, launcher=None, seed: int = 0, max_cost_usd: Optional[float] = None) -> Archive:
     stage1 = stage1 or ev.STAGE1
     archive = Archive(run_dir)
     rng = random.Random(seed)
@@ -124,6 +130,9 @@ def run(run_dir: Path, iterations: int, batch: int, workers: int, propose: Calla
         if pid not in seeded:
             evaluate_candidate(code, archive, None, stage1, workers, launcher, {"seed": name})
     for it in range(iterations):
+        if max_cost_usd is not None and spent_usd(archive) >= max_cost_usd:
+            print(f"[stop] proposer spend {spent_usd(archive):.2f} USD reached cap {max_cost_usd}", flush=True)
+            break
         jobs = []
         for _ in range(batch):
             parent, insp = select(archive, rng)
@@ -145,8 +154,21 @@ def run(run_dir: Path, iterations: int, batch: int, workers: int, propose: Calla
         with cf.ThreadPoolExecutor(max_workers=batch) as ex:
             list(ex.map(one, jobs))
         b = archive.best()
-        print(f"[iter {it}] candidates={len(archive.rows)} best={b['fitness']:.4f} ({b['id']})", flush=True)
+        print(f"[iter {it}] candidates={len(archive.rows)} best={b['fitness']:.4f} ({b['id']}) "
+              f"spent={spent_usd(archive):.3f} USD", flush=True)
     return archive
+
+
+def make_proposer(kind: str, model: Optional[str]):
+    from evolve import proposer as P
+
+    if kind == "openrouter":
+        return P.OpenRouterProposer(model=model or "deepseek/deepseek-v4.1-flash")
+    if kind == "claude-code":
+        return P.ClaudeCodeProposer(model=model or "claude-opus-5")
+    if kind == "anthropic":
+        return P.ClaudeProposer(model=model or "claude-opus-5")
+    raise ValueError(f"unknown proposer {kind!r}")
 
 
 def main():
@@ -155,16 +177,18 @@ def main():
     ap.add_argument("--iterations", type=int, default=10)
     ap.add_argument("--batch", type=int, default=4, help="proposals evaluated in parallel per iteration")
     ap.add_argument("--workers", type=int, default=8, help="parallel simulations per candidate")
-    ap.add_argument("--model", default="claude-opus-5")
-    ap.add_argument("--effort", default="high")
+    ap.add_argument("--proposer", choices=["openrouter", "claude-code", "anthropic"], default="openrouter")
+    ap.add_argument("--model", default=None, help="defaults: deepseek/deepseek-v4.1-flash | claude-opus-5")
+    ap.add_argument("--scenarios", choices=["stage1", "smoke"], default="stage1")
+    ap.add_argument("--max-cost-usd", type=float, default=None, help="stop once proposer spend reaches this")
     ap.add_argument("--srun", action="store_true")
     ap.add_argument("--seed", type=int, default=0)
     a = ap.parse_args()
-    from evolve.proposer import ClaudeProposer
-
-    proposer = ClaudeProposer(model=a.model, effort=a.effort)
+    proposer = make_proposer(a.proposer, a.model)
     launcher = ["srun", "--exact", "-n1", "-c1", "--mem=6G"] if a.srun else None
-    run(Path(a.run_dir), a.iterations, a.batch, a.workers, proposer.propose, launcher=launcher, seed=a.seed)
+    stage1 = SMOKE if a.scenarios == "smoke" else ev.STAGE1
+    run(Path(a.run_dir), a.iterations, a.batch, a.workers, proposer.propose, stage1=stage1,
+        launcher=launcher, seed=a.seed, max_cost_usd=a.max_cost_usd)
 
 
 if __name__ == "__main__":
