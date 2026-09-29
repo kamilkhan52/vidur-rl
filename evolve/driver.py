@@ -145,8 +145,10 @@ def run(run_dir: Path, iterations: int, batch: int, workers: int, propose: Calla
             except Exception as e:  # API errors are recorded, never fatal to the run
                 code, meta = None, {"error": f"{type(e).__name__}: {e}"}
             if not code:
+                why = "output limit reached before the answer" if meta.get("stop_reason") in ("length", "max_tokens") \
+                    else "no code returned"
                 archive.add({"id": None, "parent": parent["id"], "time": time.time(), "valid": False,
-                             "stage_reached": "proposal", "feedback": "no code returned", "proposer": meta})
+                             "stage_reached": "proposal", "feedback": why, "proposer": meta})
                 return None
             meta["iteration"] = it
             return evaluate_candidate(code, archive, parent["id"], stage1, workers, launcher, meta)

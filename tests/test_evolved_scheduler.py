@@ -59,6 +59,26 @@ def test_ported_policy_reproduces_builtin_with_sessions_and_cache_hits(conv_sess
     pd.testing.assert_frame_equal(ref, evo)
 
 
+def test_lop_uncached_port_matches_builtin_under_preemption(tmp_path):
+    """Overloaded window with preemption restarts: the built-in used to double-count
+    prefill completions after a restart and diverge from the port (P99 361 s vs 188 s)."""
+    import evolve.evaluate as ev
+
+    sc = ev.Scenario("Tool", 4, 1.5, 12000, 200, 1)
+    ev.CACHE_DIR = tmp_path / "cache"
+    trace = ev.window_csv(sc)
+    kw = dict(trace_request_generator_config_time_scale_factor="1.5",
+              trace_request_generator_config_arrival_jitter="3.0",
+              trace_request_generator_config_seed="101", seed="101")
+    ref = metrics_of(run(trace, tmp_path / "ref", "lop_uncached", num_replicas=4,
+                         l_o_p_uncached_global_scheduler_config_seed="101", **kw))
+    evo = metrics_of(run(trace, tmp_path / "evo", "evolved", num_replicas=4,
+                         evolved_global_scheduler_config_seed="101",
+                         evolved_global_scheduler_config_policy_path=str(POLICIES / "lop_uncached.py"), **kw))
+    assert (ref["request_num_restarts"] > 0).sum() > 0, "scenario must exercise preemption restarts"
+    pd.testing.assert_frame_equal(ref, evo)
+
+
 def test_views_withhold_output_length():
     assert "num_decode_tokens" not in RequestView.__dataclass_fields__
     for f in RequestView.__dataclass_fields__:

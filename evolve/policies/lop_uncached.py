@@ -1,7 +1,7 @@
 """Least outstanding uncached prefill (min load imbalance), as a policy file.
 
-Reproduces the built-in LOP_UNCACHED router except under preemption restarts,
-where the built-in double-counts prefill completions and this harness does not.
+Reproduces the built-in LOP_UNCACHED router exactly, including under preemption
+restarts (the built-in double-counted prefill completions until 2026-09-28).
 """
 
 

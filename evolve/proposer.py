@@ -130,7 +130,7 @@ class OpenRouterProposer:
     """OpenAI-style chat completion through OpenRouter. Retries 429/5xx/network errors."""
 
     def __init__(self, model: str = "deepseek/deepseek-v4.1-flash", temperature: float = 0.8,
-                 max_tokens: int = 32000, reasoning_effort: Optional[str] = "high",
+                 max_tokens: int = 64000, reasoning_effort: Optional[str] = "medium",
                  key_file: str = DEFAULT_KEY_FILE, timeout: int = 900, retries: int = 5):
         self.model = model
         self.temperature = temperature

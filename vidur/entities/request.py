@@ -307,9 +307,13 @@ class Request(BaseEntity):
         logger.debug(f"Restarting request {self._id}")
 
         # when we restart the request, we can process all the previously
-        # decoded tokens in parallel (i.e., we can prefill all the tokens)
+        # decoded tokens in parallel (i.e., we can prefill all the tokens).
+        # A request preempted in the middle of a chunked prefill has decoded
+        # nothing, so its prompt stays as it was. Before 2026-09-28 the prompt was
+        # cut to the tokens processed so far and the unprocessed prompt tokens were
+        # turned into decode tokens, generated one per iteration.
         total_tokens = self._num_prefill_tokens + self._num_decode_tokens
-        self._num_prefill_tokens = self._num_processed_tokens
+        self._num_prefill_tokens = max(self._num_processed_tokens, self._num_prefill_tokens)
         self._num_decode_tokens = total_tokens - self._num_prefill_tokens
 
         self._num_processed_tokens = 0

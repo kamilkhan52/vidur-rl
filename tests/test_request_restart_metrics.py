@@ -53,3 +53,41 @@ def test_prefill_completed_at_is_first_token_time():
     r.on_batch_schedule(10.0)
     r.on_batch_end(12.0, 103)  # re-prefill of 100 + 3 decoded tokens
     assert r.prefill_completed_at == 2.5
+
+
+def test_restart_mid_prefill_keeps_the_prompt():
+    """Preempted after 40 of 100 prompt tokens: nothing was decoded, so the request
+    must come back as the same 100-token prompt with 5 output tokens (it used to come
+    back as a 40-token prompt with 65 output tokens)."""
+    r = make_request(prefill=100, decode=5)
+    r.on_batch_schedule(0.0)
+    r.on_batch_end(1.0, 40)
+    r.restart()
+    assert (r.num_prefill_tokens, r.num_decode_tokens) == (100, 5)
+    assert r.num_processed_tokens == 0 and not r.is_prefill_complete
+    # it then completes normally: 100 prompt tokens -> first token, then 4 more
+    r.on_batch_schedule(2.0)
+    r.on_batch_end(3.0, 100)
+    assert r.is_prefill_complete and r.prefill_completed_at == 3.0
+    for t in range(4):
+        r.on_batch_end(4.0 + t, 1)
+    assert r.completed
+
+
+def test_restart_mid_decode_folds_generated_tokens_into_prompt():
+    r = make_request(prefill=100, decode=5)
+    r.on_batch_schedule(0.0)
+    r.on_batch_end(1.0, 100)   # prefill done + first token -> 101 processed
+    r.on_batch_end(2.0, 1)     # second token -> 102 processed
+    r.restart()
+    assert (r.num_prefill_tokens, r.num_decode_tokens) == (102, 3)
+    assert r.total_tokens == 105
+
+
+def test_repeated_restarts_mid_prefill():
+    r = make_request(prefill=100, decode=5)
+    for _ in range(3):
+        r.on_batch_schedule(0.0)
+        r.on_batch_end(1.0, 30)
+        r.restart()
+    assert (r.num_prefill_tokens, r.num_decode_tokens) == (100, 5)

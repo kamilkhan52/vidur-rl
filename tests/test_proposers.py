@@ -44,7 +44,7 @@ def test_openrouter_request_and_parsing(monkeypatch):
     body = sent["body"]
     assert body["model"] == "deepseek/deepseek-v4.1-flash"
     assert body["messages"][0]["role"] == "system" and body["messages"][0]["content"] == P.SYSTEM_PROMPT
-    assert body["usage"] == {"include": True} and body["reasoning"] == {"effort": "high"}
+    assert body["usage"] == {"include": True} and body["reasoning"] == {"effort": "medium"}
 
 
 def test_openrouter_retries_429_then_succeeds(monkeypatch):

@@ -18,6 +18,10 @@ class LOPUncachedGlobalScheduler(BaseGlobalScheduler):
             for replica_scheduler in self._replica_schedulers.values()
         }
         self._cached_prefill_length_map = {}
+        # Requests whose prefill has already been subtracted. A preempted request is
+        # restarted and completes prefill again; before 2026-09-28 every completion was
+        # subtracted, driving the pending counters negative and misrouting later requests.
+        self._prefill_done = set()
 
     def _get_num_prefill_tokens_uncached(
         self, request: Request, replica_id: ReplicaId
@@ -38,9 +42,15 @@ class LOPUncachedGlobalScheduler(BaseGlobalScheduler):
         )
 
     def on_prefill_end(self, request):
+        if request.id in self._prefill_done:
+            return
+        self._prefill_done.add(request.id)
         self._pending_prefills_map[
             request.replica_id
         ] -= self._get_num_prefill_tokens_uncached(request, request.replica_id)
+
+    def on_request_end(self, request):
+        self._prefill_done.discard(request.id)
 
     """
     We find the replica which will result in the least load imbalance across all replicas,
