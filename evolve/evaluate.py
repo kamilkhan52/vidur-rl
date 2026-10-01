@@ -286,7 +286,17 @@ def run_many(jobs, workers: int, launcher=None, timeout=3600) -> list:
         return [f.result() for f in futs]
 
 
+_BASELINE_LOCK = threading.Lock()
+
+
 def ensure_baselines(scenarios, baselines=DEFAULT_BASELINES, workers=4, launcher=None, timeout=3600) -> dict:
+    # One thread computes missing baselines; concurrent candidates (the driver evaluates seeds
+    # and proposals in parallel) wait for it instead of re-running them and racing on the cache.
+    with _BASELINE_LOCK:
+        return _ensure_baselines(scenarios, baselines, workers, launcher, timeout)
+
+
+def _ensure_baselines(scenarios, baselines, workers, launcher, timeout) -> dict:
     cache = load_baseline_cache()
     todo = [(b, sc, None) for sc in scenarios for b in baselines if baseline_key(b, sc) not in cache]
     for (b, sc, _), res in zip(todo, run_many(todo, workers, launcher, timeout)):

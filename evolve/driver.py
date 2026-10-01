@@ -148,10 +148,11 @@ def run(run_dir: Path, iterations: int, batch: int, workers: int, propose: Calla
     archive = Archive(run_dir)
     rng = random.Random(seed)
     seeded = {r["id"] for r in archive.rows}
-    for name, code in seed_programs(task):  # seeds enter the archive as ordinary candidates
-        pid = hashlib.sha256(code.encode()).hexdigest()[:12]
-        if pid not in seeded:
-            evaluate_candidate(code, archive, None, stage1, workers, launcher, {"seed": name}, task)
+    todo = [(name, code) for name, code in seed_programs(task)  # seeds enter the archive as candidates
+            if hashlib.sha256(code.encode()).hexdigest()[:12] not in seeded]
+    with cf.ThreadPoolExecutor(max_workers=max(1, batch)) as ex:  # in parallel: RL seeds take ~1 h each
+        list(ex.map(lambda nc: evaluate_candidate(nc[1], archive, None, stage1, workers, launcher,
+                                                  {"seed": nc[0]}, task), todo))
     for it in range(iterations):
         if max_cost_usd is not None and spent_usd(archive) >= max_cost_usd:
             print(f"[stop] proposer spend {spent_usd(archive):.2f} USD reached cap {max_cost_usd}", flush=True)
