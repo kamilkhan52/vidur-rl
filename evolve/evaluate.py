@@ -179,9 +179,13 @@ def code_version() -> str:
     """
     if "v" not in _VERSION:
         try:
-            files = subprocess.run(["git", "ls-files", "vidur"], cwd=REPO, capture_output=True,
-                                   text=True, check=True).stdout.split()
-            files = sorted(f for f in files if f.endswith(".py") and f not in _VERSION_EXCLUDE)
+            # Walk the tree rather than ask git: cluster copies need not be git checkouts.
+            files = sorted(
+                str((Path(d) / f).relative_to(REPO)).replace(os.sep, "/")
+                for d, _, names in os.walk(REPO / "vidur") if "__pycache__" not in d
+                for f in names if f.endswith(".py")
+            )
+            files = [f for f in files if f not in _VERSION_EXCLUDE]
             files += ["scripts/tail_metrics.py"]
             h = hashlib.sha256()
             for f in files:
