@@ -53,6 +53,8 @@ def check_policy_source(source: str, task: str = "router") -> List[str]:
             if name not in defines:
                 problems.append(f"must define {name}() with {n} positional argument(s) at module level")
     extra = spec.get("one_or_more_of", {})
+    if task == "rl_design" and "candidate_mask" in defines and len(defines["candidate_mask"].args.args) != 3:
+        problems.append("candidate_mask() must take exactly 3 positional argument(s)")
     if extra and not (set(extra) & set(defines)):
         problems.append("must define " + " and/or ".join(f"{k}()" for k in extra))
     for name, n in {**wanted, **extra}.items():

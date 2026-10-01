@@ -13,7 +13,14 @@ still queued on a replica will be cached there soon although the probe cannot se
 (in-flight credit, remembered in ctx.state); decode excess per replica (the knee stabiliser).
 """
 
+import math
+
 TOKENS = 8192.0
+
+
+def _lg(tokens):
+    # log scale keeps knee backlogs (1e5+ tokens) in range
+    return math.log1p(max(tokens, 0.0) / TOKENS)
 
 CONFIG = {
     "algorithm": "dqn",
@@ -63,25 +70,25 @@ def replica_features(request, replica, replicas, ctx):
     uncached = max(0.0, n - max(cached, credit))
     congestion = mean_pending / max(n, 1)
     return [
-        replica.pending_prefill_tokens / TOKENS,
-        uncached / TOKENS,
+        _lg(replica.pending_prefill_tokens),
+        _lg(uncached),
         n / TOKENS,
         replica.running / 8.0,
-        replica.waiting / 8.0,
-        replica.outstanding_requests / 16.0,
+        math.log1p(replica.waiting) / 3.0,
+        math.log1p(replica.outstanding_requests) / 4.0,
         replica.kv_usage,
         1.0 if home else 0.0,
-        (replica.pending_prefill_tokens - mean_pending) / TOKENS,
+        _lg(replica.pending_prefill_tokens) - _lg(mean_pending),
         (replica.running - mean_running) / 8.0,
         min(congestion, 8.0) / 8.0,
-        (uncached / TOKENS) * min(congestion, 8.0) / 8.0,  # miss cost grows with load
+        _lg(uncached) * min(congestion, 8.0) / 8.0,  # miss cost grows with load
         mean_running / 8.0,
-        credit / TOKENS,
+        _lg(credit),
     ]
 
 
 def interval_reward(replicas_before, replicas_after, dt, ctx):
-    pending = [r.pending_prefill_tokens / TOKENS for r in replicas_after]
+    pending = [_lg(r.pending_prefill_tokens) for r in replicas_after]
     mean = sum(pending) / len(pending)
     worst = max(pending)
-    return -dt * (mean + 0.5 * worst * worst)
+    return -0.25 * dt * (mean + 0.5 * worst * worst)

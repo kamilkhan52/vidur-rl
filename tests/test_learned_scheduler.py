@@ -118,13 +118,13 @@ def test_double_dqn_target_matches_reference(tiny_trace, tmp_path):
     B, N, F = 4, 3, s._feature_dim
     rng = np.random.default_rng(0)
     batch = [(rng.normal(size=(N, F)).astype(np.float32), i % N, float(-i), rng.normal(size=(N, F)).astype(np.float32),
-              0.9 if i < 3 else 0.0, -1) for i in range(B)]
+              0.9 if i < 3 else 0.0, -1, np.ones(N, dtype=bool)) for i in range(B)]
     s._buffer = batch
     s._cfg = dict(s._cfg, batch_size=B, lr=0.0, imitation_weight=0.0)
     s._rng.randrange = lambda n, it=iter(range(B)): next(it)  # take the batch in order
     with torch.no_grad():
         ys = []
-        for x, a, r, nx, g, _ in batch:
+        for x, a, r, nx, g, _, _m in batch:
             q_on = s._net(torch.from_numpy(nx)).squeeze(-1)
             q_tg = s._target(torch.from_numpy(nx)).squeeze(-1)
             ys.append(r + g * q_tg[int(q_on.argmax())].item())
@@ -156,3 +156,14 @@ def test_interval_reward_only_design(conv_session_trace, tmp_path):
     stats = json.loads(Path(str(ck) + ".stats.json").read_text())
     assert stats["reward"] is None and stats["interval_reward"]["mean"] <= 0
     assert stats["gradient_steps"] > 0 and stats["unfinished_decisions_dropped"] == 0
+
+
+def test_candidate_mask_is_respected(conv_session_trace, tmp_path):
+    """A design that only allows replica 0 must route everything there, greedy or exploring."""
+    p = tmp_path / "d.py"
+    p.write_text(SEED_DESIGN.read_text() + "\nCONFIG.update({'learning_starts': 8, 'batch_size': 8, "
+                 "'epsilon_start': 1.0, 'epsilon_end': 1.0})\n"
+                 "def candidate_mask(request, replicas, ctx):\n"
+                 "    return [r.index == 0 for r in replicas]\n")
+    sim = run(conv_session_trace, tmp_path / "o", p)
+    assert sim._scheduler.diagnostics()["action_share"][0] == 1.0

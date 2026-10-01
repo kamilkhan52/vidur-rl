@@ -186,8 +186,15 @@ def run(run_dir: Path, iterations: int, batch: int, workers: int, propose: Calla
     return archive
 
 
-def make_proposer(kind: str, model: Optional[str]):
+def make_proposer(kind: str, model: Optional[str], relay_dir: Optional[str] = None):
     from evolve import proposer as P
+
+    if kind == "relay":  # proposals answered elsewhere (e.g. Claude subscription on a workstation)
+        from evolve.relay import RelayProposer
+
+        if not relay_dir:
+            raise ValueError("--proposer relay needs --relay-dir")
+        return RelayProposer(relay_dir, model=model)
 
     if kind == "openrouter":
         return P.OpenRouterProposer(model=model or "deepseek/deepseek-v4.1-flash")
@@ -204,7 +211,8 @@ def main():
     ap.add_argument("--iterations", type=int, default=10)
     ap.add_argument("--batch", type=int, default=4, help="proposals evaluated in parallel per iteration")
     ap.add_argument("--workers", type=int, default=8, help="parallel simulations per candidate")
-    ap.add_argument("--proposer", choices=["openrouter", "claude-code", "anthropic"], default="openrouter")
+    ap.add_argument("--proposer", choices=["openrouter", "claude-code", "anthropic", "relay"], default="openrouter")
+    ap.add_argument("--relay-dir", default=None, help="with --proposer relay: shared request/response directory")
     ap.add_argument("--model", default=None, help="defaults: deepseek/deepseek-v4.1-flash | claude-opus-5")
     ap.add_argument("--scenarios", choices=["stage1", "smoke"], default="stage1")
     ap.add_argument("--max-cost-usd", type=float, default=None, help="stop once proposer spend reaches this")
@@ -213,7 +221,7 @@ def main():
     ap.add_argument("--task", choices=["router", "rl"], default="router",
                     help="router: evolve routing code (EXP11); rl: evolve an RL router design (EXP12)")
     a = ap.parse_args()
-    proposer = make_proposer(a.proposer, a.model)
+    proposer = make_proposer(a.proposer, a.model, a.relay_dir)
     if a.task == "rl":
         from evolve import rl_task
 

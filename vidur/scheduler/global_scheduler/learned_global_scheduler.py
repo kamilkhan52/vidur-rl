@@ -17,6 +17,10 @@ no output lengths, no future arrivals, no simulator objects). A *design module* 
         undiscounted sum equals total latency (Little's law). Known at the next decision,
         so it needs no completion and charges a decision for slowing *other* requests.
     * at least one of the two; when both are defined the rewards add.
+    def candidate_mask(request, replicas, ctx) -> list of bools              (optional)
+        Replicas the learner may choose for this request (e.g. exclude replicas far
+        above the mean backlog). Applied to greedy and random actions and to the
+        Double-DQN argmax at the successor state; an all-False mask allows every replica.
     CONFIG = {...}
         Learning settings; see ``DEFAULTS`` for the keys and their ranges.
 
@@ -131,10 +135,13 @@ def _build_net(torch, in_dim: int, hidden: List[int]):
 
 
 class _Decision:
-    __slots__ = ("rid", "x", "a", "t", "teacher_a", "views", "reward", "r_interval", "next_x", "dt", "done")
+    __slots__ = ("rid", "x", "a", "t", "teacher_a", "views", "mask", "reward", "r_interval", "next_x",
+                 "next_mask", "dt", "done")
 
-    def __init__(self, rid, x, a, t, teacher_a, views):
+    def __init__(self, rid, x, a, t, teacher_a, views, mask):
         self.rid, self.x, self.a, self.t, self.teacher_a, self.views = rid, x, a, t, teacher_a, views
+        self.mask = mask
+        self.next_mask = None
         self.reward = None  # outcome reward (None until the request completes)
         self.r_interval = None  # interval reward (None until the next decision)
         self.next_x = None
@@ -157,6 +164,7 @@ class LearnedGlobalScheduler(EvolvedGlobalScheduler):
             raise PolicyError("design module must define replica_features()")
         self._outcome_reward = getattr(design, "reward", None)
         self._interval_reward = getattr(design, "interval_reward", None)
+        self._mask_fn = getattr(design, "candidate_mask", None)
         if not (callable(self._outcome_reward) or callable(self._interval_reward)):
             raise PolicyError("design module must define reward(outcome) and/or interval_reward(...)")
         self._cfg = resolve_config(getattr(design, "CONFIG", None))
@@ -266,7 +274,8 @@ class LearnedGlobalScheduler(EvolvedGlobalScheduler):
             t0 = time.perf_counter()
             try:
                 x = self._features(rv, views)
-                a, teacher_a = self._act(rv, views, x)
+                mask = self._mask(rv, views)
+                a, teacher_a = self._act(rv, views, x, mask)
             except PolicyError:
                 raise
             except Exception as e:
@@ -274,17 +283,30 @@ class LearnedGlobalScheduler(EvolvedGlobalScheduler):
             finally:
                 self.policy_calls += 1
                 self.policy_seconds += time.perf_counter() - t0
-            self._record(r, x, a, teacher_a, cached, views)
+            self._record(r, x, a, teacher_a, cached, views, mask)
             mapping.append(self._assign(r, a, cached))
         return mapping
 
-    def _act(self, rv, views, x) -> Tuple[int, int]:
+    def _mask(self, rv, views) -> np.ndarray:
+        n = len(views)
+        if not callable(self._mask_fn):
+            return np.ones(n, dtype=bool)
+        m = self._mask_fn(rv, views, self._ctx)
+        try:
+            m = np.asarray([bool(v) for v in m], dtype=bool)
+        except TypeError as e:
+            raise PolicyError(f"candidate_mask must return a sequence of bools: {e}") from e
+        if m.shape != (n,):
+            raise PolicyError(f"candidate_mask must return {n} values, got {m.shape}")
+        return m if m.any() else np.ones(n, dtype=bool)
+
+    def _act(self, rv, views, x, mask) -> Tuple[int, int]:
         teacher_a = -1
         if self._teacher is not None and self._training:
             self._teacher_ctx.now = self._ctx.now
             teacher_a = self._check(self._teacher.choose(rv, views, self._teacher_ctx))
-        q = self._q(self._net, x)
-        greedy = int(np.flatnonzero(q == q.max())[0]) if np.all(np.isfinite(q)) else 0
+        q = np.where(mask, self._q(self._net, x), -np.inf)
+        greedy = int(np.flatnonzero(q == q.max())[0]) if np.isfinite(q.max()) else int(np.flatnonzero(mask)[0])
         a = greedy
         if self._training:
             if teacher_a >= 0:
@@ -295,20 +317,22 @@ class LearnedGlobalScheduler(EvolvedGlobalScheduler):
                 a = teacher_a
                 self._stats["teacher_acted"] += 1
             elif self._rng.random() < self._epsilon():
-                a = self._rng.randrange(len(views))
+                allowed = np.flatnonzero(mask)
+                a = int(allowed[self._rng.randrange(len(allowed))])
                 self._stats["explore"] += 1
         self._n_decisions += 1
         self._stats["actions"][a] += 1
         return a, teacher_a
 
-    def _record(self, r: Request, x, a, teacher_a, cached, views) -> None:
+    def _record(self, r: Request, x, a, teacher_a, cached, views, mask) -> None:
         self._routed[r.id] = (r.arrived_at, a, cached[a])
         if not self._training:
             return
-        d = _Decision(r.id, x, a, r.arrived_at, teacher_a, views)
+        d = _Decision(r.id, x, a, r.arrived_at, teacher_a, views, mask)
         if self._prev is not None:
             p = self._prev
             p.next_x = x
+            p.next_mask = mask
             p.dt = max(0.0, r.arrived_at - p.t)
             if callable(self._interval_reward):
                 p.r_interval = self._safe_reward(self._interval_reward, p.views, views, p.dt, self._ctx)
@@ -358,8 +382,9 @@ class LearnedGlobalScheduler(EvolvedGlobalScheduler):
             return
         gamma = 0.0 if (self._cfg["algorithm"] == "bandit" or d.done) else math.exp(-self._cfg["beta"] * d.dt)
         nx = d.next_x if d.next_x is not None else d.x
+        nm = d.next_mask if d.next_mask is not None else d.mask
         total = (d.reward or 0.0) + (d.r_interval or 0.0)
-        item = (d.x, d.a, total, nx, gamma, d.teacher_a)
+        item = (d.x, d.a, total, nx, gamma, d.teacher_a, nm)
         cap = self._cfg["buffer_size"]
         if len(self._buffer) < cap:
             self._buffer.append(item)
@@ -382,12 +407,14 @@ class LearnedGlobalScheduler(EvolvedGlobalScheduler):
         nx = torch.from_numpy(np.stack([b[3] for b in batch]))
         g = torch.tensor([b[4] for b in batch], dtype=torch.float32)
         ta = torch.tensor([b[5] for b in batch], dtype=torch.long)
+        nm = torch.from_numpy(np.stack([b[6] for b in batch]))  # [B, N] allowed at s'
 
         q_all = self._net(x).squeeze(-1)  # [B, N]
         q = q_all.gather(1, a.unsqueeze(1)).squeeze(1)
         with torch.no_grad():
             if c["algorithm"] == "dqn":
-                a_star = self._net(nx).squeeze(-1).argmax(dim=1, keepdim=True)  # online net selects
+                q_sel = self._net(nx).squeeze(-1).masked_fill(~nm, float("-inf"))
+                a_star = q_sel.argmax(dim=1, keepdim=True)  # online net selects among allowed
                 q_next = self._target(nx).squeeze(-1).gather(1, a_star).squeeze(1)  # target net evaluates
                 y = r + g * q_next
             else:

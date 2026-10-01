@@ -3,6 +3,7 @@
 import io
 import json
 import subprocess
+import time
 import urllib.error
 
 import pytest
@@ -127,3 +128,32 @@ def test_driver_spend_cap_and_proposer_factory(monkeypatch):
         rows = [{"proposer": {"cost_usd": 0.5}}, {"proposer": {"cost_usd": None}}, {"proposer": {}}, {}]
 
     assert driver.spent_usd(A) == 0.5
+
+
+def test_relay_round_trip(tmp_path):
+    """RelayProposer writes a request and returns the response written by the serving side."""
+    import threading
+
+    from evolve.relay import RelayProposer
+
+    prop = RelayProposer(str(tmp_path), model="m", poll_s=0.05, timeout_s=10)
+    prop.system_prompt = "SYS"
+
+    def fake_server():
+        req_dir, resp_dir = tmp_path / "requests", tmp_path / "responses"
+        for _ in range(200):
+            reqs = list(req_dir.glob("*.json"))
+            if reqs:
+                req = json.loads(reqs[0].read_text())
+                assert req["system_prompt"] == "SYS" and req["user_prompt"] == "hello"
+                (resp_dir / f"{req['id']}.json").write_text(
+                    json.dumps({"id": req["id"], "code": "def choose(r, v, c):\n    return 0\n",
+                                "meta": {"backend": "fake"}}))
+                return
+            time.sleep(0.05)
+
+    th = threading.Thread(target=fake_server)
+    th.start()
+    code, meta = prop.propose("hello")
+    th.join()
+    assert code.startswith("def choose") and meta["backend"] == "fake" and meta["relay_id"]

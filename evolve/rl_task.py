@@ -32,11 +32,17 @@ TEACHER = REPO / "evolve" / "finalists" / "claude_r1_76be082eb0f5.py"
 SEED_DESIGNS = ["seed_ttft_bandit", "seed_dqn_teacher", "seed_dqn_interval", "seed_dqn_queue"]
 
 S = ev.Scenario
+# Protocol v2 (2026-10-01). v1 (8 x 4000-request windows, hardest first) failed at the Tool
+# knee: training opened with an exploration collapse, and windows that start with empty queues
+# never show the deep backlogs of a full knee run, so the network extrapolated at evaluation.
+# v2 is an easy-to-hard curriculum ending with two FULL knee traces. Arrival seeds 4-7 are never
+# used for scoring (evaluation uses 1-3); request contents are the same traces (the Synth trace
+# and 16 replicas in the held-out set are never trained on).
 TRAIN_EPISODES = [
-    S("Tool", 8, 0.75, 2000, 4000, 4), S("Conv", 8, 0.75, 1000, 4000, 4),
-    S("Tool", 8, 1.0, 10000, 4000, 5), S("Conv", 8, 1.0, 6000, 4000, 5),
+    S("Tool", 8, 1.0, 10000, 4000, 4), S("Conv", 8, 1.0, 6000, 4000, 4),
+    S("Tool", 8, 1.0, 2000, 4000, 5), S("Conv", 8, 1.0, 1000, 4000, 5),
     S("Tool", 8, 0.75, 16000, 4000, 6), S("Conv", 8, 0.75, 7000, 4000, 6),
-    S("Tool", 8, 1.0, 5000, 4000, 7), S("Conv", 8, 1.0, 3000, 4000, 7),
+    S("Tool", 8, 0.75, -1, 0, 7), S("Conv", 8, 0.75, -1, 0, 7),
 ]
 CRASH_EPISODE = S("Tool", 4, 1.5, 12000, 150, 1)
 # Plumbing check only (driver --scenarios smoke): two tiny training episodes.
@@ -168,11 +174,15 @@ A teacher (the evolved router above) is available during training only:
   teacher_mix = probability the teacher's action is executed instead of the learner's;
   imitation_weight / imitation_margin = DQfD large-margin loss towards the teacher's action.
 At evaluation the learner acts alone and greedily.
-Training protocol: 8 episodes in order (4,000-request windows of the Tool and Conv traces,
-8 replicas, loads 0.75 and 1.0, arrival seeds never used for scoring), each continuing from
-the previous network (optimizer state kept, replay buffer starts empty each episode).
+Training protocol: 8 episodes in order, easy to hard: four 4,000-request windows at load 1.0,
+two windows at load 0.75 (the knee), then the FULL Tool and Conv traces at 0.75 (deep backlogs).
+8 replicas; arrival seeds never used for scoring. Each episode continues from the previous
+network (optimizer state kept; replay buffer starts empty each episode).
 Scoring: full Tool and Conv traces, 8 replicas, loads 1.0 and 0.75 (~24k and ~12k requests).
-Episodes are short relative to the full traces: settings must learn within ~32k decisions.
+About 60k training decisions in total. Backlogs at the knee reach hundreds of thousands of
+queued tokens: scale features so they stay O(1) there (e.g. log1p), or the network extrapolates.
+Optional: def candidate_mask(request, replicas, ctx) -> list of bools restricts which replicas
+the learner may pick (greedy, exploration and the DQN successor argmax), e.g. a safety filter.
 
 ## Contract (strict)
 Define at module level:
