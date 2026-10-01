@@ -15,3 +15,4 @@ class GlobalSchedulerType(BaseIntEnum):
     TOLERANT_STICKY_LOP_UNCACHED = 11
     RL_CACHE_AWARE = 12
     EVOLVED = 13
+    LEARNED = 14

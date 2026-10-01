@@ -23,7 +23,15 @@ class GuardError(ValueError):
     pass
 
 
-def check_policy_source(source: str) -> List[str]:
+# Entry points per task: the router task needs route() or choose(); the RL-design task
+# (EXP12) needs replica_features() and reward(), and may define a CONFIG dict.
+ENTRY_POINTS = {
+    "router": {"any_of": {"route": 3, "choose": 3}},
+    "rl_design": {"all_of": {"replica_features": 4}, "one_or_more_of": {"reward": 1, "interval_reward": 4}},
+}
+
+
+def check_policy_source(source: str, task: str = "router") -> List[str]:
     """Return a list of violations (empty = accepted)."""
     problems: List[str] = []
     if len(source) > MAX_SOURCE_CHARS:
@@ -33,12 +41,24 @@ def check_policy_source(source: str) -> List[str]:
     except SyntaxError as e:
         return [f"syntax error: {e}"]
 
-    defines = {n.name for n in tree.body if isinstance(n, ast.FunctionDef)}
-    if not ({"route", "choose"} & defines):
-        problems.append("must define route(burst, replicas, ctx) or choose(request, replicas, ctx) at module level")
-    for fn in (n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name in ("route", "choose")):
-        if len(fn.args.args) != 3:
-            problems.append(f"{fn.name}() must take exactly 3 positional arguments")
+    defines = {n.name: n for n in tree.body if isinstance(n, ast.FunctionDef)}
+    spec = ENTRY_POINTS[task]
+    if "any_of" in spec:
+        wanted = spec["any_of"]
+        if not (set(wanted) & set(defines)):
+            problems.append("must define route(burst, replicas, ctx) or choose(request, replicas, ctx) at module level")
+    else:
+        wanted = spec["all_of"]
+        for name, n in wanted.items():
+            if name not in defines:
+                problems.append(f"must define {name}() with {n} positional argument(s) at module level")
+    extra = spec.get("one_or_more_of", {})
+    if extra and not (set(extra) & set(defines)):
+        problems.append("must define " + " and/or ".join(f"{k}()" for k in extra))
+    for name, n in {**wanted, **extra}.items():
+        fn = defines.get(name)
+        if fn is not None and len(fn.args.args) != n:
+            problems.append(f"{name}() must take exactly {n} positional argument(s)")
 
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
@@ -57,7 +77,7 @@ def check_policy_source(source: str) -> List[str]:
     return problems
 
 
-def assert_policy_ok(source: str) -> None:
-    problems = check_policy_source(source)
+def assert_policy_ok(source: str, task: str = "router") -> None:
+    problems = check_policy_source(source, task)
     if problems:
         raise GuardError("; ".join(problems))

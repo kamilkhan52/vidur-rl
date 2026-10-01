@@ -11,10 +11,10 @@ def main() -> None:
     simulator = Simulator(config)
     simulator.run()
     
-    # Save final RL checkpoint if training mode
-    from vidur.scheduler.global_scheduler.rl_cache_aware_global_scheduler import RLCacheAwareGlobalScheduler
-    if isinstance(simulator._scheduler, RLCacheAwareGlobalScheduler):
-        simulator._scheduler.save_final_checkpoint()
+    # Learning schedulers (RL_CACHE_AWARE, LEARNED) persist their network at the end.
+    save = getattr(simulator._scheduler, "save_final_checkpoint", None)
+    if callable(save):
+        save()
 
 
 if __name__ == "__main__":

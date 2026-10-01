@@ -725,6 +725,29 @@ class EvolvedGlobalSchedulerConfig(BaseGlobalSchedulerConfig):
 
 
 @dataclass
+class LearnedGlobalSchedulerConfig(BaseGlobalSchedulerConfig):
+    policy_path: str = field(
+        default="",
+        metadata={"help": "Path to an RL design module defining replica_features(), reward() and CONFIG."},
+    )
+    mode: str = field(
+        default="inference",
+        metadata={"help": "'training' (explore and learn online) or 'inference' (greedy, frozen)."},
+    )
+    checkpoint_in: str = field(default="", metadata={"help": "Network checkpoint to start from (optional)."})
+    checkpoint_out: str = field(
+        default="", metadata={"help": "Where to save the network and training diagnostics at the end of the run."}
+    )
+    teacher_path: str = field(
+        default="", metadata={"help": "Evolved policy module used as a teacher during training (optional)."}
+    )
+
+    @staticmethod
+    def get_type():
+        return GlobalSchedulerType.LEARNED
+
+
+@dataclass
 class RLCacheAwareGlobalSchedulerConfig(BaseGlobalSchedulerConfig):
     mode: str = field(
         default="inference",

@@ -143,6 +143,7 @@ def run_simulator(argv):
 
     simulator = build_simulator(argv)
     simulator.run()
-    if isinstance(simulator._scheduler, RLCacheAwareGlobalScheduler):
-        simulator._scheduler.save_final_checkpoint()
+    save = getattr(simulator._scheduler, "save_final_checkpoint", None)
+    if callable(save):
+        save()
     return simulator

@@ -73,24 +73,26 @@ class PolicyContext:
         self.state: Dict[str, Any] = {}
 
 
-def load_policy(path: str):
+def load_policy(path: str, require_router: bool = True):
     spec = importlib.util.spec_from_file_location("evolved_policy", path)
     if spec is None or spec.loader is None:
         raise PolicyError(f"cannot load policy from {path!r}")
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
-    if not (hasattr(mod, "route") or hasattr(mod, "choose")):
+    if require_router and not (hasattr(mod, "route") or hasattr(mod, "choose")):
         raise PolicyError(f"policy {path!r} defines neither route() nor choose()")
     return mod
 
 
 class EvolvedGlobalScheduler(BaseGlobalScheduler):
+    REQUIRES_ROUTER = True  # subclasses that learn the routing (LEARNED) load a design module instead
+
     def __init__(self, config: SimulationConfig, replicas: Dict[ReplicaId, Replica]):
         super().__init__(config, replicas)
         gs_config = config.cluster_config.global_scheduler_config
         if not gs_config.policy_path:
             raise PolicyError("evolved global scheduler requires --evolved_global_scheduler_config_policy_path")
-        self._policy = load_policy(gs_config.policy_path)
+        self._policy = load_policy(gs_config.policy_path, require_router=self.REQUIRES_ROUTER)
         self._replica_ids: List[ReplicaId] = list(self._replica_schedulers.keys())
         self._index_of = {rid: i for i, rid in enumerate(self._replica_ids)}
         self._outstanding = [0] * len(self._replica_ids)

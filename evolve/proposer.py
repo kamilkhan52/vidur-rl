@@ -77,6 +77,7 @@ class ClaudeProposer:
     (ANTHROPIC_API_KEY, ANTHROPIC_AUTH_TOKEN, or an `ant auth login` profile)."""
 
     def __init__(self, model: str = "claude-opus-5", effort: str = "high", max_tokens: int = 64000):
+        self.system_prompt = SYSTEM_PROMPT  # the RL-design task swaps this
         import anthropic
 
         self.client = anthropic.Anthropic()
@@ -88,7 +89,7 @@ class ClaudeProposer:
         with self.client.beta.messages.stream(
             model=self.model,
             max_tokens=self.max_tokens,
-            system=[{"type": "text", "text": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}],
+            system=[{"type": "text", "text": self.system_prompt, "cache_control": {"type": "ephemeral"}}],
             messages=[{"role": "user", "content": user_prompt}],
             output_config={"effort": self.effort},
             betas=["server-side-fallback-2026-07-01"],
@@ -132,6 +133,7 @@ class OpenRouterProposer:
     def __init__(self, model: str = "deepseek/deepseek-v4.1-flash", temperature: float = 0.8,
                  max_tokens: int = 64000, reasoning_effort: Optional[str] = "medium",
                  key_file: str = DEFAULT_KEY_FILE, timeout: int = 900, retries: int = 5):
+        self.system_prompt = SYSTEM_PROMPT  # the RL-design task swaps this
         self.model = model
         self.temperature = temperature
         self.max_tokens = max_tokens
@@ -167,7 +169,7 @@ class OpenRouterProposer:
     def propose(self, user_prompt: str) -> Tuple[Optional[str], dict]:
         body = {
             "model": self.model,
-            "messages": [{"role": "system", "content": SYSTEM_PROMPT},
+            "messages": [{"role": "system", "content": self.system_prompt},
                          {"role": "user", "content": user_prompt}],
             "temperature": self.temperature,
             "max_tokens": self.max_tokens,
@@ -208,6 +210,7 @@ class ClaudeCodeProposer:
 
     def __init__(self, model: str = "claude-opus-5", timeout: int = 1800,
                  limit_wait_s: int = 900, limit_retries: int = 8, claude_bin: Optional[str] = None):
+        self.system_prompt = SYSTEM_PROMPT  # the RL-design task swaps this
         self.model = model
         self.timeout = timeout
         self.limit_wait_s = limit_wait_s
@@ -217,7 +220,7 @@ class ClaudeCodeProposer:
             raise RuntimeError("claude CLI not found on PATH")
 
     def command(self):
-        return [self.claude_bin, "-p", "--tools", "", "--system-prompt", SYSTEM_PROMPT,
+        return [self.claude_bin, "-p", "--tools", "", "--system-prompt", self.system_prompt,
                 "--model", self.model, "--output-format", "json",
                 "--no-session-persistence", "--strict-mcp-config"]
 
