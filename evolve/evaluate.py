@@ -26,6 +26,7 @@ CLI:
 import argparse
 import concurrent.futures as cf
 import hashlib
+import inspect
 import json
 import math
 import os
@@ -62,6 +63,7 @@ SEED_FLAG = {
     "sticky_lor": "sticky_lor_global_scheduler_config_seed",
     "lop_uncached": "l_o_p_uncached_global_scheduler_config_seed",
     "evolved": "evolved_global_scheduler_config_seed",
+    "learned": "learned_global_scheduler_config_seed",
 }
 DEFAULT_BASELINES = ("sticky_lor", "lor", "round_robin", "random", "lop_uncached")
 CACHE_DIR = Path(os.environ.get("EVOLVE_CACHE_DIR", REPO / "evolve" / ".cache"))
@@ -156,19 +158,47 @@ def file_sha(p: Path) -> str:
     return _SHA[p]
 
 
+# Files that cannot change a heuristic or evolved-policy run: the RL scheduler stack.
+# Excluding them lets RL work proceed without invalidating the cached baselines.
+_VERSION_EXCLUDE = {
+    "vidur/scheduler/global_scheduler/rl_cache_aware_global_scheduler.py",
+    "vidur/scheduler/global_scheduler/rl_agent.py",
+    "vidur/scheduler/global_scheduler/replay_buffer.py",
+    "vidur/scheduler/global_scheduler/reward_calculator.py",
+    "vidur/scheduler/global_scheduler/state_tracker.py",
+    "vidur/scheduler/global_scheduler/learned_global_scheduler.py",
+}
+_VERSION: Dict[str, str] = {}
+
+
 def code_version() -> str:
-    """Commit of the simulator + harness; a dirty vidur/ tree is part of the key."""
-    try:
-        head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=REPO, capture_output=True, text=True).stdout.strip()
-        dirty = subprocess.run(["git", "status", "--porcelain", "vidur", "scripts/tail_metrics.py", "evolve/evaluate.py"],
-                               cwd=REPO, capture_output=True, text=True).stdout.strip()
-        return head[:12] + ("-dirty" if dirty else "")
-    except Exception:
-        return "unknown"
+    """Content hash of the simulator + harness files that determine a run's outcome.
+
+    Hashes the files on disk (so uncommitted edits count), not the commit: unrelated
+    commits (docs, finalists, RL code) must not invalidate the baseline cache.
+    """
+    if "v" not in _VERSION:
+        try:
+            files = subprocess.run(["git", "ls-files", "vidur"], cwd=REPO, capture_output=True,
+                                   text=True, check=True).stdout.split()
+            files = sorted(f for f in files if f.endswith(".py") and f not in _VERSION_EXCLUDE)
+            files += ["scripts/tail_metrics.py"]
+            h = hashlib.sha256()
+            for f in files:
+                h.update(f.encode())
+                h.update(file_sha(REPO / f).encode())
+            # The parts of this harness that shape a run (not the scenario lists or scoring).
+            for fn in (sim_command, run_one, _window_csv):
+                h.update(inspect.getsource(fn).encode())
+            _VERSION["v"] = "c" + h.hexdigest()[:11]
+        except Exception:
+            _VERSION["v"] = "unknown"
+    return _VERSION["v"]
 
 
-def sim_command(scheduler: str, policy: Optional[str], sc: Scenario, trace_csv: Path, out_dir: Path) -> List[str]:
-    gtype = "evolved" if policy else scheduler
+def sim_command(scheduler: str, policy: Optional[str], sc: Scenario, trace_csv: Path, out_dir: Path,
+                extra: Optional[List[str]] = None) -> List[str]:
+    gtype = scheduler if scheduler in ("evolved", "learned") else ("evolved" if policy else scheduler)
     cmd = [
         sys.executable, "-m", "vidur.main",
         "--replica_config_device", "a100",
@@ -194,18 +224,18 @@ def sim_command(scheduler: str, policy: Optional[str], sc: Scenario, trace_csv: 
     if sc.jitter:
         cmd += ["--trace_request_generator_config_arrival_jitter", str(sc.jitter)]
     if policy:
-        cmd += ["--evolved_global_scheduler_config_policy_path", str(policy)]
-    return cmd
+        cmd += [f"--{gtype}_global_scheduler_config_policy_path", str(policy)]
+    return cmd + list(extra or [])
 
 
 def run_one(scheduler: str, sc: Scenario, policy: Optional[str] = None, timeout: int = 3600,
-            launcher: Optional[List[str]] = None) -> dict:
+            launcher: Optional[List[str]] = None, extra: Optional[List[str]] = None) -> dict:
     """Simulate one scenario; return the tail summary or a failure record. Never raises."""
     trace_csv = window_csv(sc)
     n_expected = len(pd.read_csv(trace_csv, usecols=["arrived_at"]))
     with tempfile.TemporaryDirectory(prefix="evolve_") as tmp:
         out_dir = Path(tmp) / "out"
-        cmd = (launcher or []) + sim_command(scheduler, policy, sc, trace_csv, out_dir)
+        cmd = (launcher or []) + sim_command(scheduler, policy, sc, trace_csv, out_dir, extra)
         t0 = time.time()
         try:
             proc = subprocess.run(cmd, cwd=REPO, capture_output=True, text=True, timeout=timeout)
