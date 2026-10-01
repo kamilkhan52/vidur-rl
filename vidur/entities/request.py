@@ -168,7 +168,7 @@ class Request(BaseEntity):
     @property
     @check_scheduled
     def execution_time_normalized(self) -> float:
-        return self._execution_time / self.num_decode_tokens
+        return self._execution_time / self._original_num_decode_tokens
 
     @property
     @check_scheduled
@@ -178,7 +178,7 @@ class Request(BaseEntity):
     @property
     @check_scheduled
     def model_execution_time_normalized(self) -> float:
-        return self._model_execution_time / self.num_decode_tokens
+        return self._model_execution_time / self._original_num_decode_tokens
 
     @property
     def arrived_at(self) -> float:

@@ -808,11 +808,45 @@ class SklearnExecutionTimePredictor(BaseExecutionTimePredictor):
 
         return predictions
 
+    def _bundle_key(self) -> str:
+        """Machine-independent key for the full prediction table.
+
+        ``to_dict`` holds absolute profiling paths, so per-model cache keys differ per
+        checkout and every machine retrains its own forests; forests trained on
+        different machines differ in the last digits, which shifts simulated tails by
+        a few percent. The bundle key replaces each path by its file name and a hash
+        of its contents, so one trained table can be shipped and reused anywhere.
+        """
+        items = []
+        for k, v in sorted(self.to_dict().items()):
+            if isinstance(v, str) and k.endswith("_input_file"):
+                rel = os.path.normpath(v).replace(os.sep, "/").split("/data/", 1)[-1]
+                if os.path.isfile(v):
+                    with open(v, "rb") as f:
+                        rel += ":" + hashlib.sha256(f.read()).hexdigest()[:16]
+                else:  # e.g. no CPU-overhead profile for this model: absent everywhere
+                    rel += ":missing"
+                v = rel
+            items.append(f"{k}={v}")
+        return hashlib.sha256(";".join(items).encode("utf-8")).hexdigest()[:16]
+
     def _predict_from_models(self) -> Dict[str, Any]:
+        mode = self._config.cache_mode
+        bundle = f"{self._config.cache_dir}/prediction_bundle_{self._bundle_key()}.pkl"
+        if mode != ExecutionTimePredictorCacheMode.IGNORE_CACHE and os.path.exists(bundle):
+            with open(bundle, "rb") as f:
+                return pickle.load(f)
+
         predictions = self._predict_for_compute_models()
         predictions.update(self._predict_for_cpu_overhead_models())
         predictions.update(self._predict_for_attention_layer_models())
 
+        if mode not in (ExecutionTimePredictorCacheMode.IGNORE_CACHE,
+                        ExecutionTimePredictorCacheMode.REQUIRE_CACHE):
+            tmp = f"{bundle}.tmp{os.getpid()}"
+            with open(tmp, "wb") as f:
+                pickle.dump(predictions, f, protocol=pickle.HIGHEST_PROTOCOL)
+            os.replace(tmp, bundle)
         return predictions
 
     def _get_attention_layer_pre_proj_execution_time(
@@ -901,7 +935,7 @@ class SklearnExecutionTimePredictor(BaseExecutionTimePredictor):
         predictions = self._predictions["attn_decode"]
         if key not in predictions:
             # Clamp to max available keys
-            if not hasattr(self, "_attn_decode_max_keys"):
+            if not hasattr(self, "_attn_decode_max_batch"):
                 self._attn_decode_max_batch = max(k[0] for k in predictions.keys())
                 self._attn_decode_max_kv = max(k[1] for k in predictions.keys())
             clamped_key = (
@@ -927,15 +961,16 @@ class SklearnExecutionTimePredictor(BaseExecutionTimePredictor):
         key = (batch.prefill_agg_kv_cache_size, batch.prefill_agg_chunk_size)
         predictions = self._predictions["attn_prefill"]
         if key not in predictions:
-            # Clamp KV cache size to max in prediction table (monotonically increasing)
+            # Clamp each dimension to the table's range independently (the table is
+            # monotone in both). Previously any miss set the KV size to the maximum,
+            # even when only the chunk size was out of range.
             if not hasattr(self, "_attn_prefill_max_kv"):
                 self._attn_prefill_max_kv = max(k[0] for k in predictions.keys())
-            clamped_key = (self._attn_prefill_max_kv, batch.prefill_agg_chunk_size)
-            if clamped_key not in predictions:
-                # Also clamp chunk size
-                max_chunk = max(k[1] for k in predictions.keys() if k[0] == self._attn_prefill_max_kv)
-                clamped_key = (self._attn_prefill_max_kv, min(batch.prefill_agg_chunk_size, max_chunk))
-            key = clamped_key
+                self._attn_prefill_max_chunk = max(k[1] for k in predictions.keys())
+            key = (
+                min(batch.prefill_agg_kv_cache_size, self._attn_prefill_max_kv),
+                min(batch.prefill_agg_chunk_size, self._attn_prefill_max_chunk),
+            )
 
         return predictions[key] * (
             1

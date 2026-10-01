@@ -313,7 +313,7 @@ class ReplicaMetricsStore:
         ].put(
             request.id,
             (request.execution_time + request.preempted_time)
-            / request.num_decode_tokens,
+            / request.original_num_decode_tokens,
         )
         self._request_metrics_time_distributions[
             RequestMetricsTimeDistributions.PREFILL_TIME_E2E
