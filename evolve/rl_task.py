@@ -29,7 +29,7 @@ from evolve import evaluate as ev
 
 REPO = Path(__file__).resolve().parents[1]
 TEACHER = REPO / "evolve" / "finalists" / "claude_r1_76be082eb0f5.py"
-SEED_DESIGNS = ["seed_ttft_bandit", "seed_dqn_teacher", "seed_dqn_interval"]
+SEED_DESIGNS = ["seed_ttft_bandit", "seed_dqn_teacher", "seed_dqn_interval", "seed_dqn_queue"]
 
 S = ev.Scenario
 TRAIN_EPISODES = [
