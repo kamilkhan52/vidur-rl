@@ -1,0 +1,455 @@
+{
+ "design": "evolve/finalists/rl_claude_r1_2e9c577070d6.py",
+ "checkpoint": "evolve/finalists/rl_claude_r1_2e9c577070d6_ckpt/net_ep7.pt",
+ "stage": "heldout",
+ "code_version": "c635a041025f",
+ "result": {
+  "combined_score": 0.019384103044380638,
+  "mean_log_ratio": -0.10268250301374511,
+  "worst_scenario_log_ratio": 0.05975779373000927,
+  "mean_e2e_penalty": 0.05341950310435983,
+  "details": [
+   {
+    "scenario": "7b-8R-Tool-s1.0-full-p2",
+    "metric": "e2e",
+    "p99": 22.195740280000038,
+    "best_heuristic_p99": 24.552408580000012,
+    "log_ratio": -0.1009095674053381
+   },
+   {
+    "scenario": "7b-8R-Tool-s1.0-full-p2",
+    "metric": "ttft",
+    "p99": 6.382600740000003,
+    "best_heuristic_p99": 8.449550820000002,
+    "log_ratio": -0.28053762876700516
+   },
+   {
+    "scenario": "7b-8R-Tool-s1.0-full-p2",
+    "metric": "tpot",
+    "p99": 0.057072665,
+    "best_heuristic_p99": 0.05077448437888201,
+    "log_ratio": 0.11693132810173917
+   },
+   {
+    "scenario": "7b-8R-Tool-s1.0-full-p3",
+    "metric": "e2e",
+    "p99": 22.26555718,
+    "best_heuristic_p99": 24.642248340000013,
+    "log_ratio": -0.10142141867988594
+   },
+   {
+    "scenario": "7b-8R-Tool-s1.0-full-p3",
+    "metric": "ttft",
+    "p99": 6.232947520000005,
+    "best_heuristic_p99": 8.8124223,
+    "log_ratio": -0.34631301298856015
+   },
+   {
+    "scenario": "7b-8R-Tool-s1.0-full-p3",
+    "metric": "tpot",
+    "p99": 0.05660400935000002,
+    "best_heuristic_p99": 0.05072754399999993,
+    "log_ratio": 0.10961078203389314
+   },
+   {
+    "scenario": "7b-8R-Tool-s0.75-full-p2",
+    "metric": "e2e",
+    "p99": 44.03902550000001,
+    "best_heuristic_p99": 49.73394764000001,
+    "log_ratio": -0.12161156703759166
+   },
+   {
+    "scenario": "7b-8R-Tool-s0.75-full-p2",
+    "metric": "ttft",
+    "p99": 17.0284763,
+    "best_heuristic_p99": 30.619228320000012,
+    "log_ratio": -0.5867411689321606
+   },
+   {
+    "scenario": "7b-8R-Tool-s0.75-full-p2",
+    "metric": "tpot",
+    "p99": 0.08139850000000005,
+    "best_heuristic_p99": 0.06646738000000355,
+    "log_ratio": 0.20264554432159723
+   },
+   {
+    "scenario": "7b-8R-Tool-s0.75-full-p3",
+    "metric": "e2e",
+    "p99": 44.15755860000001,
+    "best_heuristic_p99": 49.42828132,
+    "log_ratio": -0.11275864162216882
+   },
+   {
+    "scenario": "7b-8R-Tool-s0.75-full-p3",
+    "metric": "ttft",
+    "p99": 17.45933914000002,
+    "best_heuristic_p99": 29.876491420000004,
+    "log_ratio": -0.5371972312615774
+   },
+   {
+    "scenario": "7b-8R-Tool-s0.75-full-p3",
+    "metric": "tpot",
+    "p99": 0.0812212825925926,
+    "best_heuristic_p99": 0.06635716499999997,
+    "log_ratio": 0.20212557082852542
+   },
+   {
+    "scenario": "7b-8R-Conv-s1.0-full-p2",
+    "metric": "e2e",
+    "p99": 26.340556629999963,
+    "best_heuristic_p99": 28.73212214999999,
+    "log_ratio": -0.08690590697094226
+   },
+   {
+    "scenario": "7b-8R-Conv-s1.0-full-p2",
+    "metric": "ttft",
+    "p99": 8.913901739999996,
+    "best_heuristic_p99": 10.163022599999998,
+    "log_ratio": -0.13114384655209183
+   },
+   {
+    "scenario": "7b-8R-Conv-s1.0-full-p2",
+    "metric": "tpot",
+    "p99": 0.04587280000000002,
+    "best_heuristic_p99": 0.04800508000000002,
+    "log_ratio": -0.045434489819752635
+   },
+   {
+    "scenario": "7b-8R-Conv-s1.0-full-p3",
+    "metric": "e2e",
+    "p99": 26.436371969999996,
+    "best_heuristic_p99": 29.039072619999978,
+    "log_ratio": -0.09390146677889082
+   },
+   {
+    "scenario": "7b-8R-Conv-s1.0-full-p3",
+    "metric": "ttft",
+    "p99": 8.867017629999985,
+    "best_heuristic_p99": 10.245771709999993,
+    "log_ratio": -0.14452659571167434
+   },
+   {
+    "scenario": "7b-8R-Conv-s1.0-full-p3",
+    "metric": "tpot",
+    "p99": 0.04624994655021836,
+    "best_heuristic_p99": 0.047906044177777794,
+    "log_ratio": -0.035181371421766625
+   },
+   {
+    "scenario": "7b-8R-Conv-s0.75-full-p2",
+    "metric": "e2e",
+    "p99": 54.08098479999994,
+    "best_heuristic_p99": 56.61383249999998,
+    "log_ratio": -0.04577070418193919
+   },
+   {
+    "scenario": "7b-8R-Conv-s0.75-full-p2",
+    "metric": "ttft",
+    "p99": 28.233568619999964,
+    "best_heuristic_p99": 31.38873965999999,
+    "log_ratio": -0.10593757244094143
+   },
+   {
+    "scenario": "7b-8R-Conv-s0.75-full-p2",
+    "metric": "tpot",
+    "p99": 0.06788492000000006,
+    "best_heuristic_p99": 0.05823711119825708,
+    "log_ratio": 0.15329111760802439
+   },
+   {
+    "scenario": "7b-8R-Conv-s0.75-full-p3",
+    "metric": "e2e",
+    "p99": 54.10731821999998,
+    "best_heuristic_p99": 58.57724966999999,
+    "log_ratio": -0.07937694152175691
+   },
+   {
+    "scenario": "7b-8R-Conv-s0.75-full-p3",
+    "metric": "ttft",
+    "p99": 25.33770151999998,
+    "best_heuristic_p99": 32.897376969999925,
+    "log_ratio": -0.2610994620621045
+   },
+   {
+    "scenario": "7b-8R-Conv-s0.75-full-p3",
+    "metric": "tpot",
+    "p99": 0.06883197706521738,
+    "best_heuristic_p99": 0.05888772691340281,
+    "log_ratio": 0.156035722529763
+   },
+   {
+    "scenario": "7b-8R-Synth-s1.0-full-p1",
+    "metric": "e2e",
+    "p99": 16.537406890000014,
+    "best_heuristic_p99": 17.47133884,
+    "log_ratio": -0.05493685853837621
+   },
+   {
+    "scenario": "7b-8R-Synth-s1.0-full-p1",
+    "metric": "ttft",
+    "p99": 5.807567780000001,
+    "best_heuristic_p99": 6.688496980000001,
+    "log_ratio": -0.14122732552287637
+   },
+   {
+    "scenario": "7b-8R-Synth-s1.0-full-p1",
+    "metric": "tpot",
+    "p99": 0.047690173145363404,
+    "best_heuristic_p99": 0.04714567893589742,
+    "log_ratio": 0.011483003116609065
+   },
+   {
+    "scenario": "7b-8R-Synth-s1.0-full-p2",
+    "metric": "e2e",
+    "p99": 16.537406890000014,
+    "best_heuristic_p99": 17.75310874000001,
+    "log_ratio": -0.07093574167693771
+   },
+   {
+    "scenario": "7b-8R-Synth-s1.0-full-p2",
+    "metric": "ttft",
+    "p99": 5.807567780000001,
+    "best_heuristic_p99": 6.2398714,
+    "log_ratio": -0.07179771648535156
+   },
+   {
+    "scenario": "7b-8R-Synth-s1.0-full-p2",
+    "metric": "tpot",
+    "p99": 0.047690173145363404,
+    "best_heuristic_p99": 0.04744779999999999,
+    "log_ratio": 0.005095203559759829
+   },
+   {
+    "scenario": "7b-8R-Synth-s1.0-full-p3",
+    "metric": "e2e",
+    "p99": 16.537406890000014,
+    "best_heuristic_p99": 17.72283476,
+    "log_ratio": -0.06922900836066315
+   },
+   {
+    "scenario": "7b-8R-Synth-s1.0-full-p3",
+    "metric": "ttft",
+    "p99": 5.807567780000001,
+    "best_heuristic_p99": 6.237177400000001,
+    "log_ratio": -0.07136588359200519
+   },
+   {
+    "scenario": "7b-8R-Synth-s1.0-full-p3",
+    "metric": "tpot",
+    "p99": 0.047690173145363404,
+    "best_heuristic_p99": 0.04715263989426524,
+    "log_ratio": 0.011335366160471927
+   },
+   {
+    "scenario": "7b-8R-Synth-s0.75-full-p1",
+    "metric": "e2e",
+    "p99": 34.49388935000001,
+    "best_heuristic_p99": 33.95715522000002,
+    "log_ratio": 0.01568259867667903
+   },
+   {
+    "scenario": "7b-8R-Synth-s0.75-full-p1",
+    "metric": "ttft",
+    "p99": 27.133488460000002,
+    "best_heuristic_p99": 26.08482097000001,
+    "log_ratio": 0.03941512840367188
+   },
+   {
+    "scenario": "7b-8R-Synth-s0.75-full-p1",
+    "metric": "tpot",
+    "p99": 0.06152079425728156,
+    "best_heuristic_p99": 0.05433668414179106,
+    "log_ratio": 0.1241756541096769
+   },
+   {
+    "scenario": "7b-8R-Synth-s0.75-full-p2",
+    "metric": "e2e",
+    "p99": 34.49388935000001,
+    "best_heuristic_p99": 39.099754190000006,
+    "log_ratio": -0.12533399221098324
+   },
+   {
+    "scenario": "7b-8R-Synth-s0.75-full-p2",
+    "metric": "ttft",
+    "p99": 27.133488460000002,
+    "best_heuristic_p99": 35.9826125,
+    "log_ratio": -0.2822671341465782
+   },
+   {
+    "scenario": "7b-8R-Synth-s0.75-full-p2",
+    "metric": "tpot",
+    "p99": 0.06152079425728156,
+    "best_heuristic_p99": 0.05498942373983741,
+    "log_ratio": 0.1122343645660656
+   },
+   {
+    "scenario": "7b-8R-Synth-s0.75-full-p3",
+    "metric": "e2e",
+    "p99": 34.49388935000001,
+    "best_heuristic_p99": 41.63118091,
+    "log_ratio": -0.18806723954753196
+   },
+   {
+    "scenario": "7b-8R-Synth-s0.75-full-p3",
+    "metric": "ttft",
+    "p99": 27.133488460000002,
+    "best_heuristic_p99": 38.51717618,
+    "log_ratio": -0.3503355748277068
+   },
+   {
+    "scenario": "7b-8R-Synth-s0.75-full-p3",
+    "metric": "tpot",
+    "p99": 0.06152079425728156,
+    "best_heuristic_p99": 0.05502061664646466,
+    "log_ratio": 0.1116672725560332
+   },
+   {
+    "scenario": "7b-16R-Tool-s0.5-full-p1",
+    "metric": "e2e",
+    "p99": 19.949569620000005,
+    "best_heuristic_p99": 21.422626480000016,
+    "log_ratio": -0.07124010544568632
+   },
+   {
+    "scenario": "7b-16R-Tool-s0.5-full-p1",
+    "metric": "ttft",
+    "p99": 5.7950449000000015,
+    "best_heuristic_p99": 8.69583354,
+    "log_ratio": -0.4058407826810102
+   },
+   {
+    "scenario": "7b-16R-Tool-s0.5-full-p1",
+    "metric": "tpot",
+    "p99": 0.05247600000000001,
+    "best_heuristic_p99": 0.047798499999999966,
+    "log_ratio": 0.09336166396689864
+   },
+   {
+    "scenario": "7b-16R-Tool-s0.5-full-p2",
+    "metric": "e2e",
+    "p99": 20.21131382,
+    "best_heuristic_p99": 22.149151020000012,
+    "log_ratio": -0.09155662937415962
+   },
+   {
+    "scenario": "7b-16R-Tool-s0.5-full-p2",
+    "metric": "ttft",
+    "p99": 5.935935120000003,
+    "best_heuristic_p99": 9.075803180000017,
+    "log_ratio": -0.42458730503159325
+   },
+   {
+    "scenario": "7b-16R-Tool-s0.5-full-p2",
+    "metric": "tpot",
+    "p99": 0.05321319333333335,
+    "best_heuristic_p99": 0.048209793775743706,
+    "log_ratio": 0.0987441698050795
+   },
+   {
+    "scenario": "7b-16R-Conv-s0.5-full-p1",
+    "metric": "e2e",
+    "p99": 23.725569749999973,
+    "best_heuristic_p99": 26.536960149999988,
+    "log_ratio": -0.11198512495146742
+   },
+   {
+    "scenario": "7b-16R-Conv-s0.5-full-p1",
+    "metric": "ttft",
+    "p99": 8.382592089999953,
+    "best_heuristic_p99": 12.238951549999957,
+    "log_ratio": -0.37846643045501177
+   },
+   {
+    "scenario": "7b-16R-Conv-s0.5-full-p1",
+    "metric": "tpot",
+    "p99": 0.038308482137697455,
+    "best_heuristic_p99": 0.04675889913043478,
+    "log_ratio": -0.19933325594765763
+   },
+   {
+    "scenario": "7b-16R-Conv-s0.5-full-p2",
+    "metric": "e2e",
+    "p99": 24.6760396599999,
+    "best_heuristic_p99": 26.38442305999999,
+    "log_ratio": -0.06694108183090544
+   },
+   {
+    "scenario": "7b-16R-Conv-s0.5-full-p2",
+    "metric": "ttft",
+    "p99": 8.625338559999989,
+    "best_heuristic_p99": 12.08450054,
+    "log_ratio": -0.3372194689008705
+   },
+   {
+    "scenario": "7b-16R-Conv-s0.5-full-p2",
+    "metric": "tpot",
+    "p99": 0.0383358922433992,
+    "best_heuristic_p99": 0.047381323636363604,
+    "log_ratio": -0.2118415433030036
+   },
+   {
+    "scenario": "7b-16R-Synth-s0.5-full-p1",
+    "metric": "e2e",
+    "p99": 13.41162585,
+    "best_heuristic_p99": 15.4795541,
+    "log_ratio": -0.14339813128199558
+   },
+   {
+    "scenario": "7b-16R-Synth-s0.5-full-p1",
+    "metric": "ttft",
+    "p99": 5.183908100000005,
+    "best_heuristic_p99": 6.46035781,
+    "log_ratio": -0.22012547353613157
+   },
+   {
+    "scenario": "7b-16R-Synth-s0.5-full-p1",
+    "metric": "tpot",
+    "p99": 0.0456660025,
+    "best_heuristic_p99": 0.04661570045454543,
+    "log_ratio": -0.020583310753734162
+   },
+   {
+    "scenario": "7b-16R-Synth-s0.5-full-p2",
+    "metric": "e2e",
+    "p99": 13.41162585,
+    "best_heuristic_p99": 16.16852053000001,
+    "log_ratio": -0.18694424310460941
+   },
+   {
+    "scenario": "7b-16R-Synth-s0.5-full-p2",
+    "metric": "ttft",
+    "p99": 5.183908100000005,
+    "best_heuristic_p99": 6.268304300000002,
+    "log_ratio": -0.1899466402272063
+   },
+   {
+    "scenario": "7b-16R-Synth-s0.5-full-p2",
+    "metric": "tpot",
+    "p99": 0.0456660025,
+    "best_heuristic_p99": 0.04670560451666665,
+    "log_ratio": -0.0225100752789931
+   }
+  ]
+ },
+ "e2e": {
+  "better": 19,
+  "n": 20,
+  "geo": 0.9090300849549184,
+  "min": 0.8285589934277945,
+  "max": 1.0158062159954986
+ },
+ "ttft": {
+  "better": 19,
+  "n": 20,
+  "geo": 0.7700013150444436,
+  "min": 0.5561366903841028,
+  "max": 1.0402022115162706
+ },
+ "tpot": {
+  "better": 6,
+  "n": 20,
+  "geo": 1.0498976002444258,
+  "min": 0.8090928935969545,
+  "max": 1.2246383113039165
+ }
+}
