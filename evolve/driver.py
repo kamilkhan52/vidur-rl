@@ -65,10 +65,12 @@ def save_program(archive: Archive, code: str) -> tuple:
 
 
 def evaluate_candidate(code: str, archive: Archive, parent: Optional[str], stage1, workers, launcher,
-                       meta: Optional[dict] = None, task: str = "router", objective: str = "balanced") -> dict:
+                       meta: Optional[dict] = None, task: str = "router", objective: str = "balanced",
+                       rl_protocol: str = "v2") -> dict:
     pid, path = save_program(archive, code)
     row = {"id": pid, "parent": parent, "time": time.time(), "valid": False, "stage_reached": "0a",
-           "proposer": meta or {}, "task": task, "objective": objective}
+           "proposer": meta or {}, "task": task, "objective": objective,
+           **({"rl_protocol": rl_protocol} if task == "rl" else {})}
     problems = check_policy_source(code, "rl_design" if task == "rl" else "router")
     if problems:
         row["feedback"] = "REJECTED by static guard: " + "; ".join(problems)
@@ -89,9 +91,11 @@ def evaluate_candidate(code: str, archive: Archive, parent: Optional[str], stage
     if task == "rl":
         from evolve import rl_task
 
-        res = rl_task.evaluate_design(str(path), archive.dir / "training" / pid, stage1, workers=workers,
-                                      launcher=launcher,
-                                      episodes=rl_task.SMOKE_EPISODES if stage1 == SMOKE else None)
+        smoke = stage1 == SMOKE
+        res = rl_task.evaluate_design(str(path), archive.dir / "training" / pid,
+                                      stage1 if (smoke or rl_protocol == "v2") else None, workers=workers,
+                                      launcher=launcher, episodes=rl_task.SMOKE_EPISODES if smoke else None,
+                                      protocol=rl_protocol, objective=objective)
         feedback = rl_task.feedback_text(res)
     else:
         res = ev.evaluate_policy(str(path), stage1, workers=workers, launcher=launcher, objective=objective)
@@ -133,27 +137,29 @@ def spent_usd(archive: Archive) -> float:
     return sum((r.get("proposer") or {}).get("cost_usd") or 0.0 for r in archive.rows)
 
 
-def seed_programs(task: str, extra: Optional[List[str]] = None) -> List[tuple]:
+def seed_programs(task: str, extra: Optional[List[str]] = None, rl_protocol: str = "v2") -> List[tuple]:
     extra_rows = [(Path(p).stem, Path(p).read_text()) for p in (extra or [])]
     if task == "rl":
         from evolve import rl_task
 
-        return [(n, (REPO / "evolve" / "rl_designs" / f"{n}.py").read_text()) for n in rl_task.SEED_DESIGNS] + extra_rows
+        names = rl_task.PROTOCOLS[rl_protocol]["seeds"]
+        return [(n, (REPO / "evolve" / "rl_designs" / f"{n}.py").read_text()) for n in names] + extra_rows
     return [(n, (REPO / "evolve" / "policies" / f"{n}.py").read_text()) for n in SEEDS] + extra_rows
 
 
 def run(run_dir: Path, iterations: int, batch: int, workers: int, propose: Callable[[str], tuple],
         stage1=None, launcher=None, seed: int = 0, max_cost_usd: Optional[float] = None,
-        task: str = "router", objective: str = "balanced", extra_seeds: Optional[List[str]] = None) -> Archive:
+        task: str = "router", objective: str = "balanced", extra_seeds: Optional[List[str]] = None,
+        rl_protocol: str = "v2") -> Archive:
     stage1 = stage1 or ev.STAGE1
     archive = Archive(run_dir)
     rng = random.Random(seed)
     seeded = {r["id"] for r in archive.rows}
-    todo = [(name, code) for name, code in seed_programs(task, extra_seeds)  # seeds enter the archive as candidates
+    todo = [(name, code) for name, code in seed_programs(task, extra_seeds, rl_protocol)  # seeds enter the archive as candidates
             if hashlib.sha256(code.encode()).hexdigest()[:12] not in seeded]
     with cf.ThreadPoolExecutor(max_workers=max(1, batch)) as ex:  # in parallel: RL seeds take ~1 h each
         list(ex.map(lambda nc: evaluate_candidate(nc[1], archive, None, stage1, workers, launcher,
-                                                  {"seed": nc[0]}, task, objective), todo))
+                                                  {"seed": nc[0]}, task, objective, rl_protocol), todo))
     for it in range(iterations):
         if max_cost_usd is not None and spent_usd(archive) >= max_cost_usd:
             print(f"[stop] proposer spend {spent_usd(archive):.2f} USD reached cap {max_cost_usd}", flush=True)
@@ -179,7 +185,7 @@ def run(run_dir: Path, iterations: int, batch: int, workers: int, propose: Calla
                 return None
             meta["iteration"] = it
             return evaluate_candidate(code, archive, parent["id"], stage1, workers, launcher, meta, task,
-                                      objective)
+                                      objective, rl_protocol)
 
         with cf.ThreadPoolExecutor(max_workers=batch) as ex:
             list(ex.map(one, jobs))
@@ -221,6 +227,7 @@ def main():
     ap.add_argument("--max-cost-usd", type=float, default=None, help="stop once proposer spend reaches this")
     ap.add_argument("--srun", action="store_true")
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--rl-protocol", default="v2", help="with --task rl: v2 | loto_conv (see rl_task.PROTOCOLS)")
     ap.add_argument("--seed-policy", action="append", default=[],
                     help="extra seed program file (repeatable), e.g. an earlier finalist")
     ap.add_argument("--objective", choices=sorted(ev.OBJECTIVES), default="balanced",
@@ -235,12 +242,12 @@ def main():
     if a.task == "rl":
         from evolve import rl_task
 
-        proposer.system_prompt = rl_task.SYSTEM_PROMPT
+        proposer.system_prompt = rl_task.SYSTEM_PROMPT if a.rl_protocol == "v2" else rl_task.system_prompt_v3(a.objective)
     launcher = ["srun", "--exact", "-n1", "-c1", "--mem=6G"] if a.srun else None
     stage1 = SMOKE if a.scenarios == "smoke" else ev.STAGE1
     run(Path(a.run_dir), a.iterations, a.batch, a.workers, proposer.propose, stage1=stage1,
         launcher=launcher, seed=a.seed, max_cost_usd=a.max_cost_usd, task=a.task, objective=a.objective,
-        extra_seeds=a.seed_policy)
+        extra_seeds=a.seed_policy, rl_protocol=a.rl_protocol)
 
 
 if __name__ == "__main__":

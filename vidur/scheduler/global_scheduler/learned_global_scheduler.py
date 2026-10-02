@@ -73,8 +73,13 @@ DEFAULTS = {
     "epsilon_start": 0.2,
     "epsilon_end": 0.02,
     "epsilon_decay_decisions": 20000,
-    "teacher_mix": 0.0,  # probability the teacher acts (training only)
-    "imitation_weight": 0.0,  # DQfD margin-loss weight
+    "teacher_mix": 0.0,  # probability the teacher acts (training only), at the start
+    "imitation_weight": 0.0,  # DQfD margin-loss weight, at the start
+    # Teacher phase-out (kickstarting, Schmitt et al. 2018): both decay linearly to their *_end
+    # values over teacher_decay_decisions (counted across episodes). None = no decay.
+    "teacher_mix_end": None,
+    "imitation_weight_end": None,
+    "teacher_decay_decisions": 30000,
     "imitation_margin": 0.5,
     "grad_clip": 10.0,
     "reward_clip": 100.0,  # harness safety bound on |reward|
@@ -84,6 +89,7 @@ RANGES = {
     "train_every": (1, 64), "learning_starts": (0, 100000), "target_update": (1, 100000),
     "epsilon_start": (0.0, 1.0), "epsilon_end": (0.0, 1.0), "epsilon_decay_decisions": (1, 10**7),
     "teacher_mix": (0.0, 1.0), "imitation_weight": (0.0, 100.0), "imitation_margin": (0.0, 100.0),
+    "teacher_decay_decisions": (1, 10**7),
     "grad_clip": (0.01, 1000.0), "reward_clip": (0.01, 1e6),
 }
 MAX_FEATURES = 64
@@ -98,6 +104,10 @@ def resolve_config(user: Optional[dict]) -> dict:
         cfg[k] = v
     if cfg["algorithm"] not in ("bandit", "dqn"):
         raise PolicyError(f"CONFIG algorithm must be 'bandit' or 'dqn', got {cfg['algorithm']!r}")
+    for k, (lo, hi) in (("teacher_mix_end", (0.0, 1.0)), ("imitation_weight_end", (0.0, 100.0))):
+        if cfg[k] is not None and (not isinstance(cfg[k], (int, float)) or isinstance(cfg[k], bool)
+                                   or not lo <= cfg[k] <= hi):
+            raise PolicyError(f"CONFIG {k}={cfg[k]!r} outside [{lo}, {hi}] (or None)")
     for k, (lo, hi) in RANGES.items():
         if not isinstance(cfg[k], (int, float)) or isinstance(cfg[k], bool) or not lo <= cfg[k] <= hi:
             raise PolicyError(f"CONFIG {k}={cfg[k]!r} outside [{lo}, {hi}]")
@@ -240,6 +250,15 @@ class LearnedGlobalScheduler(EvolvedGlobalScheduler):
         with self._torch.no_grad():
             return net(self._torch.from_numpy(x)).squeeze(-1).numpy()
 
+    def _scheduled(self, key: str) -> float:
+        """teacher_mix / imitation_weight with the optional linear phase-out applied."""
+        c = self._cfg
+        start, end = c[key], c[key + "_end"]
+        if end is None:
+            return start
+        frac = min(1.0, self._n_decisions / c["teacher_decay_decisions"])
+        return start + frac * (end - start)
+
     def _epsilon(self) -> float:
         c = self._cfg
         frac = min(1.0, self._n_decisions / c["epsilon_decay_decisions"])
@@ -313,7 +332,7 @@ class LearnedGlobalScheduler(EvolvedGlobalScheduler):
                 self._stats["teacher_seen"] += 1
                 self._stats["teacher_agree"] += int(teacher_a == greedy)
             u = self._rng.random()
-            if teacher_a >= 0 and u < self._cfg["teacher_mix"]:
+            if teacher_a >= 0 and u < self._scheduled("teacher_mix"):
                 a = teacher_a
                 self._stats["teacher_acted"] += 1
             elif self._rng.random() < self._epsilon():
@@ -420,14 +439,15 @@ class LearnedGlobalScheduler(EvolvedGlobalScheduler):
             else:
                 y = r
         loss = torch.nn.functional.smooth_l1_loss(q, y)
-        if c["imitation_weight"] > 0:
+        iw = self._scheduled("imitation_weight")
+        if iw > 0:
             has = ta >= 0
             if bool(has.any()):
                 qa, tav = q_all[has], ta[has]
                 margin = torch.full_like(qa, c["imitation_margin"])
                 margin.scatter_(1, tav.unsqueeze(1), 0.0)
                 q_e = qa.gather(1, tav.unsqueeze(1)).squeeze(1)
-                loss = loss + c["imitation_weight"] * ((qa + margin).max(dim=1).values - q_e).mean()
+                loss = loss + iw * ((qa + margin).max(dim=1).values - q_e).mean()
         self._opt.zero_grad()
         loss.backward()
         torch.nn.utils.clip_grad_norm_(self._net.parameters(), c["grad_clip"])
@@ -472,6 +492,8 @@ class LearnedGlobalScheduler(EvolvedGlobalScheduler):
         return {"mode": "training" if self._training else "inference", "decisions": self._n_decisions,
                 "gradient_steps": self._n_steps, "epsilon_now": self._epsilon(),
                 "explore_frac": s["explore"] / n, "teacher_acted_frac": s["teacher_acted"] / n,
+                "teacher_mix_now": self._scheduled("teacher_mix"),
+                "imitation_weight_now": self._scheduled("imitation_weight"),
                 "teacher_agreement": (s["teacher_agree"] / s["teacher_seen"]) if s["teacher_seen"] else None,
                 "action_share": [round(c / n, 4) for c in s["actions"]],
                 "reward": summ(s["reward"]), "interval_reward": summ(s["interval_reward"]),

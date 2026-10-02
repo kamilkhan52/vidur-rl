@@ -35,10 +35,11 @@ import sys
 import tempfile
 import threading
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Dict, List, Optional
 
+import numpy as np
 import pandas as pd
 
 REPO = Path(__file__).resolve().parents[1]
@@ -79,6 +80,7 @@ class Scenario:
     perturbation: int  # 0 = exact replay, p>0 = seed 100p+1 and in-bucket jitter
     model: str = "7b"
     warmup_frac: float = 0.2  # requests arriving in the first 20 % of the window are not scored
+    transform: str = ""  # stress workload applied to the window: see TRANSFORMS (EXP12 v3)
 
     @property
     def seed(self) -> int:
@@ -91,7 +93,8 @@ class Scenario:
     @property
     def tag(self) -> str:
         w = "full" if self.window_start < 0 else f"w{self.window_start}+{self.window_len}"
-        return f"{self.model}-{self.replicas}R-{self.trace}-s{self.scale}-{w}-p{self.perturbation}"
+        x = f"-{self.transform}" if self.transform else ""
+        return f"{self.model}-{self.replicas}R-{self.trace}-s{self.scale}-{w}-p{self.perturbation}{x}"
 
 
 # Stage-1 search set (2026-09-29, from frontier v2): FULL traces in the band where
@@ -117,7 +120,78 @@ _WINDOW_LOCK = threading.Lock()
 def window_csv(sc: Scenario) -> Path:
     """Deterministic, cached window of the capacity-filtered trace, rebased to t=0."""
     with _WINDOW_LOCK:  # parallel workers may request the same window
+        if sc.transform:
+            return _transformed_csv(sc)
         return _window_csv(sc)
+
+
+# Stress workloads (EXP12 v3): where fixed-rule routers may break. Each maps a base window to a
+# new trace, deterministically. Rates keep the window's mean load; the time-scale factor of the
+# scenario then applies on top.
+#   ramp      the arrival rate swings sinusoidally by +-35 % around the base rate (period ~600 s)
+#   burst     every ~150 s, 30 % of the requests arrive in a 15 s burst at 3x the base rate; the
+#             rest arrive at ~0.78x, so the mean rate (and the trace span) is unchanged
+#   mix-<T>   trace <T> (capacity-filtered, arrivals stretched 2x, tiled over the window) overlaid
+#             on the window: two workloads at once, with disjoint session ids and prefix-hash ids
+#             per tile (no false cache sharing); total load rises accordingly
+TRANSFORMS = ("ramp", "burst", "mix-Synth", "mix-Tool", "mix-Conv")
+
+
+def _warp(arrivals: np.ndarray, rate) -> np.ndarray:
+    """New arrival times when the instantaneous arrival rate is multiplied by rate(t)."""
+    order = np.argsort(arrivals, kind="stable")
+    a = arrivals[order]
+    gaps = np.diff(a, prepend=a[0])
+    new = np.cumsum(gaps / rate(a))
+    new = new - new[0]
+    out = np.empty_like(new)
+    out[order] = new
+    return out
+
+
+def _transformed_csv(sc: Scenario) -> Path:
+    base_sc = replace(sc, transform="")
+    base = _window_csv(base_sc)
+    key = hashlib.sha256(f"{file_sha(base)}|{sc.transform}|v2".encode()).hexdigest()[:16]
+    out = CACHE_DIR / "windows" / f"{sc.trace}_{sc.window_start}_{sc.window_len}_{sc.transform}_{key}.csv"
+    if out.exists():
+        return out
+    df = pd.read_csv(base)
+    t = df["arrived_at"].to_numpy(dtype=float)
+    if sc.transform == "ramp":
+        # mean of 1/(1 + a sin) over a period is 1/sqrt(1 - a^2): rescale so the span is unchanged
+        amp = 0.35
+        k = 1.0 / np.sqrt(1.0 - amp * amp)
+        df["arrived_at"] = _warp(t, lambda x: k * (1.0 + amp * np.sin(2 * np.pi * x / 600.0)))
+    elif sc.transform == "burst":
+        # in original time, 45 s of every 150 s (30 % of requests) compressed 3x -> a 15 s burst;
+        # the other 105 s at 0.7/0.9 = 0.778x -> 135 s. New period 150 s: span unchanged.
+        df["arrived_at"] = _warp(t, lambda x: np.where((x % 150.0) < 45.0, 3.0, 0.7 / 0.9))
+    elif sc.transform.startswith("mix-"):
+        other = sc.transform[4:]
+        o0 = pd.read_csv(_window_csv(Scenario(other, sc.replicas, sc.scale, -1, 0, 0, sc.model)))
+        o0["arrived_at"] = (o0["arrived_at"] - o0["arrived_at"].min()) * 2.0
+        period = o0["arrived_at"].max() + 1.0
+        span = t.max() - t.min()
+        tiles = []
+        for k in range(int(np.ceil(span / period))):
+            o = o0.copy()
+            o["arrived_at"] = o["arrived_at"] + t.min() + k * period
+            o = o[o["arrived_at"] <= t.max()]
+            if "session_id" in o.columns:
+                o["session_id"] = o["session_id"] + (k + 1) * 10**9
+            if "block_hash_ids" in o.columns:
+                off = (k + 1) * 10**12
+                o["block_hash_ids"] = o["block_hash_ids"].map(
+                    lambda s, off=off: "[" + ", ".join(str(int(v) + off) for v in s.strip("[]").split(",")
+                                                       if v.strip()) + "]")
+            tiles.append(o)
+        df = pd.concat([df] + tiles, ignore_index=True)
+    else:
+        raise ValueError(f"unknown transform {sc.transform!r}")
+    df = df.sort_values("arrived_at", kind="stable").reset_index(drop=True)
+    _atomic_write(out, lambda p: df.to_csv(p, index=False))
+    return out
 
 
 def _atomic_write(path: Path, write) -> None:

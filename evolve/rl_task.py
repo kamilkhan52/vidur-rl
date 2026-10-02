@@ -44,6 +44,38 @@ TRAIN_EPISODES = [
     S("Tool", 8, 0.75, 16000, 4000, 6), S("Conv", 8, 0.75, 7000, 4000, 6),
     S("Tool", 8, 0.75, -1, 0, 7), S("Conv", 8, 0.75, -1, 0, 7),
 ]
+# Protocol v3 "loto_conv" (2026-10-02): leave one trace out. The RL design is trained and
+# searched on Tool and Synth only, including stress workloads where fixed rules may break
+# (load ramps, bursts, two-workload mixes); the Conv trace is never seen until the held-out
+# test. The search is scored against the heuristics AND the evolved router (a reference
+# policy), so imitating the evolved router earns nothing: fitness > 0 requires beating it.
+LOTO_TRAIN_EPISODES = [
+    S("Tool", 8, 1.0, 10000, 4000, 4), S("Synth", 8, 1.0, -1, 0, 4),
+    S("Tool", 8, 1.0, 2000, 4000, 5, transform="ramp"), S("Synth", 8, 1.0, -1, 0, 5, transform="burst"),
+    S("Tool", 8, 0.75, 16000, 4000, 6), S("Synth", 8, 0.75, -1, 0, 6),
+    S("Tool", 8, 0.75, 6000, 4000, 6, transform="mix-Synth"), S("Synth", 8, 0.75, -1, 0, 7, transform="ramp"),
+    S("Tool", 8, 0.75, -1, 0, 7, transform="burst"), S("Tool", 8, 0.75, -1, 0, 7),
+]
+LOTO_SEARCH = [
+    S("Tool", 8, 1.0, -1, 0, 1), S("Tool", 8, 0.75, -1, 0, 1),
+    S("Synth", 8, 1.0, -1, 0, 1), S("Synth", 8, 0.75, -1, 0, 1),
+    S("Tool", 8, 0.75, -1, 0, 1, transform="burst"), S("Synth", 8, 0.75, -1, 0, 1, transform="ramp"),
+]
+LOTO_HELDOUT = (
+    [S("Conv", 8, sc, -1, 0, p) for sc in (1.0, 0.75) for p in (1, 2, 3)]
+    + [S("Conv", 8, 0.75, -1, 0, 1, transform=x) for x in ("ramp", "burst", "mix-Synth")]
+    + [S("Conv", 16, 0.5, -1, 0, p) for p in (1, 2)]
+    + [S(tr, 8, 0.75, -1, 0, p) for tr in ("Tool", "Synth") for p in (2, 3)]
+    + [S(tr, 16, 0.5, -1, 0, 1) for tr in ("Tool", "Synth")]
+)
+EVOLVED_REFERENCE = REPO / "evolve" / "finalists" / "claude_r1_76be082eb0f5.py"
+PROTOCOLS = {
+    "v2": {"train": None, "search": None, "references": (), "seeds": SEED_DESIGNS},
+    "loto_conv": {"train": LOTO_TRAIN_EPISODES, "search": LOTO_SEARCH,
+                  "references": (f"policy:{EVOLVED_REFERENCE}",),
+                  "seeds": ["seed_ttft_bandit", "seed_dqn_teacher", "seed_dqn_queue", "seed_v3_kickstart"]},
+}
+
 CRASH_EPISODE = S("Tool", 4, 1.5, 12000, 150, 1)
 # Plumbing check only (driver --scenarios smoke): two tiny training episodes.
 SMOKE_EPISODES = [S("Tool", 4, 1.5, 12000, 300, 4), S("Conv", 4, 2.0, 6000, 300, 4)]
@@ -97,13 +129,16 @@ def train(design: str, work_dir: Path, episodes=None, launcher=None, timeout=360
 
 
 def evaluate_design(design: str, work_dir: Path, scenarios=None, workers=4, launcher=None,
-                    timeout=3600, episodes=None) -> dict:
-    scenarios = scenarios or ev.STAGE1
+                    timeout=3600, episodes=None, protocol: str = "v2", objective: str = "balanced") -> dict:
+    proto = PROTOCOLS[protocol]
+    scenarios = scenarios or proto["search"] or ev.STAGE1
+    episodes = episodes or proto["train"]
+    baselines = tuple(ev.DEFAULT_BASELINES) + tuple(proto["references"])
     tr = train(design, work_dir, episodes=episodes, launcher=launcher, timeout=timeout)
     if not tr["ok"]:
         return {"combined_score": -1e9, "valid": False, "failures": {"training": tr["reason"]},
                 "training": tr}
-    base = ev.ensure_baselines(scenarios, workers=workers, launcher=launcher, timeout=timeout)
+    base = ev.ensure_baselines(scenarios, baselines, workers=workers, launcher=launcher, timeout=timeout)
     extra = learned_args("inference", ckpt_in=Path(tr["checkpoint"]))
     import concurrent.futures as cf
 
@@ -113,8 +148,8 @@ def evaluate_design(design: str, work_dir: Path, scenarios=None, workers=4, laun
     failures = {sc.tag: r for sc, r in zip(scenarios, results) if not r.get("ok")}
     if failures:
         return {"combined_score": -1e9, "valid": False, "failures": failures, "training": tr}
-    out = ev.score(dict(zip(scenarios, results)), base)
-    out.update({"valid": True, "code_version": ev.code_version(), "training": tr,
+    out = ev.score(dict(zip(scenarios, results)), base, baselines, objective)
+    out.update({"valid": True, "code_version": ev.code_version(), "training": tr, "protocol": protocol,
                 "eval_wall_s": sum(r["wall_s"] for r in results),
                 "scenarios": [sc.tag for sc in scenarios]})
     return out
@@ -222,3 +257,66 @@ exploration, teacher agreement, action shares across replicas). Form one concret
 about why it learns what it learns, and change the design to test it. Reply with a short
 paragraph stating the hypothesis, then the COMPLETE new design module in one ```python block.
 """
+
+
+SYSTEM_PROMPT_V3_HEADER = """\
+You are a systems and reinforcement-learning researcher designing an RL-trained request
+router for an LLM inference cluster. You write a DESIGN MODULE that defines what the router
+learns from and how; a fixed harness trains it in a simulator and scores it.
+
+## Why RL here (read this first)
+Heuristic routers, including a strong hand-evolved one, encode simplifications: fixed
+constants tuned on particular traces and loads, a fixed trade-off between cache affinity and
+load, linear guesses about how queues grow. Those simplifications break when the workload
+changes (load ramps, bursts, two workloads at once, a new trace). An RL router is only worth
+its cost if it learns a policy that does NOT rely on such a breakable simplification. An RL
+router that merely imitates the evolved router is an expensive heuristic and scores 0 here.
+You may use the evolved router as a teacher to start (it is a good prior), but the design
+must phase it out and learn where it is wrong.
+
+What we know about where fixed rules break (measured):
+- Tails at the knee are made of QUEUEING: under heuristics, 38-94 % of a P99 request's time is
+  waiting. The evolved router removes most of it by pricing a cache miss higher as load rises
+  (pricing uncached tokens at face value is worse than the best heuristic).
+- Its gains depend on a few hand-set mechanisms, each tuned for one regime: a per-replica
+  surcharge on cache misses where decodes are resident (removing it doubles P99 TTFT at the
+  Tool knee), and memory of a session's previous turn still queued on its replica (removing it
+  halves the cache hit ratio on the Synth trace). Its imbalance guards are mis-tuned for Synth.
+- It wins TTFT by packing prefix-sharing sessions, which grows decode batches: P99 TPOT is
+  1.04-1.23x the best heuristic. A request's TPOT is caused by LATER routing decisions.
+- A previous RL search (trained and scored on Tool+Conv) produced a policy that matched the
+  evolved router on those traces but failed on the unseen Synth trace: it imitated behaviour
+  instead of learning the rule. Reward credit mattered most: rewards that saturate in the
+  regime that decides P99, or that are dominated by output length (E2E), carry no signal.
+"""
+
+
+def system_prompt_v3(objective: str = "balanced") -> str:
+    from evolve import evaluate as _ev
+
+    w = _ev.OBJECTIVES[objective]
+    base = SYSTEM_PROMPT
+    contract = base[base.index("## The learner (fixed; you configure it)"):]
+    contract = contract.replace(contract[contract.index("Training protocol:"):contract.index("## Contract (strict)")], """\
+Training protocol (leave one trace out): 10 episodes in order, easy to hard, on the Tool and
+Synth traces only, including stress workloads: load ramps (+-35 % sinusoidal), bursts (30 % of
+requests in 15 s bursts at 3x), and two workloads mixed (Tool + Synth). 8 replicas, loads 1.0
+and 0.75, arrival seeds never used for scoring; each episode continues from the previous network.
+Scoring: Tool and Synth full traces at 1.0 and 0.75, plus Tool-0.75 with bursts and Synth-0.75
+with a load ramp. The Conv trace, 16-replica clusters and new arrival seeds are HELD OUT and only
+used to test frozen finalists: design for generalisation, not for these six scenarios.
+About 60k training decisions. Backlogs at the knee reach hundreds of thousands of queued tokens:
+scale features to stay O(1) (e.g. log1p). Teacher phase-out: CONFIG teacher_mix_end and
+imitation_weight_end decay the teacher linearly to those values over teacher_decay_decisions
+(default 30000); at scoring the learner always acts alone.
+
+""")
+    objective_text = f"""## Objective (fixed by the harness)
+Fitness weights the per-scenario log P99 ratios {w['e2e']:.2f} * end-to-end + {w['ttft']:.2f} *
+time-to-first-token + {w['tpot']:.2f} * time-per-output-token, each relative to the BEST of the five
+heuristic routers AND the evolved router, minus half the worst scenario; a mean E2E more than 5 %
+worse than the best of them is penalised. Fitness 0 = as good as the best of all of them on every
+tail; positive = better than all of them. Imitating the evolved router scores at most 0.
+
+"""
+    return SYSTEM_PROMPT_V3_HEADER + "\n" + objective_text + contract

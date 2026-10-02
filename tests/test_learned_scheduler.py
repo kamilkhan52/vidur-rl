@@ -167,3 +167,18 @@ def test_candidate_mask_is_respected(conv_session_trace, tmp_path):
                  "    return [r.index == 0 for r in replicas]\n")
     sim = run(conv_session_trace, tmp_path / "o", p)
     assert sim._scheduler.diagnostics()["action_share"][0] == 1.0
+
+
+def test_teacher_phase_out_schedule():
+    from vidur.scheduler.global_scheduler.learned_global_scheduler import LearnedGlobalScheduler
+
+    cfg = resolve_config({"teacher_mix": 0.5, "teacher_mix_end": 0.0, "imitation_weight": 2.0,
+                          "imitation_weight_end": 0.5, "teacher_decay_decisions": 100})
+    s = LearnedGlobalScheduler.__new__(LearnedGlobalScheduler)  # only the schedule is exercised
+    s._cfg = cfg
+    for n, mix, iw in ((0, 0.5, 2.0), (50, 0.25, 1.25), (100, 0.0, 0.5), (500, 0.0, 0.5)):
+        s._n_decisions = n
+        assert abs(s._scheduled("teacher_mix") - mix) < 1e-12
+        assert abs(s._scheduled("imitation_weight") - iw) < 1e-12
+    with pytest.raises(PolicyError):
+        resolve_config({"teacher_mix_end": 2.0})

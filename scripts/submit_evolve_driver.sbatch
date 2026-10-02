@@ -29,6 +29,7 @@ RELAY_DIR="${RELAY_DIR:-}"
 MODEL="${MODEL:-}"
 OBJECTIVE="${OBJECTIVE:-balanced}"
 SEED_POLICY="${SEED_POLICY:-}"
+RL_PROTOCOL="${RL_PROTOCOL:-v2}"
 RUN_DIR="${RUN_DIR:-$SCRATCH/runs/deepseek_r1}"
 PROPOSER="${PROPOSER:-openrouter}"
 ITERATIONS="${ITERATIONS:-60}"
@@ -48,6 +49,6 @@ EXTRA=()
 [ -n "$RELAY_DIR" ] && EXTRA+=(--relay-dir "$RELAY_DIR")
 [ -n "$MODEL" ] && EXTRA+=(--model "$MODEL")
 [ -n "$SEED_POLICY" ] && EXTRA+=(--seed-policy "$SEED_POLICY")
-EXTRA+=(--objective "$OBJECTIVE")
+EXTRA+=(--objective "$OBJECTIVE" --rl-protocol "$RL_PROTOCOL")
 python -m evolve.driver --run-dir "$RUN_DIR" --task "$TASK" --proposer "$PROPOSER" --scenarios stage1 \
     --iterations "$ITERATIONS" --batch "$BATCH" --workers "$WORKERS" --max-cost-usd "$MAX_COST_USD" ${EXTRA[@]+"${EXTRA[@]}"}
