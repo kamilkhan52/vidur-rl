@@ -27,6 +27,8 @@ SCRATCH="/scratch/alpine/kamil@colostate.edu/vidur-rl/evolve"
 TASK="${TASK:-router}"
 RELAY_DIR="${RELAY_DIR:-}"
 MODEL="${MODEL:-}"
+OBJECTIVE="${OBJECTIVE:-balanced}"
+SEED_POLICY="${SEED_POLICY:-}"
 RUN_DIR="${RUN_DIR:-$SCRATCH/runs/deepseek_r1}"
 PROPOSER="${PROPOSER:-openrouter}"
 ITERATIONS="${ITERATIONS:-60}"
@@ -45,5 +47,7 @@ ls cache | grep prediction_bundle || echo "WARNING: no prediction bundle; result
 EXTRA=()
 [ -n "$RELAY_DIR" ] && EXTRA+=(--relay-dir "$RELAY_DIR")
 [ -n "$MODEL" ] && EXTRA+=(--model "$MODEL")
+[ -n "$SEED_POLICY" ] && EXTRA+=(--seed-policy "$SEED_POLICY")
+EXTRA+=(--objective "$OBJECTIVE")
 python -m evolve.driver --run-dir "$RUN_DIR" --task "$TASK" --proposer "$PROPOSER" --scenarios stage1 \
     --iterations "$ITERATIONS" --batch "$BATCH" --workers "$WORKERS" --max-cost-usd "$MAX_COST_USD" ${EXTRA[@]+"${EXTRA[@]}"}

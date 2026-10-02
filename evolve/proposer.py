@@ -64,6 +64,39 @@ implement it. Keep the code readable (it must be explainable in a paper). Reply 
 paragraph stating the hypothesis, then the COMPLETE new policy in one ```python block.
 """
 
+OBJECTIVE_TEXT = {
+    "balanced": None,  # the default text above
+    "completion": """## Objective
+Minimise TIME TO COMPLETION in the tail, for long-running agents that wait for the whole
+answer: fitness weights the per-scenario log P99 ratios 0.5 * end-to-end + 0.4 *
+time-per-output-token + 0.1 * time-to-first-token, each relative to the best of five
+heuristic routers (sticky-LOR, LOR, round-robin, random, least-uncached-prefill), minus half
+the worst scenario. A mean-E2E more than 5% worse than the best heuristic is penalised.
+Fitness 0 means "matches the best heuristic"; positive means better. The first token alone
+matters little here: a policy that wins TTFT by packing prefix-sharing requests onto a few
+replicas grows their decode batches and loses TPOT, which this objective punishes.
+""",
+    "interactive": """## Objective
+Minimise the INTERACTIVE tail: fitness weights the per-scenario log P99 ratios 0.6 *
+time-to-first-token + 0.3 * end-to-end + 0.1 * time-per-output-token, each relative to the
+best of five heuristic routers (sticky-LOR, LOR, round-robin, random,
+least-uncached-prefill), minus half the worst scenario. A mean-E2E more than 5% worse than
+the best heuristic is penalised. Fitness 0 means "matches the best heuristic".
+""",
+}
+
+
+def system_prompt_for(objective: str = "balanced", base: str = None) -> str:
+    """The system prompt with its Objective section replaced for the given objective."""
+    base = base or SYSTEM_PROMPT
+    text = OBJECTIVE_TEXT[objective]
+    if text is None:
+        return base
+    start = base.index("## Objective")
+    end = base.index("## ", start + 3)
+    return base[:start] + text + "\n" + base[end:]
+
+
 CODE_BLOCK = re.compile(r"```python\s*\n(.*?)```", re.S)
 
 

@@ -65,10 +65,10 @@ def save_program(archive: Archive, code: str) -> tuple:
 
 
 def evaluate_candidate(code: str, archive: Archive, parent: Optional[str], stage1, workers, launcher,
-                       meta: Optional[dict] = None, task: str = "router") -> dict:
+                       meta: Optional[dict] = None, task: str = "router", objective: str = "balanced") -> dict:
     pid, path = save_program(archive, code)
     row = {"id": pid, "parent": parent, "time": time.time(), "valid": False, "stage_reached": "0a",
-           "proposer": meta or {}, "task": task}
+           "proposer": meta or {}, "task": task, "objective": objective}
     problems = check_policy_source(code, "rl_design" if task == "rl" else "router")
     if problems:
         row["feedback"] = "REJECTED by static guard: " + "; ".join(problems)
@@ -94,7 +94,7 @@ def evaluate_candidate(code: str, archive: Archive, parent: Optional[str], stage
                                       episodes=rl_task.SMOKE_EPISODES if stage1 == SMOKE else None)
         feedback = rl_task.feedback_text(res)
     else:
-        res = ev.evaluate_policy(str(path), stage1, workers=workers, launcher=launcher)
+        res = ev.evaluate_policy(str(path), stage1, workers=workers, launcher=launcher, objective=objective)
         feedback = ev.feedback_text(res)
     row.update({"valid": res.get("valid", False), "fitness": res["combined_score"],
                 "feedback": feedback, "result": res})
@@ -133,26 +133,27 @@ def spent_usd(archive: Archive) -> float:
     return sum((r.get("proposer") or {}).get("cost_usd") or 0.0 for r in archive.rows)
 
 
-def seed_programs(task: str) -> List[tuple]:
+def seed_programs(task: str, extra: Optional[List[str]] = None) -> List[tuple]:
+    extra_rows = [(Path(p).stem, Path(p).read_text()) for p in (extra or [])]
     if task == "rl":
         from evolve import rl_task
 
-        return [(n, (REPO / "evolve" / "rl_designs" / f"{n}.py").read_text()) for n in rl_task.SEED_DESIGNS]
-    return [(n, (REPO / "evolve" / "policies" / f"{n}.py").read_text()) for n in SEEDS]
+        return [(n, (REPO / "evolve" / "rl_designs" / f"{n}.py").read_text()) for n in rl_task.SEED_DESIGNS] + extra_rows
+    return [(n, (REPO / "evolve" / "policies" / f"{n}.py").read_text()) for n in SEEDS] + extra_rows
 
 
 def run(run_dir: Path, iterations: int, batch: int, workers: int, propose: Callable[[str], tuple],
         stage1=None, launcher=None, seed: int = 0, max_cost_usd: Optional[float] = None,
-        task: str = "router") -> Archive:
+        task: str = "router", objective: str = "balanced", extra_seeds: Optional[List[str]] = None) -> Archive:
     stage1 = stage1 or ev.STAGE1
     archive = Archive(run_dir)
     rng = random.Random(seed)
     seeded = {r["id"] for r in archive.rows}
-    todo = [(name, code) for name, code in seed_programs(task)  # seeds enter the archive as candidates
+    todo = [(name, code) for name, code in seed_programs(task, extra_seeds)  # seeds enter the archive as candidates
             if hashlib.sha256(code.encode()).hexdigest()[:12] not in seeded]
     with cf.ThreadPoolExecutor(max_workers=max(1, batch)) as ex:  # in parallel: RL seeds take ~1 h each
         list(ex.map(lambda nc: evaluate_candidate(nc[1], archive, None, stage1, workers, launcher,
-                                                  {"seed": nc[0]}, task), todo))
+                                                  {"seed": nc[0]}, task, objective), todo))
     for it in range(iterations):
         if max_cost_usd is not None and spent_usd(archive) >= max_cost_usd:
             print(f"[stop] proposer spend {spent_usd(archive):.2f} USD reached cap {max_cost_usd}", flush=True)
@@ -177,7 +178,8 @@ def run(run_dir: Path, iterations: int, batch: int, workers: int, propose: Calla
                              "stage_reached": "proposal", "feedback": why, "proposer": meta})
                 return None
             meta["iteration"] = it
-            return evaluate_candidate(code, archive, parent["id"], stage1, workers, launcher, meta, task)
+            return evaluate_candidate(code, archive, parent["id"], stage1, workers, launcher, meta, task,
+                                      objective)
 
         with cf.ThreadPoolExecutor(max_workers=batch) as ex:
             list(ex.map(one, jobs))
@@ -219,10 +221,17 @@ def main():
     ap.add_argument("--max-cost-usd", type=float, default=None, help="stop once proposer spend reaches this")
     ap.add_argument("--srun", action="store_true")
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--seed-policy", action="append", default=[],
+                    help="extra seed program file (repeatable), e.g. an earlier finalist")
+    ap.add_argument("--objective", choices=sorted(ev.OBJECTIVES), default="balanced",
+                    help="tail objective (weights on P99 E2E/TTFT/TPOT); see evaluate.OBJECTIVES")
     ap.add_argument("--task", choices=["router", "rl"], default="router",
                     help="router: evolve routing code (EXP11); rl: evolve an RL router design (EXP12)")
     a = ap.parse_args()
     proposer = make_proposer(a.proposer, a.model, a.relay_dir)
+    from evolve.proposer import system_prompt_for
+
+    proposer.system_prompt = system_prompt_for(a.objective)
     if a.task == "rl":
         from evolve import rl_task
 
@@ -230,7 +239,8 @@ def main():
     launcher = ["srun", "--exact", "-n1", "-c1", "--mem=6G"] if a.srun else None
     stage1 = SMOKE if a.scenarios == "smoke" else ev.STAGE1
     run(Path(a.run_dir), a.iterations, a.batch, a.workers, proposer.propose, stage1=stage1,
-        launcher=launcher, seed=a.seed, max_cost_usd=a.max_cost_usd, task=a.task)
+        launcher=launcher, seed=a.seed, max_cost_usd=a.max_cost_usd, task=a.task, objective=a.objective,
+        extra_seeds=a.seed_policy)
 
 
 if __name__ == "__main__":

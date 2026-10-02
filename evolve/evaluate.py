@@ -267,6 +267,8 @@ def run_one(scheduler: str, sc: Scenario, policy: Optional[str] = None, timeout:
 
 
 def baseline_key(scheduler: str, sc: Scenario) -> str:
+    if scheduler.startswith("policy:"):  # a reference policy: keyed by its file contents
+        scheduler = "policy:" + file_sha(Path(scheduler[len("policy:"):]).resolve())[:12]
     return f"{code_version()}|{file_sha(TRACES[sc.trace])[:12]}|{sc.tag}|{scheduler}"
 
 
@@ -299,7 +301,9 @@ def ensure_baselines(scenarios, baselines=DEFAULT_BASELINES, workers=4, launcher
 def _ensure_baselines(scenarios, baselines, workers, launcher, timeout) -> dict:
     cache = load_baseline_cache()
     todo = [(b, sc, None) for sc in scenarios for b in baselines if baseline_key(b, sc) not in cache]
-    for (b, sc, _), res in zip(todo, run_many(todo, workers, launcher, timeout)):
+    # "policy:<path>" references are evolved-router runs of that policy file
+    jobs = [("evolved", sc, b[len("policy:"):]) if b.startswith("policy:") else (b, sc, None) for b, sc, _ in todo]
+    for (b, sc, _), res in zip(todo, run_many(jobs, workers, launcher, timeout)):
         if not res.get("ok"):
             raise RuntimeError(f"baseline {b} failed on {sc.tag}: {res}")
         cache[baseline_key(b, sc)] = res
@@ -311,35 +315,54 @@ def _ensure_baselines(scenarios, baselines, workers, launcher, timeout) -> dict:
 METRICS = ("e2e", "ttft", "tpot")
 
 
-def score(candidate: Dict[Scenario, dict], base: dict, baselines=DEFAULT_BASELINES) -> dict:
+# Objectives: weights on the per-scenario log P99 ratios (they sum to 1). "balanced" is the
+# EXP11 fitness (equal weights) and reproduces it exactly. "completion" targets long-running
+# agents, where time to completion (TTFT + generation time, i.e. E2E and TPOT) matters more
+# than the first token. "interactive" favours the first token.
+OBJECTIVES = {
+    "balanced": {"e2e": 1 / 3, "ttft": 1 / 3, "tpot": 1 / 3},
+    "completion": {"e2e": 0.5, "ttft": 0.1, "tpot": 0.4},
+    "interactive": {"e2e": 0.3, "ttft": 0.6, "tpot": 0.1},
+}
+
+
+def score(candidate: Dict[Scenario, dict], base: dict, baselines=DEFAULT_BASELINES,
+          objective: str = "balanced") -> dict:
+    """Fitness = -(weighted mean log ratio + 0.5 * worst scenario) - mean-E2E penalty.
+
+    The reference for each scenario and metric is the best of ``baselines`` (heuristics, and
+    optionally reference policies "policy:<path>", e.g. the evolved router as a bar to beat).
+    """
+    w = OBJECTIVES[objective]
     rows, per_s = [], []
     penalty = 0.0
     for sc, res in candidate.items():
-        rs = []
+        s = 0.0
         for m in METRICS:
             best = min(base[(b, sc)][f"p99_{m}"] for b in baselines)
             r = math.log(res[f"p99_{m}"] / best)
-            rs.append(r)
-            rows.append({"scenario": sc.tag, "metric": m, "p99": res[f"p99_{m}"], "best_heuristic_p99": best, "log_ratio": r})
-        per_s.append(sum(rs) / len(rs))
+            s += w[m] * r
+            rows.append({"scenario": sc.tag, "metric": m, "p99": res[f"p99_{m}"], "best_heuristic_p99": best,
+                         "log_ratio": r})
+        per_s.append(s)
         best_mean = min(base[(b, sc)]["mean_e2e"] for b in baselines)
         if res["mean_e2e"] > 1.05 * best_mean:
             penalty += math.log(res["mean_e2e"] / best_mean)
-    all_r = [r["log_ratio"] for r in rows]
-    fitness = -(sum(all_r) / len(all_r) + 0.5 * max(per_s)) - penalty
-    return {"combined_score": fitness, "mean_log_ratio": sum(all_r) / len(all_r),
+    mean_w = sum(per_s) / len(per_s)
+    fitness = -(mean_w + 0.5 * max(per_s)) - penalty
+    return {"combined_score": fitness, "mean_log_ratio": mean_w, "objective": objective,
             "worst_scenario_log_ratio": max(per_s), "mean_e2e_penalty": penalty, "details": rows}
 
 
 def evaluate_policy(policy: str, scenarios=None, workers=4, launcher=None, timeout=3600,
-                    baselines=DEFAULT_BASELINES) -> dict:
+                    baselines=DEFAULT_BASELINES, objective: str = "balanced") -> dict:
     scenarios = scenarios or STAGE1
     base = ensure_baselines(scenarios, baselines, workers, launcher, timeout)
     results = run_many([("evolved", sc, policy) for sc in scenarios], workers, launcher, timeout)
     failures = {sc.tag: r for sc, r in zip(scenarios, results) if not r.get("ok")}
     if failures:
         return {"combined_score": -1e9, "valid": False, "failures": failures}
-    out = score(dict(zip(scenarios, results)), base, baselines)
+    out = score(dict(zip(scenarios, results)), base, baselines, objective)
     out.update({"valid": True, "code_version": code_version(),
                 "wall_s_total": sum(r["wall_s"] for r in results),
                 "scenarios": [asdict(sc) for sc in scenarios]})
