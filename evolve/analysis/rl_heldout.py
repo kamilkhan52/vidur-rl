@@ -20,14 +20,15 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--design", required=True)
     ap.add_argument("--checkpoint", required=True)
-    ap.add_argument("--stage", default="heldout", choices=sorted(ev.STAGES) + ["loto_heldout"])
+    ap.add_argument("--stage", default="heldout", choices=sorted(ev.STAGES) + ["loto_heldout"],
+                    help="loto_heldout = the held-out set of --protocol")
     ap.add_argument("--protocol", default="v2", choices=sorted(rl_task.PROTOCOLS),
                     help="reference policies of this protocol join the heuristic baselines")
     ap.add_argument("--objective", default="balanced", choices=sorted(ev.OBJECTIVES))
     ap.add_argument("--out", required=True)
     ap.add_argument("--workers", type=int, default=16)
     a = ap.parse_args()
-    scen = rl_task.LOTO_HELDOUT if a.stage == "loto_heldout" else ev.STAGES[a.stage]
+    scen = rl_task.PROTOCOLS[a.protocol]["heldout"] if a.stage == "loto_heldout" else ev.STAGES[a.stage]
     refs = tuple(rl_task.PROTOCOLS[a.protocol]["references"])
     baselines = tuple(ev.DEFAULT_BASELINES) + refs
     base = ev.ensure_baselines(scen, baselines, workers=a.workers)

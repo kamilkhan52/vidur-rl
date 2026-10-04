@@ -70,9 +70,52 @@ LOTO_HELDOUT = (
     + [S(tr, 16, 0.5, -1, 0, 1) for tr in ("Tool", "Synth")]
 )
 EVOLVED_REFERENCE = REPO / "evolve" / "finalists" / "claude_r1_76be082eb0f5.py"
+
+
+def _ep(trace, scale, seed, k, transform=""):
+    """A training episode: a 4,000-request window of a large trace, or the whole Synth trace."""
+    if trace == "Synth":
+        return S("Synth", 8, scale, -1, 0, seed, transform=transform)
+    start = (2000, 10000, 6000, 16000)[k % 4] if trace == "Tool" else (1000, 6000, 3000, 7000)[k % 4]
+    return S(trace, 8, scale, start, 4000, seed, transform=transform)
+
+
+def loto_protocol(holdout: str) -> dict:
+    """Leave-one-trace-out protocol holding out ``holdout`` (same structure as loto_conv).
+
+    Train: 12 episodes alternating the two remaining traces to the end, easy to hard, with
+    ramps, bursts and a two-workload mix; the last two are full traces at the knee. Search: both
+    traces at 1.0 and 0.75 plus one stressed scenario each. Held out: everything on ``holdout``
+    (8R seeds 1-3, stress at 0.75, 16R) plus new seeds / 16R of the training traces.
+    """
+    a, b = [t for t in ("Tool", "Conv", "Synth") if t != holdout]
+    mix_a, mix_b = f"mix-{b}", f"mix-{a}"
+    train = [
+        _ep(a, 1.0, 4, 0), _ep(b, 1.0, 4, 0),
+        _ep(a, 1.0, 5, 1, "ramp"), _ep(b, 1.0, 5, 1, "burst"),
+        _ep(a, 0.75, 6, 2), _ep(b, 0.75, 6, 2),
+        _ep(a, 0.75, 6, 3, mix_a), _ep(b, 0.75, 7, 3, "ramp"),
+        _ep(a, 0.75, 7, 0, "burst"), _ep(b, 0.75, 8, 1, mix_b),
+        S(a, 8, 0.75, -1, 0, 7), S(b, 8, 0.75, -1, 0, 9),
+    ]
+    search = [S(t, 8, sc, -1, 0, 1) for t in (a, b) for sc in (1.0, 0.75)] + [
+        S(a, 8, 0.75, -1, 0, 1, transform="burst"), S(b, 8, 0.75, -1, 0, 1, transform="ramp")]
+    heldout = (
+        [S(holdout, 8, sc, -1, 0, p) for sc in (1.0, 0.75) for p in (1, 2, 3)]
+        + [S(holdout, 8, 0.75, -1, 0, 1, transform=x)
+           for x in ("ramp", "burst", "mix-Synth" if holdout != "Synth" else "mix-Tool")]
+        + [S(holdout, 16, 0.5, -1, 0, p) for p in (1, 2)]
+        + [S(t, 8, 0.75, -1, 0, p) for t in (a, b) for p in (2, 3)]
+        + [S(t, 16, 0.5, -1, 0, 1) for t in (a, b)]
+    )
+    return {"train": train, "search": search, "heldout": heldout,
+            "references": (f"policy:{EVOLVED_REFERENCE}",),
+            "seeds": ["seed_ttft_bandit", "seed_dqn_teacher", "seed_dqn_queue", "seed_v3_kickstart"]}
 PROTOCOLS = {
     "v2": {"train": None, "search": None, "references": (), "seeds": SEED_DESIGNS},
-    "loto_conv": {"train": LOTO_TRAIN_EPISODES, "search": LOTO_SEARCH,
+    "loto_synth": loto_protocol("Synth"),
+    "loto_tool": loto_protocol("Tool"),
+    "loto_conv": {"train": LOTO_TRAIN_EPISODES, "search": LOTO_SEARCH, "heldout": LOTO_HELDOUT,
                   "references": (f"policy:{EVOLVED_REFERENCE}",),
                   "seeds": ["seed_ttft_bandit", "seed_dqn_teacher", "seed_dqn_queue", "seed_v3_kickstart"]},
 }
