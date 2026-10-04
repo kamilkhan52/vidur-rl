@@ -182,3 +182,15 @@ def test_teacher_phase_out_schedule():
         assert abs(s._scheduled("imitation_weight") - iw) < 1e-12
     with pytest.raises(PolicyError):
         resolve_config({"teacher_mix_end": 2.0})
+
+
+def test_replay_buffer_persists_across_episodes(conv_session_trace, tmp_path):
+    design = design_with(tmp_path, learning_starts=8, batch_size=8)
+    ck1, ck2 = tmp_path / "e1.pt", tmp_path / "e2.pt"
+    run(conv_session_trace, tmp_path / "a", design, ckpt_out=str(ck1))
+    s1 = json.loads(Path(str(ck1) + ".stats.json").read_text())
+    assert Path(str(ck1) + ".buffer.npz").exists() and s1["buffer_size_end"] > 0
+    run(conv_session_trace, tmp_path / "b", design, ckpt_in=str(ck1), ckpt_out=str(ck2))
+    s2 = json.loads(Path(str(ck2) + ".stats.json").read_text())
+    assert s2["buffer_loaded_from_previous_episode"] == s1["buffer_size_end"]
+    assert s2["buffer_size_end"] > s1["buffer_size_end"]

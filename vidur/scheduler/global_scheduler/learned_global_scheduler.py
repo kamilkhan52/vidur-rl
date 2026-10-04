@@ -83,6 +83,10 @@ DEFAULTS = {
     "imitation_margin": 0.5,
     "grad_clip": 10.0,
     "reward_clip": 100.0,  # harness safety bound on |reward|
+    # Keep the replay buffer across training episodes (saved beside the checkpoint), as in
+    # standard DQN; without it every episode starts empty and the net forgets earlier episodes'
+    # workloads. False reproduces protocol v1/v2 behaviour.
+    "persist_buffer": True,
 }
 RANGES = {
     "beta": (0.0, 10.0), "lr": (1e-5, 1e-1), "batch_size": (8, 1024), "buffer_size": (1000, 500000),
@@ -102,6 +106,8 @@ def resolve_config(user: Optional[dict]) -> dict:
         if k not in DEFAULTS:
             raise PolicyError(f"unknown CONFIG key {k!r}")
         cfg[k] = v
+    if not isinstance(cfg["persist_buffer"], bool):
+        raise PolicyError(f"CONFIG persist_buffer must be True or False, got {cfg['persist_buffer']!r}")
     if cfg["algorithm"] not in ("bandit", "dqn"):
         raise PolicyError(f"CONFIG algorithm must be 'bandit' or 'dqn', got {cfg['algorithm']!r}")
     for k, (lo, hi) in (("teacher_mix_end", (0.0, 1.0)), ("imitation_weight_end", (0.0, 100.0))):
@@ -205,6 +211,8 @@ class LearnedGlobalScheduler(EvolvedGlobalScheduler):
         if gs.checkpoint_in:  # after the counters: loading restores them
             self._pending_ckpt = torch.load(gs.checkpoint_in, map_location="cpu", weights_only=False)
             self._init_net(int(self._pending_ckpt["feature_dim"]))
+            if self._training and self._cfg["persist_buffer"]:
+                self._load_buffer(gs.checkpoint_in + ".buffer.npz")
         self._stats = {"loss": [], "q": [], "reward": [], "interval_reward": [], "explore": 0, "teacher_acted": 0,
                        "teacher_agree": 0, "teacher_seen": 0, "actions": [0] * len(self._replica_ids),
                        "train_seconds": 0.0, "dropped_unfinished": 0}
@@ -462,6 +470,30 @@ class LearnedGlobalScheduler(EvolvedGlobalScheduler):
 
     # ---------------------------------------------------------------- end of run
 
+    def _load_buffer(self, path: str) -> None:
+        import os
+
+        if not os.path.exists(path):
+            return
+        z = np.load(path)
+        if z["x"].ndim != 3 or z["x"].shape[1] != len(self._replica_ids) or z["x"].shape[2] != self._feature_dim:
+            return  # different replica count or feature size: start empty
+        cap = self._cfg["buffer_size"]
+        keep = slice(max(0, len(z["a"]) - cap), None)  # newest items if the capacity shrank
+        self._buffer = [(x, int(a), float(r), nx, float(g), int(ta), nm) for x, a, r, nx, g, ta, nm in zip(
+            z["x"][keep], z["a"][keep], z["r"][keep], z["nx"][keep], z["g"][keep], z["ta"][keep], z["nm"][keep])]
+        self._buf_pos = int(z["pos"]) % cap if len(self._buffer) >= cap else 0
+        self._stats_loaded_buffer = len(self._buffer)
+
+    def _save_buffer(self, path: str) -> None:
+        if not self._buffer:
+            return
+        b = self._buffer
+        np.savez_compressed(path, x=np.stack([i[0] for i in b]), a=np.array([i[1] for i in b]),
+                            r=np.array([i[2] for i in b], dtype=np.float32), nx=np.stack([i[3] for i in b]),
+                            g=np.array([i[4] for i in b], dtype=np.float32), ta=np.array([i[5] for i in b]),
+                            nm=np.stack([i[6] for i in b]), pos=np.array(self._buf_pos))
+
     def save_final_checkpoint(self) -> None:
         if self._training and self._prev is not None:
             self._prev.done = True  # last decision of the episode: no successor
@@ -474,6 +506,8 @@ class LearnedGlobalScheduler(EvolvedGlobalScheduler):
             torch.save({"net": self._net.state_dict(), "opt": self._opt.state_dict(),
                         "feature_dim": self._feature_dim, "hidden": list(self._cfg["hidden"]),
                         "decisions": self._n_decisions, "steps": self._n_steps}, self._checkpoint_out)
+            if self._training and self._cfg["persist_buffer"]:
+                self._save_buffer(self._checkpoint_out + ".buffer.npz")
         with open(self._checkpoint_out + ".stats.json", "w") as f:
             json.dump(self.diagnostics(), f)
 
@@ -499,4 +533,6 @@ class LearnedGlobalScheduler(EvolvedGlobalScheduler):
                 "reward": summ(s["reward"]), "interval_reward": summ(s["interval_reward"]),
                 "loss": summ(s["loss"]), "q_mean": summ(s["q"]),
                 "train_seconds": s["train_seconds"], "policy_seconds": self.policy_seconds,
-                "unfinished_decisions_dropped": s["dropped_unfinished"]}
+                "unfinished_decisions_dropped": s["dropped_unfinished"],
+                "buffer_size_end": len(self._buffer),
+                "buffer_loaded_from_previous_episode": getattr(self, "_stats_loaded_buffer", 0)}

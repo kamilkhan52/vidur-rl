@@ -49,12 +49,13 @@ TRAIN_EPISODES = [
 # (load ramps, bursts, two-workload mixes); the Conv trace is never seen until the held-out
 # test. The search is scored against the heuristics AND the evolved router (a reference
 # policy), so imitating the evolved router earns nothing: fitness > 0 requires beating it.
-LOTO_TRAIN_EPISODES = [
+LOTO_TRAIN_EPISODES = [  # Tool and Synth alternate to the end (r1 ended on three Tool episodes and forgot Synth)
     S("Tool", 8, 1.0, 10000, 4000, 4), S("Synth", 8, 1.0, -1, 0, 4),
     S("Tool", 8, 1.0, 2000, 4000, 5, transform="ramp"), S("Synth", 8, 1.0, -1, 0, 5, transform="burst"),
     S("Tool", 8, 0.75, 16000, 4000, 6), S("Synth", 8, 0.75, -1, 0, 6),
     S("Tool", 8, 0.75, 6000, 4000, 6, transform="mix-Synth"), S("Synth", 8, 0.75, -1, 0, 7, transform="ramp"),
-    S("Tool", 8, 0.75, -1, 0, 7, transform="burst"), S("Tool", 8, 0.75, -1, 0, 7),
+    S("Tool", 8, 0.75, -1, 0, 7, transform="burst"), S("Synth", 8, 0.75, -1, 0, 8, transform="mix-Tool"),
+    S("Tool", 8, 0.75, -1, 0, 7), S("Synth", 8, 0.75, -1, 0, 9),
 ]
 LOTO_SEARCH = [
     S("Tool", 8, 1.0, -1, 0, 1), S("Tool", 8, 0.75, -1, 0, 1),
@@ -119,6 +120,8 @@ def train(design: str, work_dir: Path, episodes=None, launcher=None, timeout=360
         if not r.get("ok"):
             return {"ok": False, "reason": f"training episode {k} ({sc.tag}): {r.get('reason')}",
                     "stderr": r.get("stderr", ""), "episodes": log}
+        if prev is not None:  # the replay buffer now lives beside the newest checkpoint only
+            Path(str(prev) + ".buffer.npz").unlink(missing_ok=True)
         stats = json.loads((Path(str(ck) + ".stats.json")).read_text())
         log.append({"episode": sc.tag, "p99_e2e": r["p99_e2e"], "p99_ttft": r["p99_ttft"],
                     "p99_tpot": r["p99_tpot"], "mean_e2e": r["mean_e2e"], "wall_s": r["wall_s"],
@@ -298,10 +301,11 @@ def system_prompt_v3(objective: str = "balanced") -> str:
     base = SYSTEM_PROMPT
     contract = base[base.index("## The learner (fixed; you configure it)"):]
     contract = contract.replace(contract[contract.index("Training protocol:"):contract.index("## Contract (strict)")], """\
-Training protocol (leave one trace out): 10 episodes in order, easy to hard, on the Tool and
-Synth traces only, including stress workloads: load ramps (+-35 % sinusoidal), bursts (30 % of
+Training protocol (leave one trace out): 12 episodes in order, easy to hard, alternating the Tool
+and Synth traces to the end, including stress workloads: load ramps (+-35 % sinusoidal), bursts (30 % of
 requests in 15 s bursts at 3x), and two workloads mixed (Tool + Synth). 8 replicas, loads 1.0
-and 0.75, arrival seeds never used for scoring; each episode continues from the previous network.
+and 0.75, arrival seeds never used for scoring; each episode continues from the previous network
+AND the previous replay buffer (CONFIG persist_buffer, default True; buffer_size caps it).
 Scoring: Tool and Synth full traces at 1.0 and 0.75, plus Tool-0.75 with bursts and Synth-0.75
 with a load ramp. The Conv trace, 16-replica clusters and new arrival seeds are HELD OUT and only
 used to test frozen finalists: design for generalisation, not for these six scenarios.
