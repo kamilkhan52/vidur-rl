@@ -1,0 +1,485 @@
+{
+ "design": "evolve/finalists/rl_loto_r2_e413fe9e193c.py",
+ "checkpoint": "evolve/finalists/rl_loto_r2_e413fe9e193c_ckpt/net_ep11.pt",
+ "stage": "loto_heldout",
+ "code_version": "c635a041025f",
+ "result": {
+  "combined_score": -0.146773744378765,
+  "mean_log_ratio": 0.057893879270457804,
+  "objective": "balanced",
+  "worst_scenario_log_ratio": 0.1777597302166144,
+  "mean_e2e_penalty": 0.0,
+  "details": [
+   {
+    "scenario": "7b-8R-Conv-s1.0-full-p1",
+    "metric": "e2e",
+    "p99": 26.41565794999997,
+    "best_heuristic_p99": 27.17788091999998,
+    "log_ratio": -0.028446502501506717
+   },
+   {
+    "scenario": "7b-8R-Conv-s1.0-full-p1",
+    "metric": "ttft",
+    "p99": 8.496091519999968,
+    "best_heuristic_p99": 8.623641959999976,
+    "log_ratio": -0.014901260037587856
+   },
+   {
+    "scenario": "7b-8R-Conv-s1.0-full-p1",
+    "metric": "tpot",
+    "p99": 0.04712888228571431,
+    "best_heuristic_p99": 0.04608518956521743,
+    "log_ratio": 0.022394394276292612
+   },
+   {
+    "scenario": "7b-8R-Conv-s1.0-full-p2",
+    "metric": "e2e",
+    "p99": 26.263188299999975,
+    "best_heuristic_p99": 26.78295181,
+    "log_ratio": -0.019597284310133144
+   },
+   {
+    "scenario": "7b-8R-Conv-s1.0-full-p2",
+    "metric": "ttft",
+    "p99": 8.541946609999993,
+    "best_heuristic_p99": 8.770111539999982,
+    "log_ratio": -0.026360602554181538
+   },
+   {
+    "scenario": "7b-8R-Conv-s1.0-full-p2",
+    "metric": "tpot",
+    "p99": 0.04745355011494254,
+    "best_heuristic_p99": 0.046350507142857225,
+    "log_ratio": 0.023519106729491906
+   },
+   {
+    "scenario": "7b-8R-Conv-s1.0-full-p3",
+    "metric": "e2e",
+    "p99": 26.503954979999996,
+    "best_heuristic_p99": 26.340258949999907,
+    "log_ratio": 0.006195439062385631
+   },
+   {
+    "scenario": "7b-8R-Conv-s1.0-full-p3",
+    "metric": "ttft",
+    "p99": 8.48568428999997,
+    "best_heuristic_p99": 8.660637849999999,
+    "log_ratio": -0.020407832137828024
+   },
+   {
+    "scenario": "7b-8R-Conv-s1.0-full-p3",
+    "metric": "tpot",
+    "p99": 0.047950888000000066,
+    "best_heuristic_p99": 0.04702414420779222,
+    "log_ratio": 0.019516144092105964
+   },
+   {
+    "scenario": "7b-8R-Conv-s0.75-full-p1",
+    "metric": "e2e",
+    "p99": 54.64284867999979,
+    "best_heuristic_p99": 51.88008221,
+    "log_ratio": 0.05188340527010678
+   },
+   {
+    "scenario": "7b-8R-Conv-s0.75-full-p1",
+    "metric": "ttft",
+    "p99": 32.14173088999992,
+    "best_heuristic_p99": 24.299713799999992,
+    "log_ratio": 0.2796906410580812
+   },
+   {
+    "scenario": "7b-8R-Conv-s0.75-full-p1",
+    "metric": "tpot",
+    "p99": 0.06792226920634921,
+    "best_heuristic_p99": 0.05825687168627451,
+    "log_ratio": 0.1535018970813517
+   },
+   {
+    "scenario": "7b-8R-Conv-s0.75-full-p2",
+    "metric": "e2e",
+    "p99": 52.60887002,
+    "best_heuristic_p99": 51.23824318,
+    "log_ratio": 0.026398546749750722
+   },
+   {
+    "scenario": "7b-8R-Conv-s0.75-full-p2",
+    "metric": "ttft",
+    "p99": 30.280386439999987,
+    "best_heuristic_p99": 24.64688656,
+    "log_ratio": 0.20584960407801145
+   },
+   {
+    "scenario": "7b-8R-Conv-s0.75-full-p2",
+    "metric": "tpot",
+    "p99": 0.06749238888933295,
+    "best_heuristic_p99": 0.05823711119825708,
+    "log_ratio": 0.14749203334589803
+   },
+   {
+    "scenario": "7b-8R-Conv-s0.75-full-p3",
+    "metric": "e2e",
+    "p99": 52.43999854999992,
+    "best_heuristic_p99": 51.73703709999998,
+    "log_ratio": 0.013495721298692651
+   },
+   {
+    "scenario": "7b-8R-Conv-s0.75-full-p3",
+    "metric": "ttft",
+    "p99": 29.306381129999995,
+    "best_heuristic_p99": 25.89123392999998,
+    "log_ratio": 0.12390082520352272
+   },
+   {
+    "scenario": "7b-8R-Conv-s0.75-full-p3",
+    "metric": "tpot",
+    "p99": 0.07165819836734696,
+    "best_heuristic_p99": 0.05888772691340281,
+    "log_ratio": 0.19627487280566888
+   },
+   {
+    "scenario": "7b-8R-Conv-s0.75-full-p1-ramp",
+    "metric": "e2e",
+    "p99": 96.03732894999993,
+    "best_heuristic_p99": 90.19824087999996,
+    "log_ratio": 0.06272703467768763
+   },
+   {
+    "scenario": "7b-8R-Conv-s0.75-full-p1-ramp",
+    "metric": "ttft",
+    "p99": 80.39468636999997,
+    "best_heuristic_p99": 64.81955306999998,
+    "log_ratio": 0.21534078132571444
+   },
+   {
+    "scenario": "7b-8R-Conv-s0.75-full-p1-ramp",
+    "metric": "tpot",
+    "p99": 0.07850675200000003,
+    "best_heuristic_p99": 0.06082331945962732,
+    "log_ratio": 0.2552113746464412
+   },
+   {
+    "scenario": "7b-8R-Conv-s0.75-full-p1-burst",
+    "metric": "e2e",
+    "p99": 63.62013098999985,
+    "best_heuristic_p99": 64.11395355999996,
+    "log_ratio": -0.007732079217611953
+   },
+   {
+    "scenario": "7b-8R-Conv-s0.75-full-p1-burst",
+    "metric": "ttft",
+    "p99": 43.68272661999998,
+    "best_heuristic_p99": 36.61542764999996,
+    "log_ratio": 0.1764830800231687
+   },
+   {
+    "scenario": "7b-8R-Conv-s0.75-full-p1-burst",
+    "metric": "tpot",
+    "p99": 0.07411095138427362,
+    "best_heuristic_p99": 0.060024301483547135,
+    "log_ratio": 0.21081380839488034
+   },
+   {
+    "scenario": "7b-8R-Conv-s0.75-full-p1-mix-Synth",
+    "metric": "e2e",
+    "p99": 1202.1456027600002,
+    "best_heuristic_p99": 1233.1669849,
+    "log_ratio": -0.025477682256548943
+   },
+   {
+    "scenario": "7b-8R-Conv-s0.75-full-p1-mix-Synth",
+    "metric": "ttft",
+    "p99": 1194.56501697,
+    "best_heuristic_p99": 1218.0983385,
+    "log_ratio": -0.019508787130417555
+   },
+   {
+    "scenario": "7b-8R-Conv-s0.75-full-p1-mix-Synth",
+    "metric": "tpot",
+    "p99": 0.07949791695906441,
+    "best_heuristic_p99": 0.06342721148936185,
+    "log_ratio": 0.22583784688021197
+   },
+   {
+    "scenario": "7b-16R-Conv-s0.5-full-p1",
+    "metric": "e2e",
+    "p99": 23.501001679999945,
+    "best_heuristic_p99": 24.02881117999995,
+    "log_ratio": -0.02221053127576453
+   },
+   {
+    "scenario": "7b-16R-Conv-s0.5-full-p1",
+    "metric": "ttft",
+    "p99": 7.982502419999997,
+    "best_heuristic_p99": 8.295336229999991,
+    "log_ratio": -0.03844150810766159
+   },
+   {
+    "scenario": "7b-16R-Conv-s0.5-full-p1",
+    "metric": "tpot",
+    "p99": 0.0439405103448276,
+    "best_heuristic_p99": 0.039220817239709466,
+    "log_ratio": 0.11362902360157408
+   },
+   {
+    "scenario": "7b-16R-Conv-s0.5-full-p2",
+    "metric": "e2e",
+    "p99": 23.988596269999963,
+    "best_heuristic_p99": 23.82315494999999,
+    "log_ratio": 0.00692055723052756
+   },
+   {
+    "scenario": "7b-16R-Conv-s0.5-full-p2",
+    "metric": "ttft",
+    "p99": 7.777721229999998,
+    "best_heuristic_p99": 8.009272879999992,
+    "log_ratio": -0.029336586172351773
+   },
+   {
+    "scenario": "7b-16R-Conv-s0.5-full-p2",
+    "metric": "tpot",
+    "p99": 0.04486876323809526,
+    "best_heuristic_p99": 0.03852421024221456,
+    "log_ratio": 0.15245497526461113
+   },
+   {
+    "scenario": "7b-8R-Tool-s0.75-full-p2",
+    "metric": "e2e",
+    "p99": 45.025371120000095,
+    "best_heuristic_p99": 44.32835946000002,
+    "log_ratio": 0.015601492931977528
+   },
+   {
+    "scenario": "7b-8R-Tool-s0.75-full-p2",
+    "metric": "ttft",
+    "p99": 21.598593760000007,
+    "best_heuristic_p99": 18.073783960000007,
+    "log_ratio": 0.17816572054052687
+   },
+   {
+    "scenario": "7b-8R-Tool-s0.75-full-p2",
+    "metric": "tpot",
+    "p99": 0.08037951337606836,
+    "best_heuristic_p99": 0.06646738000000355,
+    "log_ratio": 0.19004803396160364
+   },
+   {
+    "scenario": "7b-8R-Tool-s0.75-full-p3",
+    "metric": "e2e",
+    "p99": 45.356430140000064,
+    "best_heuristic_p99": 45.23665984000005,
+    "log_ratio": 0.002644139190027464
+   },
+   {
+    "scenario": "7b-8R-Tool-s0.75-full-p3",
+    "metric": "ttft",
+    "p99": 21.19684706,
+    "best_heuristic_p99": 18.201545780000007,
+    "log_ratio": 0.15234592358942928
+   },
+   {
+    "scenario": "7b-8R-Tool-s0.75-full-p3",
+    "metric": "tpot",
+    "p99": 0.08114000000000002,
+    "best_heuristic_p99": 0.06635716499999997,
+    "log_ratio": 0.20112431488763563
+   },
+   {
+    "scenario": "7b-8R-Synth-s0.75-full-p2",
+    "metric": "e2e",
+    "p99": 29.49274442000003,
+    "best_heuristic_p99": 30.12510779,
+    "log_ratio": -0.021214688665455766
+   },
+   {
+    "scenario": "7b-8R-Synth-s0.75-full-p2",
+    "metric": "ttft",
+    "p99": 12.982794960000003,
+    "best_heuristic_p99": 15.749148300000009,
+    "log_ratio": -0.19316127132561461
+   },
+   {
+    "scenario": "7b-8R-Synth-s0.75-full-p2",
+    "metric": "tpot",
+    "p99": 0.05719303827777778,
+    "best_heuristic_p99": 0.05498942373983741,
+    "log_ratio": 0.03929131144624779
+   },
+   {
+    "scenario": "7b-8R-Synth-s0.75-full-p3",
+    "metric": "e2e",
+    "p99": 29.49274442000003,
+    "best_heuristic_p99": 29.726930280000012,
+    "log_ratio": -0.007909097169256023
+   },
+   {
+    "scenario": "7b-8R-Synth-s0.75-full-p3",
+    "metric": "ttft",
+    "p99": 12.982794960000003,
+    "best_heuristic_p99": 15.811600130000013,
+    "log_ratio": -0.19711883980028863
+   },
+   {
+    "scenario": "7b-8R-Synth-s0.75-full-p3",
+    "metric": "tpot",
+    "p99": 0.05719303827777778,
+    "best_heuristic_p99": 0.05502061664646466,
+    "log_ratio": 0.038724219436215394
+   },
+   {
+    "scenario": "7b-16R-Tool-s0.5-full-p1",
+    "metric": "e2e",
+    "p99": 19.74545104000001,
+    "best_heuristic_p99": 19.78951370000002,
+    "log_ratio": -0.0022290485667124304
+   },
+   {
+    "scenario": "7b-16R-Tool-s0.5-full-p1",
+    "metric": "ttft",
+    "p99": 5.6802177000000045,
+    "best_heuristic_p99": 5.858062780000003,
+    "log_ratio": -0.03082940585299345
+   },
+   {
+    "scenario": "7b-16R-Tool-s0.5-full-p1",
+    "metric": "tpot",
+    "p99": 0.051750000000000004,
+    "best_heuristic_p99": 0.047798499999999966,
+    "log_ratio": 0.07943017389359314
+   },
+   {
+    "scenario": "7b-16R-Synth-s0.5-full-p1",
+    "metric": "e2e",
+    "p99": 13.315719580000009,
+    "best_heuristic_p99": 13.94775824,
+    "log_ratio": -0.04637353509772832
+   },
+   {
+    "scenario": "7b-16R-Synth-s0.5-full-p1",
+    "metric": "ttft",
+    "p99": 5.868910470000001,
+    "best_heuristic_p99": 5.443795,
+    "log_ratio": 0.07519257878659515
+   },
+   {
+    "scenario": "7b-16R-Synth-s0.5-full-p1",
+    "metric": "tpot",
+    "p99": 0.04661203538461546,
+    "best_heuristic_p99": 0.044706254549050625,
+    "log_ratio": 0.04174536321296171
+   }
+  ]
+ },
+ "references": [
+  "policy:/Users/kamil/vidur-rl-working/evolve/finalists/claude_r1_76be082eb0f5.py"
+ ],
+ "vs_reference": {
+  "policy:/Users/kamil/vidur-rl-working/evolve/finalists/claude_r1_76be082eb0f5.py": {
+   "7b-8R-Conv-s1.0-full-p1": {
+    "e2e": 0.9719542898784617,
+    "ttft": 0.9852092143213228,
+    "tpot": 1.0226470310818598
+   },
+   "7b-8R-Conv-s1.0-full-p2": {
+    "e2e": 0.9805934941866281,
+    "ttft": 0.9739838052276368,
+    "tpot": 1.0237978619885564
+   },
+   "7b-8R-Conv-s1.0-full-p3": {
+    "e2e": 1.0062146704901733,
+    "ttft": 0.979798998292022,
+    "tpot": 1.0197078289848873
+   },
+   "7b-8R-Conv-s0.75-full-p1": {
+    "e2e": 1.0532529316128814,
+    "ttft": 1.322720553605859,
+    "tpot": 1.0116929567081567
+   },
+   "7b-8R-Conv-s0.75-full-p2": {
+    "e2e": 1.0267500748451697,
+    "ttft": 1.2285684184201475,
+    "tpot": 1.0090124976327648
+   },
+   "7b-8R-Conv-s0.75-full-p3": {
+    "e2e": 1.013587199604052,
+    "ttft": 1.1319036091224262,
+    "tpot": 1.0803818128053535
+   },
+   "7b-8R-Conv-s0.75-full-p1-ramp": {
+    "e2e": 1.0047247386999203,
+    "ttft": 1.2402844907489579,
+    "tpot": 0.9911307254328594
+   },
+   "7b-8R-Conv-s0.75-full-p1-burst": {
+    "e2e": 0.9922977364118097,
+    "ttft": 1.1930142408155113,
+    "tpot": 0.9920287244053777
+   },
+   "7b-8R-Conv-s0.75-full-p1-mix-Synth": {
+    "e2e": 0.7081073448371885,
+    "ttft": 0.714084997428765,
+    "tpot": 1.0020089279236981
+   },
+   "7b-16R-Conv-s0.5-full-p1": {
+    "e2e": 0.9780343065644747,
+    "ttft": 0.9622879891391702,
+    "tpot": 1.120336429408708
+   },
+   "7b-16R-Conv-s0.5-full-p2": {
+    "e2e": 1.0069445596247517,
+    "ttft": 0.9710895541369051,
+    "tpot": 1.1646900210540432
+   },
+   "7b-8R-Tool-s0.75-full-p2": {
+    "e2e": 1.0157238316168462,
+    "ttft": 1.195023344740699,
+    "tpot": 1.0001336340884626
+   },
+   "7b-8R-Tool-s0.75-full-p3": {
+    "e2e": 1.0026476380091642,
+    "ttft": 1.1645630165813308,
+    "tpot": 1.0137307760411947
+   },
+   "7b-8R-Synth-s0.75-full-p2": {
+    "e2e": 0.9790087599218522,
+    "ttft": 0.8243490195593622,
+    "tpot": 1.0231596223035622
+   },
+   "7b-8R-Synth-s0.75-full-p3": {
+    "e2e": 0.9921220974451728,
+    "ttft": 0.8210930489803623,
+    "tpot": 0.9596491171339279
+   },
+   "7b-16R-Tool-s0.5-full-p1": {
+    "e2e": 0.9977734339171757,
+    "ttft": 0.9696409740422758,
+    "tpot": 0.9374665985066557
+   },
+   "7b-16R-Synth-s0.5-full-p1": {
+    "e2e": 0.9546852871175094,
+    "ttft": 1.0780917484953054,
+    "tpot": 1.042628953259188
+   }
+  }
+ },
+ "e2e": {
+  "better": 9,
+  "n": 17,
+  "geo": 1.0002750900274084,
+  "min": 0.9546852871175094,
+  "max": 1.064736163510864
+ },
+ "ttft": {
+  "better": 9,
+  "n": 17,
+  "geo": 1.0504615004574398,
+  "min": 0.8210930489803623,
+  "max": 1.322720553605859
+ },
+ "tpot": {
+  "better": 0,
+  "n": 17,
+  "geo": 1.1322162484792715,
+  "min": 1.0197078289848873,
+  "max": 1.2907344205722022
+ }
+}
