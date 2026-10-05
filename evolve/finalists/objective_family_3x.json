@@ -1,0 +1,20 @@
+{
+ "claude_r1_76be082eb0f5": {
+  "balanced": 0.1542,
+  "completion": 0.0857,
+  "interactive": 0.2578,
+  "penalty": 0.0,
+  "geo_e2e": 0.8917,
+  "geo_ttft": 0.7126,
+  "geo_tpot": 1.0377
+ },
+ "completion_r2_c8177f73cf22": {
+  "balanced": 0.0932,
+  "completion": 0.0487,
+  "interactive": 0.1792,
+  "penalty": 0.0,
+  "geo_e2e": 0.9026,
+  "geo_ttft": 0.7751,
+  "geo_tpot": 1.0299
+ }
+}
