@@ -476,6 +476,10 @@ class MetricsConfig:
         default=False,
         metadata={"help": "Whether to store token completion metrics."},
     )
+    store_token_gaps: bool = field(
+        default=False,
+        metadata={"help": "Store every decode token's gap since the request's previous token (exact TBT) to token_gaps.npz."},
+    )
     store_request_metrics: bool = field(
         default=True,
         metadata={"help": "Whether to store request metrics."},

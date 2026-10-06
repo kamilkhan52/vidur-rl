@@ -3,6 +3,7 @@ import json
 import os
 from typing import Dict, List
 
+import numpy as np
 import pandas as pd
 import wandb
 
@@ -114,6 +115,14 @@ class ClusterMetricsStore:
 
         if wandb.run and self._config.save_table_to_wandb:
             wandb.log({f"{file_name}": data}, step=0)
+
+    def _store_token_gaps(self) -> None:
+        if not self._config.store_token_gaps:
+            return
+        stores = list(self._replica_metric_stores.values())
+        gaps = np.concatenate([np.frombuffer(s._token_gaps, dtype=np.float64) for s in stores]) if stores else np.zeros(0)
+        reqs = np.concatenate([np.frombuffer(s._token_gap_req, dtype=np.int64) for s in stores]) if stores else np.zeros(0, np.int64)
+        np.savez_compressed(f"{self._config.output_dir}/token_gaps.npz", gap=gaps, request_id=reqs)
 
     def _store_request_metrics(self, base_plot_path: str):
         if not self._config.store_request_metrics:
@@ -348,6 +357,7 @@ class ClusterMetricsStore:
 
         self._cluster_metric_store.store_metrics(dir_plot_path, sim_time)
         self._store_request_metrics(dir_plot_path)
+        self._store_token_gaps()
         self._store_batch_metrics(dir_plot_path)
         self._store_token_metrics(dir_plot_path)
         self._store_operation_metrics(dir_plot_path)

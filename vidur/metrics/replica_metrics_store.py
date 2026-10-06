@@ -1,3 +1,4 @@
+from array import array
 from typing import Dict, List, Optional
 
 import pandas as pd
@@ -144,6 +145,12 @@ class ReplicaMetricsStore:
                 self._config.save_table_to_wandb,
                 self._config.store_plots,
             )
+
+        # Exact time-between-tokens log (one entry per decode token): gap since the request's previous token,
+        # including any queueing or preemption in between. Written by the cluster store as token_gaps.npz.
+        self._token_gaps = array("d")
+        self._token_gap_req = array("q")
+        self._last_token_at: Dict[int, float] = {}
 
         # Initialise token metrics
         self._token_metrics_time_distribution: Dict[
@@ -353,6 +360,18 @@ class ReplicaMetricsStore:
     def _update_per_token_execution_times(
         self, time: float, request: Request, batch: Batch
     ) -> None:
+        if self._config.store_token_gaps and request.is_prefill_complete:
+            # Every iteration that ends with the prefill complete emits one output token: a decode step, the
+            # prefill's first token, or the token at the end of a post-preemption recompute. The gap is measured
+            # from the same request's previous output token, so preemption stalls are included.
+            prev = self._last_token_at.get(request.id)
+            if prev is not None:
+                self._token_gaps.append(time - prev)
+                self._token_gap_req.append(request.id)
+            if request.completed:
+                self._last_token_at.pop(request.id, None)
+            else:
+                self._last_token_at[request.id] = time
         if not self._config.store_token_completion_metrics:
             return
 

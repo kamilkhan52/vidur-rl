@@ -331,6 +331,9 @@ def system_prompt_v2(objective: str = "balanced") -> str:
     b = base.index("  replicas[i]:")
     base = base[:a] + CONTRACT_V2_VIEWS + base[b:]
     if objective != "balanced":
-        w = {"completion": "0.5 * E2E + 0.1 * TTFT + 0.4 * TPOT", "interactive": "0.3 * E2E + 0.6 * TTFT + 0.1 * TPOT"}[objective]
+        w = {"completion": "0.5 * E2E + 0.1 * TTFT + 0.4 * TPOT", "interactive": "0.3 * E2E + 0.6 * TTFT + 0.1 * TPOT",
+             "tail4": ("0.25 each of P99 E2E (= time to last token), P99 TTFT, P99 TPOT and P99 TBT (time between "
+                       "tokens: the 99th percentile over ALL decode-token gaps, so one long stall of a request, e.g. "
+                       "a long prefill chunk interrupting its decode, counts even if its average TPOT is fine)")}[objective]
         base = base.replace("Fitness = -(mean weighted log ratio", f"Weights per scenario: {w}. Fitness = -(mean weighted log ratio")
     return base

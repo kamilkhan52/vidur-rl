@@ -63,16 +63,16 @@ def test_objectives_weight_metrics_and_balanced_is_equal_weighting():
     from evolve import evaluate as ev
 
     for w in ev.OBJECTIVES.values():
-        assert abs(sum(w.values()) - 1.0) < 1e-12 and set(w) == set(ev.METRICS)
+        assert abs(sum(w.values()) - 1.0) < 1e-12 and set(ev.METRICS) <= set(w) <= set(ev.METRICS) | {"tbt"}
     sc = ev.Scenario("Tool", 8, 1.0, -1, 0, 1)
-    base = {(b, sc): {"p99_e2e": 10.0, "p99_ttft": 4.0, "p99_tpot": 0.05, "mean_e2e": 3.0}
+    base = {(b, sc): {"p99_e2e": 10.0, "p99_ttft": 4.0, "p99_tpot": 0.05, "p99_tbt": 0.06, "mean_e2e": 3.0}
             for b in ev.DEFAULT_BASELINES}
-    cand = {sc: {"p99_e2e": 9.0, "p99_ttft": 2.0, "p99_tpot": 0.06, "mean_e2e": 3.0}}
+    cand = {sc: {"p99_e2e": 9.0, "p99_ttft": 2.0, "p99_tpot": 0.06, "p99_tbt": 0.09, "mean_e2e": 3.0}}
     import math
 
-    logs = {"e2e": math.log(0.9), "ttft": math.log(0.5), "tpot": math.log(1.2)}
+    logs = {"e2e": math.log(0.9), "ttft": math.log(0.5), "tpot": math.log(1.2), "tbt": math.log(1.5)}
     for name, w in ev.OBJECTIVES.items():
-        s = sum(w[m] * logs[m] for m in logs)
+        s = sum(w.get(m, 0.0) * logs[m] for m in logs)
         assert abs(ev.score(cand, base, objective=name)["combined_score"] - (-(s + 0.5 * s))) < 1e-12
     # a TTFT-heavy win scores higher under "interactive" than under "completion"
     assert ev.score(cand, base, objective="interactive")["combined_score"] > \

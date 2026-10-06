@@ -32,26 +32,28 @@ def main():
     ap.add_argument("--stage", default="heldout", choices=sorted(ev.STAGES))
     ap.add_argument("--workers", type=int, default=10)
     ap.add_argument("--out", default=None)
+    ap.add_argument("--objective", default="balanced", choices=sorted(ev.OBJECTIVES))
     a = ap.parse_args()
     scen = ev.STAGES[a.stage]
     pols = [f"policy:{Path(p).resolve()}" for p in a.policy]
     base = ev.ensure_baselines(scen, BAR + pols, workers=a.workers)
+    mets = list(ev.METRICS) + (["tbt"] if all("p99_tbt" in v for v in base.values()) else [])
     report = {}
     for p in pols:
         rows = {}
         for sc in scen:
             rows[sc.tag] = {m: base[(p, sc)][f"p99_{m}"] / min(base[(b, sc)][f"p99_{m}"] for b in BAR)
-                            for m in ev.METRICS}
+                            for m in mets}
         out = {"overall": {}, "by_regime": {}}
-        for m in ev.METRICS:
+        for m in mets:
             xs = list(rows.values())
             out["overall"][m] = {"geo": round(geo([r[m] for r in xs]), 4), "better": sum(r[m] < 1 for r in xs), "n": len(xs)}
         for g in ("knee", "s1.0", "16R"):
             xs = [r for t, r in rows.items() if regime(t) == g]
             if xs:
                 out["by_regime"][g] = {m: {"geo": round(geo([r[m] for r in xs]), 4), "better": sum(r[m] < 1 for r in xs),
-                                           "n": len(xs)} for m in ev.METRICS}
-        fit = ev.score({sc: base[(p, sc)] for sc in scen}, base, BAR)
+                                           "n": len(xs)} for m in mets}
+        fit = ev.score({sc: base[(p, sc)] for sc in scen}, base, BAR, a.objective)
         out["fitness_vs_bar"] = round(fit["combined_score"], 4)
         out["per_scenario"] = {t: {m: round(v, 4) for m, v in r.items()} for t, r in rows.items()}
         report[Path(p[7:]).name] = out
@@ -60,7 +62,7 @@ def main():
         for g, d in out["by_regime"].items():
             print(f"  {g:5s}   " + "  ".join(f"{m} {v['geo']:.3f} ({v['better']}/{v['n']})" for m, v in d.items()))
     if a.out:
-        Path(a.out).write_text(json.dumps({"bar": BAR, "stage": a.stage, "code_version": ev.code_version(), "policies": report}, indent=1))
+        Path(a.out).write_text(json.dumps({"bar": BAR, "stage": a.stage, "objective": a.objective, "code_version": ev.code_version(), "policies": report}, indent=1))
 
 
 if __name__ == "__main__":

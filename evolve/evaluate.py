@@ -316,6 +316,7 @@ def sim_command(scheduler: str, policy: Optional[str], sc: Scenario, trace_csv: 
         "--no-metrics_config_store_batch_metrics",
         "--no-metrics_config_enable_chrome_trace",
         "--metrics_config_output_dir", str(out_dir),
+        "--metrics_config_store_token_gaps",
     ]
     if sc.jitter:
         cmd += ["--trace_request_generator_config_arrival_jitter", str(sc.jitter)]
@@ -345,6 +346,9 @@ def run_one(scheduler: str, sc: Scenario, policy: Optional[str] = None, timeout:
         if not files:
             return {"ok": False, "reason": "no request_metrics.csv", "wall_s": wall}
         df = pd.read_csv(files[0])
+        gaps_file = files[0].parent / "token_gaps.npz"
+        gaps = np.load(gaps_file) if gaps_file.exists() else None
+        gap, gap_req = (gaps["gap"], gaps["request_id"]) if gaps is not None else (None, None)
     completed = len(df)
     if completed != n_expected:  # completion gate: a policy may never strand requests
         return {"ok": False, "reason": f"completion gate: {completed}/{n_expected} requests completed",
@@ -354,6 +358,12 @@ def run_one(scheduler: str, sc: Scenario, policy: Optional[str] = None, timeout:
         cut = df["request_arrived_at"].min() + sc.warmup_frac * span
         df = df[df["request_arrived_at"] >= cut]
     s = summarize_rows(df.to_dict("records"))
+    if gap is not None and len(gap):  # exact time-between-tokens over the scored requests' decode tokens
+        keep = np.isin(gap_req, df["Request Id"].to_numpy()) if "Request Id" in df else np.ones(len(gap), bool)
+        g = gap[keep]
+        s.update({"p50_tbt": float(np.percentile(g, 50)), "p95_tbt": float(np.percentile(g, 95)),
+                  "p99_tbt": float(np.percentile(g, 99)), "p999_tbt": float(np.percentile(g, 99.9)),
+                  "mean_tbt": float(g.mean()), "n_tbt": int(len(g))})
     s.update({"ok": True, "completed": completed, "scored": len(df), "wall_s": wall})
     return s
 
@@ -415,6 +425,9 @@ OBJECTIVES = {
     "balanced": {"e2e": 1 / 3, "ttft": 1 / 3, "tpot": 1 / 3},
     "completion": {"e2e": 0.5, "ttft": 0.1, "tpot": 0.4},
     "interactive": {"e2e": 0.3, "ttft": 0.6, "tpot": 0.1},
+    # 2026-10-06: adds exact P99 time-between-tokens (token-weighted; stalls a request's per-request TPOT averages
+    # away). E2E here is arrival -> last token, i.e. TTLT. Needs runs with token-gap logging (code >= ca54802e0b09).
+    "tail4": {"e2e": 0.25, "ttft": 0.25, "tpot": 0.25, "tbt": 0.25},
 }
 
 
@@ -430,7 +443,7 @@ def score(candidate: Dict[Scenario, dict], base: dict, baselines=DEFAULT_BASELIN
     penalty = 0.0
     for sc, res in candidate.items():
         s = 0.0
-        for m in METRICS:
+        for m in (m for m in ("e2e", "ttft", "tpot", "tbt") if w.get(m)):
             best = min(base[(b, sc)][f"p99_{m}"] for b in baselines)
             r = math.log(res[f"p99_{m}"] / best)
             s += w[m] * r
