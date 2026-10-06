@@ -8,12 +8,12 @@ cost_i = PREFILL_SCALE * prefill_i + decode_i, lowest cost wins (temperature 0; 
               incoming_active_blocks = request tokens NOT already shared with active sequences on i
               (additional_active_blocks = query_len - overlap_depth with the active sequences).
 Our views: active blocks ~ running KV (kv_usage x capacity) + queued uncached prompts (pending prefill);
-overlap with active sequences ~ the larger of the actual cache, the prefixes of requests routed to i but
-not yet prefilled (inflight_prefix_tokens), and requests routed to i earlier in the same arrival burst (the
-router registers a request's blocks as active when it routes it).
+overlap with active sequences = the prefix shared with requests routed to i and not yet finished
+(active_prefix_tokens, exact from the harness) or routed to i earlier in the same arrival burst (the router
+registers a request's blocks as active when it routes it). Cache left by finished requests is NOT credited
+here (prompt_registry.rs l.33-37: "not cache misses"); it enters only the prefill term.
 Simplifications: tokens instead of blocks; running KV includes output blocks (Dynamo counts prompt-side
-blocks by default) and is not de-duplicated across queued requests; the actual cache may hold blocks no
-longer referenced by an active sequence (over-credits overlap). PREFILL_SCALE = 1.0 is unit scale (the
+blocks by default) and is not de-duplicated across queued requests. PREFILL_SCALE = 1.0 is unit scale (the
 docs give no default for prefill_load_scale).
 """
 
@@ -35,11 +35,11 @@ def choose(request, replicas, ctx):
         burst = (ctx.now, [set() for _ in replicas])
         ctx.state["dynamo_burst"] = burst
     costs = []
-    inflight = request.inflight_prefix_tokens or (0,) * len(replicas)
+    active = request.active_prefix_tokens or (0,) * len(replicas)
     for i, r in enumerate(replicas):
         prefill = r.pending_prefill_tokens + request.num_prefill_tokens - request.cached_prefix_tokens[i]
         same_burst = min(_match(burst[1][i], request.prefix_hashes) * request.block_tokens, request.num_prefill_tokens)
-        overlap_active = max(request.cached_prefix_tokens[i], inflight[i], same_burst)
+        overlap_active = max(active[i], same_burst)
         incoming_active = request.num_prefill_tokens - overlap_active
         decode = r.kv_usage * r.kv_capacity_tokens + r.pending_prefill_tokens + incoming_active
         costs.append(PREFILL_SCALE * prefill + decode)
