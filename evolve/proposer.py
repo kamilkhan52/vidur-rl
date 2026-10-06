@@ -295,3 +295,42 @@ class ClaudeCodeProposer:
             "rationale": CODE_BLOCK.sub("", text).strip()[:2000],
         }
         return extract_code(text), meta
+
+OBJECTIVE_V2 = """## Objective
+Minimise TAIL latency: P99 end-to-end, P99 time-to-first-token and P99 time-per-output-token,
+measured per scenario relative to a strong bar: the best (per scenario and per metric) of five
+heuristic routers (sticky-LOR, LOR, round-robin, random, least-uncached-prefill) AND two
+production-style routers: a Mooncake-style min-estimated-TTFT router (queued prefill + this
+request's uncached tokens, counting prefixes already routed but not yet prefilled as cached) and
+a Dynamo-style KV-cost router (prefill cost + decode-block load, crediting overlap with active
+sequences). Fitness = -(mean weighted log ratio + 0.5 * worst scenario) - mean-E2E penalty
+(mean E2E more than 5% worse than the bar's best). Fitness 0 = matches the bar on every tail;
+positive = better. Each load point is scored on two independent arrival draws, so gains that
+depend on one lucky draw do not count. The production routers are strong below the saturation
+knee (they tie or beat simple congestion pricing there on TTFT); a policy that wins at the knee
+AND matches them below it is what we want.
+"""
+
+CONTRACT_V2_VIEWS = """  request: arrived_at, num_prefill_tokens, session_id, cached_prefix_tokens (tuple, one per
+           replica: prompt tokens already in that replica's prefix cache),
+           inflight_prefix_tokens (tuple, one per replica: leading prompt tokens shared with
+           requests routed there and not yet prefilled), active_prefix_tokens (tuple, one per
+           replica: leading prompt tokens shared with requests routed there and not yet finished),
+           prefix_hashes (tuple of this prompt's block hashes), block_tokens (tokens per block),
+           session_last_replica (int, -1 if new session), position_in_burst, burst_size
+"""
+
+
+def system_prompt_v2(objective: str = "balanced") -> str:
+    """Protocol v2 (2026-10-06): the production-aware bar and the richer request view."""
+    base = SYSTEM_PROMPT
+    start = base.index("## Objective")
+    end = base.index("## ", start + 3)
+    base = base[:start] + OBJECTIVE_V2 + "\n" + base[end:]
+    a = base.index("  request: arrived_at")
+    b = base.index("  replicas[i]:")
+    base = base[:a] + CONTRACT_V2_VIEWS + base[b:]
+    if objective != "balanced":
+        w = {"completion": "0.5 * E2E + 0.1 * TTFT + 0.4 * TPOT", "interactive": "0.3 * E2E + 0.6 * TTFT + 0.1 * TPOT"}[objective]
+        base = base.replace("Fitness = -(mean weighted log ratio", f"Weights per scenario: {w}. Fitness = -(mean weighted log ratio")
+    return base

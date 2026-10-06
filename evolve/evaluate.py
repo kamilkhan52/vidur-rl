@@ -81,6 +81,7 @@ class Scenario:
     model: str = "7b"
     warmup_frac: float = 0.2  # requests arriving in the first 20 % of the window are not scored
     transform: str = ""  # stress workload applied to the window: see TRANSFORMS (EXP12 v3)
+    jitter_s: float = -1.0  # >= 0 overrides the arrival jitter (protocol v2: Synth arrivals jittered too)
 
     @property
     def seed(self) -> int:
@@ -88,13 +89,16 @@ class Scenario:
 
     @property
     def jitter(self) -> float:
+        if self.jitter_s >= 0:
+            return self.jitter_s if self.perturbation > 0 else 0.0
         return 3.0 if (self.perturbation > 0 and self.trace in BUCKETED) else 0.0
 
     @property
     def tag(self) -> str:
         w = "full" if self.window_start < 0 else f"w{self.window_start}+{self.window_len}"
         x = f"-{self.transform}" if self.transform else ""
-        return f"{self.model}-{self.replicas}R-{self.trace}-s{self.scale}-{w}-p{self.perturbation}{x}"
+        j = f"-j{self.jitter_s:g}" if self.jitter_s >= 0 else ""
+        return f"{self.model}-{self.replicas}R-{self.trace}-s{self.scale}-{w}-p{self.perturbation}{x}{j}"
 
 
 # Stage-1 search set (2026-09-29, from frontier v2): FULL traces in the band where
@@ -112,7 +116,21 @@ HELDOUT = (
     + [Scenario("Synth", 8, sc, -1, 0, p) for sc in (1.0, 0.75) for p in (1, 2, 3)]
     + [Scenario(t, 16, 0.5, -1, 0, p) for t in ("Tool", "Conv", "Synth") for p in (1, 2)]
 )
-STAGES = {"1": STAGE1, "heldout": HELDOUT}
+# Protocol v2 (2026-10-06): search on two arrival draws per scenario so selection is less exposed to one lucky
+# draw; held-out on fresh draws (p2, p3, p5), Synth with real arrival jitter (its timestamps are not bucketed, so
+# p1-p3 used to be identical arrivals), and 16R on fresh draws (16R p1 replayed the search draw). The bar adds our
+# Mooncake and Dynamo re-implementations (repo 6647bd6) to the five heuristics; AIBrix/SGLang are dominated.
+SYNTH_JITTER_S = 1.0  # U[0, 1 s) per request; Synth mean inter-arrival is ~0.26 s, so arrivals reorder locally
+SEARCH_V2 = [Scenario(t, 8, sc, -1, 0, p) for t in ("Tool", "Conv") for sc in (1.0, 0.75) for p in (1, 4)]
+HELDOUT_V2 = (
+    [Scenario(t, 8, sc, -1, 0, p) for t in ("Tool", "Conv") for sc in (1.0, 0.75) for p in (2, 3, 5)]
+    + [Scenario("Synth", 8, sc, -1, 0, p, jitter_s=SYNTH_JITTER_S) for sc in (1.0, 0.75) for p in (1, 2, 3)]
+    + [Scenario(t, 16, 0.5, -1, 0, p) for t in ("Tool", "Conv") for p in (2, 3, 5)]
+    + [Scenario("Synth", 16, 0.5, -1, 0, p, jitter_s=SYNTH_JITTER_S) for p in (1, 2, 3)]
+)
+BAR_V2 = DEFAULT_BASELINES + tuple(
+    f"policy:{REPO / 'evolve' / 'policies' / 'systems' / n}.py" for n in ("mooncake_min_ttft", "dynamo_kv_cost"))
+STAGES = {"1": STAGE1, "heldout": HELDOUT, "search2": SEARCH_V2, "heldout2": HELDOUT_V2}
 
 _WINDOW_LOCK = threading.Lock()
 
@@ -447,9 +465,9 @@ def feedback_text(result: dict) -> str:
     """Compact per-scenario table for the proposer's prompt."""
     if not result.get("valid"):
         return "INVALID: " + json.dumps({k: v.get("reason") for k, v in result.get("failures", {}).items()})
-    lines = [f"fitness {result['combined_score']:.4f} (0 = best heuristic on every tail; higher is better)"]
+    lines = [f"fitness {result['combined_score']:.4f} (0 = matches the bar on every tail; higher is better)"]
     for d in result["details"]:
-        lines.append(f"{d['scenario']:32s} {d['metric']:5s} P99 {d['p99']:9.3f}  best heuristic {d['best_heuristic_p99']:9.3f}  ratio {math.exp(d['log_ratio']):.3f}")
+        lines.append(f"{d['scenario']:32s} {d['metric']:5s} P99 {d['p99']:9.3f}  bar {d['best_heuristic_p99']:9.3f}  ratio {math.exp(d['log_ratio']):.3f}")
     return "\n".join(lines)
 
 

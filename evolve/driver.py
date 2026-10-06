@@ -29,6 +29,9 @@ from evolve.guard import check_policy_source
 
 REPO = Path(__file__).resolve().parents[1]
 SEEDS = ["lor", "sticky_lor", "lop_uncached", "round_robin"]
+# Router search protocol: v1 = EXP11 (STAGE1, five heuristics); v2 = SEARCH_V2 against BAR_V2 (set in main()).
+BASELINES = ev.DEFAULT_BASELINES
+NO_DEFAULT_SEEDS = False
 STAGE0 = [ev.Scenario("Tool", 4, 1.5, 12000, 150, 1)]
 # Plumbing check only (seconds per simulation); not a research scenario set.
 SMOKE = [ev.Scenario("Tool", 4, 1.5, 12000, 200, 1), ev.Scenario("Conv", 4, 2.0, 6000, 200, 1)]
@@ -98,7 +101,8 @@ def evaluate_candidate(code: str, archive: Archive, parent: Optional[str], stage
                                       protocol=rl_protocol, objective=objective)
         feedback = rl_task.feedback_text(res)
     else:
-        res = ev.evaluate_policy(str(path), stage1, workers=workers, launcher=launcher, objective=objective)
+        res = ev.evaluate_policy(str(path), stage1, workers=workers, launcher=launcher, objective=objective,
+                                 baselines=BASELINES)
         feedback = ev.feedback_text(res)
     row.update({"valid": res.get("valid", False), "fitness": res["combined_score"],
                 "feedback": feedback, "result": res})
@@ -144,7 +148,8 @@ def seed_programs(task: str, extra: Optional[List[str]] = None, rl_protocol: str
 
         names = rl_task.PROTOCOLS[rl_protocol]["seeds"]
         return [(n, (REPO / "evolve" / "rl_designs" / f"{n}.py").read_text()) for n in names] + extra_rows
-    return [(n, (REPO / "evolve" / "policies" / f"{n}.py").read_text()) for n in SEEDS] + extra_rows
+    base = [] if NO_DEFAULT_SEEDS else [(n, (REPO / "evolve" / "policies" / f"{n}.py").read_text()) for n in SEEDS]
+    return base + extra_rows
 
 
 def run(run_dir: Path, iterations: int, batch: int, workers: int, propose: Callable[[str], tuple],
@@ -227,6 +232,9 @@ def main():
     ap.add_argument("--max-cost-usd", type=float, default=None, help="stop once proposer spend reaches this")
     ap.add_argument("--srun", action="store_true")
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--protocol", choices=["v1", "v2"], default="v1",
+                    help="router task: v1 = EXP11 search set and heuristic bar; v2 = two draws per scenario, "
+                         "bar = heuristics + Mooncake + Dynamo, seeds only from --seed-policy")
     ap.add_argument("--rl-protocol", default="v2", help="with --task rl: v2 | loto_conv (see rl_task.PROTOCOLS)")
     ap.add_argument("--seed-policy", action="append", default=[],
                     help="extra seed program file (repeatable), e.g. an earlier finalist")
@@ -245,6 +253,15 @@ def main():
         proposer.system_prompt = rl_task.SYSTEM_PROMPT if a.rl_protocol == "v2" else rl_task.system_prompt_v3(a.objective)
     launcher = ["srun", "--exact", "-n1", "-c1", "--mem=6G"] if a.srun else None
     stage1 = SMOKE if a.scenarios == "smoke" else ev.STAGE1
+    if a.task == "router" and a.protocol == "v2":
+        global BASELINES, NO_DEFAULT_SEEDS
+        BASELINES = ev.BAR_V2
+        NO_DEFAULT_SEEDS = True
+        if a.scenarios != "smoke":
+            stage1 = ev.SEARCH_V2
+        from evolve.proposer import system_prompt_v2
+
+        proposer.system_prompt = system_prompt_v2(a.objective)
     run(Path(a.run_dir), a.iterations, a.batch, a.workers, proposer.propose, stage1=stage1,
         launcher=launcher, seed=a.seed, max_cost_usd=a.max_cost_usd, task=a.task, objective=a.objective,
         extra_seeds=a.seed_policy, rl_protocol=a.rl_protocol)
