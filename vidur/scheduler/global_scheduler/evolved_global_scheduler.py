@@ -63,6 +63,13 @@ class RequestView:
     session_last_replica: int  # replica index this session was last routed to, -1 if new
     position_in_burst: int
     burst_size: int
+    # The request's prefix block hashes and the block size in tokens, so a router can keep its own
+    # route-time prefix index (as SGLang, AIBrix and Mooncake do) instead of seeing only the cache.
+    prefix_hashes: Tuple[int, ...] = ()
+    block_tokens: int = 0
+    # Per replica: leading prefix tokens covered by requests routed there and not yet prefilled
+    # (in flight), i.e. what a router that updates its cache view on routing would also count.
+    inflight_prefix_tokens: Tuple[int, ...] = ()
 
 
 class PolicyContext:
@@ -101,6 +108,9 @@ class EvolvedGlobalScheduler(BaseGlobalScheduler):
         self._assigned: Dict[int, Tuple[int, int]] = {}
         self._session_last: Dict[int, int] = {}
         self._prefilled: set = set()
+        # per replica: multiset of prefix block hashes of requests routed there, not yet prefilled
+        self._inflight: List[Dict[int, int]] = [dict() for _ in self._replica_ids]
+        self._inflight_req: Dict[int, Tuple[int, Tuple[int, ...]]] = {}
         self._ctx = PolicyContext(self._random_number_generator, len(self._replica_ids))
         self.policy_calls = 0
         self.policy_seconds = 0.0
@@ -124,6 +134,37 @@ class EvolvedGlobalScheduler(BaseGlobalScheduler):
                 n += 1
             out.append(n * kv.block_size)
         return tuple(out)
+
+    def _block_tokens(self) -> int:
+        for rid in self._replica_ids:
+            kv = getattr(self._replica_schedulers[rid], "_kv_cache_manager", None)
+            if kv is not None:
+                return kv.block_size
+        return 0
+
+    def _inflight_prefix_tokens(self, request: Request, block_tokens: int) -> Tuple[int, ...]:
+        hashes = request.block_hash_ids or ()
+        out = []
+        for counts in self._inflight:
+            n = 0
+            for h in hashes:
+                if counts.get(h, 0) <= 0:
+                    break
+                n += 1
+            out.append(min(n * block_tokens, request.num_prefill_tokens))
+        return tuple(out)
+
+    def _inflight_drop(self, request_id: int) -> None:
+        info = self._inflight_req.pop(request_id, None)
+        if info is None:
+            return
+        counts = self._inflight[info[0]]
+        for h in info[1]:
+            c = counts.get(h, 0) - 1
+            if c > 0:
+                counts[h] = c
+            else:
+                counts.pop(h, None)
 
     def _replica_views(self) -> List[ReplicaView]:
         views = []
@@ -164,6 +205,9 @@ class EvolvedGlobalScheduler(BaseGlobalScheduler):
                 else -1,
                 position_in_burst=k,
                 burst_size=len(burst),
+                prefix_hashes=tuple(r.block_hash_ids or ()),
+                block_tokens=self._block_tokens(),
+                inflight_prefix_tokens=self._inflight_prefix_tokens(r, self._block_tokens()),
             )
             for k, r in enumerate(burst)
         ]
@@ -212,6 +256,12 @@ class EvolvedGlobalScheduler(BaseGlobalScheduler):
         self._outstanding[idx] += 1
         self._pending_prefill[idx] += uncached
         self._assigned[request.id] = (idx, uncached)
+        hashes = tuple(request.block_hash_ids or ())
+        if hashes:
+            counts = self._inflight[idx]
+            for h in hashes:
+                counts[h] = counts.get(h, 0) + 1
+            self._inflight_req[request.id] = (idx, hashes)
         if request.session_id is not None:
             self._session_last[request.session_id] = idx
         return self._replica_ids[idx], request
@@ -226,6 +276,7 @@ class EvolvedGlobalScheduler(BaseGlobalScheduler):
             idx, uncached = info
             self._pending_prefill[idx] -= uncached
             self._prefilled.add(request.id)
+            self._inflight_drop(request.id)
 
     def on_request_end(self, request: Request) -> None:
         info = self._assigned.pop(request.id, None)
@@ -234,3 +285,4 @@ class EvolvedGlobalScheduler(BaseGlobalScheduler):
             if request.id not in self._prefilled:  # defensive: prefill end not seen
                 self._pending_prefill[info[0]] -= info[1]
             self._prefilled.discard(request.id)
+        self._inflight_drop(request.id)
