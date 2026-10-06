@@ -13,7 +13,8 @@ overlap with active sequences = the prefix shared with requests routed to i and 
 registers a request's blocks as active when it routes it). Cache left by finished requests is NOT credited
 here (prompt_registry.rs l.33-37: "not cache misses"); it enters only the prefill term.
 Simplifications: tokens instead of blocks; running KV includes output blocks (Dynamo counts prompt-side
-blocks by default) and is not de-duplicated across queued requests. PREFILL_SCALE = 1.0 is unit scale (the
+blocks by default); queued prompts are counted by their uncached tokens without de-duplication and without
+their cached-prefix blocks; a partly prefilled request is counted in both; overlap-credit decay not modelled. PREFILL_SCALE = 1.0 is unit scale (the
 docs give no default for prefill_load_scale).
 """
 
