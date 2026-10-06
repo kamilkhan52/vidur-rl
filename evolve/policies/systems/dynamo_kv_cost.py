@@ -1,25 +1,50 @@
-"""NVIDIA Dynamo KV-aware router cost (Dynamo docs: KV cache routing), simplified to our views.
+"""NVIDIA Dynamo KV-aware router cost (Dynamo @519e735550: docs/router/routing-concepts.md l.31,
+router-design.md l.13, l.55-96; lib/kv-router/src/sequences/prompt_registry.rs l.257-317), simplified to our views.
 
-cost_i = OVERLAP_WEIGHT * (prefill blocks still to compute on i) + (active decode blocks on i),
-computed here in tokens: OVERLAP_WEIGHT * (pending uncached prefill on i + this request's
-uncached prompt tokens on i) + (running requests on i x mean context, approximated by the
-replica's KV usage x capacity). Docs: higher overlap weight favours TTFT, lower favours ITL.
-OVERLAP_WEIGHT = 1.0 is unit scale (the docs, router-design.md l.77-96, give no default for prefill_load_scale). Lowest cost wins; ties by RNG.
-The decode term counts the blocks of all assigned requests, queued ones included; queued requests'
-cached prompt blocks are not visible to us, so the queued part counts only their uncached prompts.
+cost_i = PREFILL_SCALE * prefill_i + decode_i, lowest cost wins (temperature 0; ties by RNG):
+  prefill_i = prefill tokens still to compute on i (pending uncached prefill) + this request's tokens not
+              already cached on i (overlap from KV events = the replica's actual prefix cache);
+  decode_i  = potential decode blocks = active blocks on i + incoming_active_blocks, where
+              incoming_active_blocks = request tokens NOT already shared with active sequences on i
+              (additional_active_blocks = query_len - overlap_depth with the active sequences).
+Our views: active blocks ~ running KV (kv_usage x capacity) + queued uncached prompts (pending prefill);
+overlap with active sequences ~ the larger of the actual cache, the prefixes of requests routed to i but
+not yet prefilled (inflight_prefix_tokens), and requests routed to i earlier in the same arrival burst (the
+router registers a request's blocks as active when it routes it).
+Simplifications: tokens instead of blocks; running KV includes output blocks (Dynamo counts prompt-side
+blocks by default) and is not de-duplicated across queued requests; the actual cache may hold blocks no
+longer referenced by an active sequence (over-credits overlap). PREFILL_SCALE = 1.0 is unit scale (the
+docs give no default for prefill_load_scale).
 """
 
-OVERLAP_WEIGHT = 1.0
+PREFILL_SCALE = 1.0
+
+
+def _match(index, hashes):
+    n = 0
+    for h in hashes:
+        if h not in index:
+            break
+        n += 1
+    return n
 
 
 def choose(request, replicas, ctx):
+    burst = ctx.state.get("dynamo_burst")
+    if burst is None or burst[0] != ctx.now:
+        burst = (ctx.now, [set() for _ in replicas])
+        ctx.state["dynamo_burst"] = burst
     costs = []
+    inflight = request.inflight_prefix_tokens or (0,) * len(replicas)
     for i, r in enumerate(replicas):
         prefill = r.pending_prefill_tokens + request.num_prefill_tokens - request.cached_prefix_tokens[i]
-        # Active blocks of every request the router has assigned, queued ones included
-        # (router-design.md "Active Decoding Blocks"): running KV plus the queued uncached prompts.
-        decode = r.kv_usage * r.kv_capacity_tokens + r.pending_prefill_tokens
-        costs.append(OVERLAP_WEIGHT * prefill + decode)
+        same_burst = min(_match(burst[1][i], request.prefix_hashes) * request.block_tokens, request.num_prefill_tokens)
+        overlap_active = max(request.cached_prefix_tokens[i], inflight[i], same_burst)
+        incoming_active = request.num_prefill_tokens - overlap_active
+        decode = r.kv_usage * r.kv_capacity_tokens + r.pending_prefill_tokens + incoming_active
+        costs.append(PREFILL_SCALE * prefill + decode)
     best = min(costs)
     c = [i for i, v in enumerate(costs) if v == best]
-    return c[0] if len(c) == 1 else ctx.rng.choice(c)
+    pick = c[0] if len(c) == 1 else ctx.rng.choice(c)
+    burst[1][pick].update(request.prefix_hashes)
+    return pick

@@ -10,7 +10,7 @@
     "random": 2.08716515381095,
     "lop_uncached": 1.1437943047518282,
     "aibrix_prefix_load": 1.3756452617209796,
-    "dynamo_kv_cost": 0.9642045373927703,
+    "dynamo_kv_cost": 0.9482665321430018,
     "mooncake_min_ttft": 0.9355444692135805,
     "sglang_cache_aware": 1.106415633934233,
     "claude_r1_76be082eb0f5": 0.9320054034375408
@@ -26,12 +26,12 @@
     "random": 3.931121405568738,
     "lop_uncached": 1.0,
     "aibrix_prefix_load": 1.865174646084286,
-    "dynamo_kv_cost": 0.6811346247148722,
+    "dynamo_kv_cost": 0.6668257509060866,
     "mooncake_min_ttft": 0.7176731452102757,
     "sglang_cache_aware": 1.6822816288161497,
     "claude_r1_76be082eb0f5": 0.719214847820287
    },
-   "finalist_vs_best_of_9": 1.0559070435178002,
+   "finalist_vs_best_of_9": 1.0785648977158033,
    "best_of_9": "dynamo_kv_cost"
   },
   "tpot": {
@@ -42,7 +42,7 @@
     "random": 1.2083004859788355,
     "lop_uncached": 1.1456360448293998,
     "aibrix_prefix_load": 0.9816431179996653,
-    "dynamo_kv_cost": 1.1363983934500588,
+    "dynamo_kv_cost": 1.1308728214192774,
     "mooncake_min_ttft": 1.097750175577497,
     "sglang_cache_aware": 1.1457945760874995,
     "claude_r1_76be082eb0f5": 1.1258280274846226
@@ -62,7 +62,7 @@
     "random": 4.822810411112291,
     "lop_uncached": 2.0526573453711174,
     "aibrix_prefix_load": 24.92100299506714,
-    "dynamo_kv_cost": 1.9270406667571622,
+    "dynamo_kv_cost": 1.784425945799591,
     "mooncake_min_ttft": 1.7586830583863553,
     "sglang_cache_aware": 1.1031051310093893,
     "claude_r1_76be082eb0f5": 0.8796068447799591
@@ -78,7 +78,7 @@
     "random": 6.526168943900503,
     "lop_uncached": 2.39565357632947,
     "aibrix_prefix_load": 34.356575193886165,
-    "dynamo_kv_cost": 2.210145812447218,
+    "dynamo_kv_cost": 1.9957965901232952,
     "mooncake_min_ttft": 2.01576941984152,
     "sglang_cache_aware": 0.9680818386090622,
     "claude_r1_76be082eb0f5": 0.5008186101673816
@@ -94,7 +94,7 @@
     "random": 1.007197395134524,
     "lop_uncached": 1.0012064075630434,
     "aibrix_prefix_load": 0.8735028107285367,
-    "dynamo_kv_cost": 1.0037148109243723,
+    "dynamo_kv_cost": 1.0015715707335575,
     "mooncake_min_ttft": 1.0042183694598552,
     "sglang_cache_aware": 0.9986269507803109,
     "claude_r1_76be082eb0f5": 1.204408589751695
@@ -114,7 +114,7 @@
     "random": 1.9065601510748102,
     "lop_uncached": 1.1221729365544315,
     "aibrix_prefix_load": 1.0947021151525773,
-    "dynamo_kv_cost": 0.9377078978023271,
+    "dynamo_kv_cost": 0.9411088036979605,
     "mooncake_min_ttft": 0.9256865941133972,
     "sglang_cache_aware": 1.0993157953478339,
     "claude_r1_76be082eb0f5": 0.9378975138476606
@@ -130,12 +130,12 @@
     "random": 3.2409999845921145,
     "lop_uncached": 1.0,
     "aibrix_prefix_load": 1.4306460948739046,
-    "dynamo_kv_cost": 0.777479735814763,
+    "dynamo_kv_cost": 0.7556545228187963,
     "mooncake_min_ttft": 0.8038712743238632,
     "sglang_cache_aware": 1.4249530479365644,
     "claude_r1_76be082eb0f5": 0.7981745464125349
    },
-   "finalist_vs_best_of_9": 1.0266178134869133,
+   "finalist_vs_best_of_9": 1.0562691313420944,
    "best_of_9": "dynamo_kv_cost"
   },
   "tpot": {
@@ -146,7 +146,7 @@
     "random": 1.1793833458745269,
     "lop_uncached": 1.1229505034404186,
     "aibrix_prefix_load": 1.023643619255786,
-    "dynamo_kv_cost": 1.059567634469332,
+    "dynamo_kv_cost": 1.0610755691312952,
     "mooncake_min_ttft": 0.9577834561295604,
     "sglang_cache_aware": 1.0411554153663773,
     "claude_r1_76be082eb0f5": 0.9622398115648654
@@ -166,7 +166,7 @@
     "random": 4.565064326673766,
     "lop_uncached": 1.0,
     "aibrix_prefix_load": 28.289266452424112,
-    "dynamo_kv_cost": 0.9863789392837462,
+    "dynamo_kv_cost": 0.9716460860526307,
     "mooncake_min_ttft": 0.9615498039774543,
     "sglang_cache_aware": 1.1559478760662436,
     "claude_r1_76be082eb0f5": 0.9093289015250889
@@ -182,7 +182,7 @@
     "random": 7.711258226098623,
     "lop_uncached": 1.0,
     "aibrix_prefix_load": 50.35367756466859,
-    "dynamo_kv_cost": 0.9874793870359355,
+    "dynamo_kv_cost": 0.9725754217277726,
     "mooncake_min_ttft": 0.9195726380776506,
     "sglang_cache_aware": 1.358885154499988,
     "claude_r1_76be082eb0f5": 0.764887594789599
@@ -198,7 +198,7 @@
     "random": 1.0455972161562925,
     "lop_uncached": 1.0587044317696417,
     "aibrix_prefix_load": 1.084031737619067,
-    "dynamo_kv_cost": 1.065297337015979,
+    "dynamo_kv_cost": 1.0649497449760994,
     "mooncake_min_ttft": 1.0561575530596363,
     "sglang_cache_aware": 1.0138905687219317,
     "claude_r1_76be082eb0f5": 1.152434630700371
@@ -218,7 +218,7 @@
     "random": 2.222019298931039,
     "lop_uncached": 1.1201276375957085,
     "aibrix_prefix_load": 1.0883507690470338,
-    "dynamo_kv_cost": 0.947391043294539,
+    "dynamo_kv_cost": 0.9501524383641552,
     "mooncake_min_ttft": 0.9233371913852366,
     "sglang_cache_aware": 1.060473708522816,
     "claude_r1_76be082eb0f5": 0.9084571563446991
@@ -234,12 +234,12 @@
     "random": 5.077868117964645,
     "lop_uncached": 1.0,
     "aibrix_prefix_load": 1.4706977169231346,
-    "dynamo_kv_cost": 0.7210472923103859,
+    "dynamo_kv_cost": 0.7160585655842002,
     "mooncake_min_ttft": 0.785673151321434,
     "sglang_cache_aware": 1.6035828304539395,
     "claude_r1_76be082eb0f5": 0.7489391915391783
    },
-   "finalist_vs_best_of_9": 1.0386824824477476,
+   "finalist_vs_best_of_9": 1.0459189059880212,
    "best_of_9": "dynamo_kv_cost"
   },
   "tpot": {
@@ -250,7 +250,7 @@
     "random": 1.18409621949811,
     "lop_uncached": 1.130769354495021,
     "aibrix_prefix_load": 1.0010814655619757,
-    "dynamo_kv_cost": 1.1259674164958764,
+    "dynamo_kv_cost": 1.1248206170608392,
     "mooncake_min_ttft": 1.0990146070928688,
     "sglang_cache_aware": 1.1339356904222226,
     "claude_r1_76be082eb0f5": 1.113190943598808
@@ -270,7 +270,7 @@
     "random": 1.896288497512966,
     "lop_uncached": 1.131682108516564,
     "aibrix_prefix_load": 1.244805960753498,
-    "dynamo_kv_cost": 0.9470184724223905,
+    "dynamo_kv_cost": 0.9319842046523265,
     "mooncake_min_ttft": 0.926026624078734,
     "sglang_cache_aware": 1.1253787810824405,
     "claude_r1_76be082eb0f5": 0.8906647988111296
@@ -286,12 +286,12 @@
     "random": 3.5162619748715422,
     "lop_uncached": 1.0,
     "aibrix_prefix_load": 1.7216127806312693,
-    "dynamo_kv_cost": 0.6906107915413907,
+    "dynamo_kv_cost": 0.68114597050121,
     "mooncake_min_ttft": 0.7341157969699206,
     "sglang_cache_aware": 1.807882550067988,
     "claude_r1_76be082eb0f5": 0.7164237079287498
    },
-   "finalist_vs_best_of_9": 1.0373769374928916,
+   "finalist_vs_best_of_9": 1.051791743554735,
    "best_of_9": "dynamo_kv_cost"
   },
   "tpot": {
@@ -302,7 +302,7 @@
     "random": 1.1907644296755355,
     "lop_uncached": 1.1355546959988303,
     "aibrix_prefix_load": 1.0140395567068161,
-    "dynamo_kv_cost": 1.1246433991420086,
+    "dynamo_kv_cost": 1.128440202033043,
     "mooncake_min_ttft": 1.0884973874872992,
     "sglang_cache_aware": 1.1220539248119308,
     "claude_r1_76be082eb0f5": 1.1252629340777887
@@ -322,7 +322,7 @@
     "random": 4.7666598713618615,
     "lop_uncached": 2.04878848462953,
     "aibrix_prefix_load": 12.664908733152794,
-    "dynamo_kv_cost": 2.0413015297894415,
+    "dynamo_kv_cost": 1.7277412431039427,
     "mooncake_min_ttft": 1.6779859118378238,
     "sglang_cache_aware": 1.4379690841690054,
     "claude_r1_76be082eb0f5": 0.8913098912009072
@@ -338,7 +338,7 @@
     "random": 7.217108688387739,
     "lop_uncached": 2.781522473718566,
     "aibrix_prefix_load": 20.16252897388499,
-    "dynamo_kv_cost": 2.7769594155467594,
+    "dynamo_kv_cost": 2.2946735595588637,
     "mooncake_min_ttft": 2.234689949233834,
     "sglang_cache_aware": 1.8288341049870058,
     "claude_r1_76be082eb0f5": 0.5902756193301739
@@ -354,7 +354,7 @@
     "random": 1.0017633379882829,
     "lop_uncached": 1.005786597876998,
     "aibrix_prefix_load": 0.8798014923613202,
-    "dynamo_kv_cost": 1.0117946199153225,
+    "dynamo_kv_cost": 1.026268599725108,
     "mooncake_min_ttft": 1.0024948122877733,
     "sglang_cache_aware": 1.009865365537154,
     "claude_r1_76be082eb0f5": 1.2091461009640239
@@ -374,7 +374,7 @@
     "random": 5.5196411150473725,
     "lop_uncached": 2.1330767824479966,
     "aibrix_prefix_load": 25.142422168281048,
-    "dynamo_kv_cost": 1.9357281783796403,
+    "dynamo_kv_cost": 1.9745565929784592,
     "mooncake_min_ttft": 1.7399023830756168,
     "sglang_cache_aware": 1.310427289604979,
     "claude_r1_76be082eb0f5": 0.9151979116396283
@@ -390,7 +390,7 @@
     "random": 8.836862713513364,
     "lop_uncached": 3.031605040455583,
     "aibrix_prefix_load": 41.17658104982395,
-    "dynamo_kv_cost": 2.614999926253054,
+    "dynamo_kv_cost": 2.743277463468633,
     "mooncake_min_ttft": 2.317695174663183,
     "sglang_cache_aware": 1.563721708256732,
     "claude_r1_76be082eb0f5": 0.6092263487075821
@@ -406,7 +406,7 @@
     "random": 1.0010750157876802,
     "lop_uncached": 1.0134262207803924,
     "aibrix_prefix_load": 0.8816295160144698,
-    "dynamo_kv_cost": 1.0393706381002192,
+    "dynamo_kv_cost": 1.0122238721319716,
     "mooncake_min_ttft": 1.0079065997977528,
     "sglang_cache_aware": 1.0183117852894215,
     "claude_r1_76be082eb0f5": 1.2062145104318083
@@ -426,7 +426,7 @@
     "random": 2.101454072719789,
     "lop_uncached": 1.1019988086748396,
     "aibrix_prefix_load": 26.4645349546518,
-    "dynamo_kv_cost": 0.9406537929534731,
+    "dynamo_kv_cost": 0.9362958659842672,
     "mooncake_min_ttft": 0.9272291705748577,
     "sglang_cache_aware": 1.1024829017024067,
     "claude_r1_76be082eb0f5": 0.9321605856391644
@@ -442,12 +442,12 @@
     "random": 4.200154024059726,
     "lop_uncached": 1.0,
     "aibrix_prefix_load": 73.84683105299797,
-    "dynamo_kv_cost": 0.820488047522397,
+    "dynamo_kv_cost": 0.8280206933712797,
     "mooncake_min_ttft": 0.8825096846680237,
     "sglang_cache_aware": 1.552722419410934,
     "claude_r1_76be082eb0f5": 0.8629432291137465
    },
-   "finalist_vs_best_of_9": 1.0517438148179612,
+   "finalist_vs_best_of_9": 1.0421759214739912,
    "best_of_9": "dynamo_kv_cost"
   },
   "tpot": {
@@ -458,7 +458,7 @@
     "random": 1.1740631469443992,
     "lop_uncached": 1.1085862972420895,
     "aibrix_prefix_load": 1.308318761754576,
-    "dynamo_kv_cost": 1.0475935344461753,
+    "dynamo_kv_cost": 1.0553623601838955,
     "mooncake_min_ttft": 0.973515747361182,
     "sglang_cache_aware": 1.0329675439610442,
     "claude_r1_76be082eb0f5": 0.9655333798601566
@@ -478,7 +478,7 @@
     "random": 2.532232824107314,
     "lop_uncached": 1.1176086094308613,
     "aibrix_prefix_load": 24.564883287584834,
-    "dynamo_kv_cost": 0.951050910660933,
+    "dynamo_kv_cost": 0.9372596799546137,
     "mooncake_min_ttft": 0.9352287318326894,
     "sglang_cache_aware": 1.0569239714239875,
     "claude_r1_76be082eb0f5": 0.9070626770587251
@@ -494,12 +494,12 @@
     "random": 5.9219261005767585,
     "lop_uncached": 1.0,
     "aibrix_prefix_load": 68.14653879888178,
-    "dynamo_kv_cost": 0.8067809115766453,
+    "dynamo_kv_cost": 0.8084315681087917,
     "mooncake_min_ttft": 0.8547644889893805,
     "sglang_cache_aware": 1.4749777593863629,
     "claude_r1_76be082eb0f5": 0.8452889733573817
    },
-   "finalist_vs_best_of_9": 1.047730506793328,
+   "finalist_vs_best_of_9": 1.0455912494050827,
    "best_of_9": "dynamo_kv_cost"
   },
   "tpot": {
@@ -510,7 +510,7 @@
     "random": 1.1773143568152211,
     "lop_uncached": 1.0938486134555003,
     "aibrix_prefix_load": 1.2964155650771345,
-    "dynamo_kv_cost": 1.0564292319093558,
+    "dynamo_kv_cost": 1.0634058014286116,
     "mooncake_min_ttft": 0.9904137756004209,
     "sglang_cache_aware": 1.0372323058499633,
     "claude_r1_76be082eb0f5": 0.9815910500413503
@@ -530,13 +530,13 @@
     "random": 3.038465514412928,
     "lop_uncached": 1.0,
     "aibrix_prefix_load": 7.416930602428305,
-    "dynamo_kv_cost": 0.9667648638696208,
+    "dynamo_kv_cost": 0.9950621758383865,
     "mooncake_min_ttft": 0.9859707514060274,
     "sglang_cache_aware": 1.1275417547469517,
     "claude_r1_76be082eb0f5": 0.9050481290062816
    },
-   "finalist_vs_best_of_9": 0.936161586783048,
-   "best_of_9": "dynamo_kv_cost"
+   "finalist_vs_best_of_9": 0.9179259402123771,
+   "best_of_9": "mooncake_min_ttft"
   },
   "ttft": {
    "vs_best_heuristic": {
@@ -546,13 +546,13 @@
     "random": 4.888150229093968,
     "lop_uncached": 1.0,
     "aibrix_prefix_load": 13.040967749069539,
-    "dynamo_kv_cost": 0.9491040660662191,
+    "dynamo_kv_cost": 1.009524075615593,
     "mooncake_min_ttft": 0.9610587164938755,
     "sglang_cache_aware": 1.3593280183330558,
     "claude_r1_76be082eb0f5": 0.7852142783358892
    },
-   "finalist_vs_best_of_9": 0.8273215829644384,
-   "best_of_9": "dynamo_kv_cost"
+   "finalist_vs_best_of_9": 0.8170304944535541,
+   "best_of_9": "mooncake_min_ttft"
   },
   "tpot": {
    "vs_best_heuristic": {
@@ -562,7 +562,7 @@
     "random": 1.059574562835478,
     "lop_uncached": 1.0688848956876982,
     "aibrix_prefix_load": 1.08535544455675,
-    "dynamo_kv_cost": 1.0615521053154555,
+    "dynamo_kv_cost": 1.0551988420117007,
     "mooncake_min_ttft": 1.064566359240176,
     "sglang_cache_aware": 1.0211799373649062,
     "claude_r1_76be082eb0f5": 1.1485725447057018
@@ -582,13 +582,13 @@
     "random": 3.2461266367270873,
     "lop_uncached": 1.0,
     "aibrix_prefix_load": 15.234831840816947,
-    "dynamo_kv_cost": 0.9947575479946559,
+    "dynamo_kv_cost": 0.9289557964321543,
     "mooncake_min_ttft": 0.9398617359154685,
     "sglang_cache_aware": 1.085036471634671,
     "claude_r1_76be082eb0f5": 0.8832274883417207
    },
-   "finalist_vs_best_of_9": 0.9397419371280357,
-   "best_of_9": "mooncake_min_ttft"
+   "finalist_vs_best_of_9": 0.9507745058849273,
+   "best_of_9": "dynamo_kv_cost"
   },
   "ttft": {
    "vs_best_heuristic": {
@@ -598,13 +598,13 @@
     "random": 5.2370696577758284,
     "lop_uncached": 1.0,
     "aibrix_prefix_load": 26.65371296044707,
-    "dynamo_kv_cost": 1.0373054675793525,
+    "dynamo_kv_cost": 0.8781042362843448,
     "mooncake_min_ttft": 0.8979349887663722,
     "sglang_cache_aware": 1.2433030805860048,
     "claude_r1_76be082eb0f5": 0.7870303445046987
    },
-   "finalist_vs_best_of_9": 0.876489227339231,
-   "best_of_9": "mooncake_min_ttft"
+   "finalist_vs_best_of_9": 0.896283507109565,
+   "best_of_9": "dynamo_kv_cost"
   },
   "tpot": {
    "vs_best_heuristic": {
@@ -614,7 +614,7 @@
     "random": 1.0408198880467214,
     "lop_uncached": 1.0705231266280297,
     "aibrix_prefix_load": 1.0494514998719704,
-    "dynamo_kv_cost": 1.0520765959888316,
+    "dynamo_kv_cost": 1.054678396824296,
     "mooncake_min_ttft": 1.0440758579527791,
     "sglang_cache_aware": 1.0073578908587646,
     "claude_r1_76be082eb0f5": 1.1263252741174983
@@ -634,7 +634,7 @@
     "random": 2.331281177876808,
     "lop_uncached": 1.1917585967899411,
     "aibrix_prefix_load": 0.9626676309140827,
-    "dynamo_kv_cost": 1.0414428634594555,
+    "dynamo_kv_cost": 1.027866114581063,
     "mooncake_min_ttft": 0.9171183683596859,
     "sglang_cache_aware": 1.2112197899540023,
     "claude_r1_76be082eb0f5": 0.9587644909987909
@@ -650,7 +650,7 @@
     "random": 5.213486339945989,
     "lop_uncached": 1.0,
     "aibrix_prefix_load": 1.4573582808136374,
-    "dynamo_kv_cost": 0.9824913339498886,
+    "dynamo_kv_cost": 0.9251131634659123,
     "mooncake_min_ttft": 0.8743022561699654,
     "sglang_cache_aware": 2.6166799405507097,
     "claude_r1_76be082eb0f5": 0.9118884688499925
@@ -666,7 +666,7 @@
     "random": 1.1322591806371542,
     "lop_uncached": 1.078221876421044,
     "aibrix_prefix_load": 1.013844168659797,
-    "dynamo_kv_cost": 1.0325704783293173,
+    "dynamo_kv_cost": 1.0305778447599134,
     "mooncake_min_ttft": 1.0223612623941492,
     "sglang_cache_aware": 1.0376372183741978,
     "claude_r1_76be082eb0f5": 1.0118904800834978
@@ -686,7 +686,7 @@
     "random": 2.019817402977276,
     "lop_uncached": 1.2182173903588673,
     "aibrix_prefix_load": 0.9295803755663807,
-    "dynamo_kv_cost": 1.009289832131113,
+    "dynamo_kv_cost": 1.0015153374202785,
     "mooncake_min_ttft": 0.9092415957341787,
     "sglang_cache_aware": 1.2750711428357981,
     "claude_r1_76be082eb0f5": 0.9475886396221102
@@ -702,7 +702,7 @@
     "random": 4.609393430768462,
     "lop_uncached": 1.0,
     "aibrix_prefix_load": 1.4425987673399814,
-    "dynamo_kv_cost": 0.9931761862912751,
+    "dynamo_kv_cost": 0.95240219854531,
     "mooncake_min_ttft": 0.9371616216321381,
     "sglang_cache_aware": 3.064306528817245,
     "claude_r1_76be082eb0f5": 0.9414097588613766
@@ -718,7 +718,7 @@
     "random": 1.1234623301454612,
     "lop_uncached": 1.066154761721846,
     "aibrix_prefix_load": 0.9962407877089945,
-    "dynamo_kv_cost": 1.0308884829031935,
+    "dynamo_kv_cost": 1.03007978785243,
     "mooncake_min_ttft": 1.026378054131402,
     "sglang_cache_aware": 1.031709822162461,
     "claude_r1_76be082eb0f5": 1.001653693734054
@@ -738,7 +738,7 @@
     "random": 2.2445831154383566,
     "lop_uncached": 1.2558249236873213,
     "aibrix_prefix_load": 1.0140545907792464,
-    "dynamo_kv_cost": 0.9969198674625578,
+    "dynamo_kv_cost": 1.0138232412205832,
     "mooncake_min_ttft": 0.9055786197489776,
     "sglang_cache_aware": 1.131249988023925,
     "claude_r1_76be082eb0f5": 0.952308240671088
@@ -754,7 +754,7 @@
     "random": 4.828121593912015,
     "lop_uncached": 1.0,
     "aibrix_prefix_load": 1.4905298396675395,
-    "dynamo_kv_cost": 1.0266535147773737,
+    "dynamo_kv_cost": 0.9787532434142404,
     "mooncake_min_ttft": 0.9308084503095905,
     "sglang_cache_aware": 2.401349519094967,
     "claude_r1_76be082eb0f5": 0.9443092447554883
@@ -770,7 +770,7 @@
     "random": 1.1494281641330542,
     "lop_uncached": 1.073629308508306,
     "aibrix_prefix_load": 1.0124165184819973,
-    "dynamo_kv_cost": 1.0336559310814941,
+    "dynamo_kv_cost": 1.038826452237563,
     "mooncake_min_ttft": 1.025867460799717,
     "sglang_cache_aware": 1.0324714215794761,
     "claude_r1_76be082eb0f5": 1.0141954494962742
@@ -790,7 +790,7 @@
     "random": 2.9520618508984735,
     "lop_uncached": 1.4983800468665989,
     "aibrix_prefix_load": 1.1785470255302493,
-    "dynamo_kv_cost": 1.6415451447231089,
+    "dynamo_kv_cost": 1.213667012239195,
     "mooncake_min_ttft": 1.0827603367182181,
     "sglang_cache_aware": 1.2195549456866428,
     "claude_r1_76be082eb0f5": 0.9247220338853812
@@ -806,7 +806,7 @@
     "random": 3.7481439616719743,
     "lop_uncached": 1.8284850264011598,
     "aibrix_prefix_load": 1.2527283805237477,
-    "dynamo_kv_cost": 2.052851727507945,
+    "dynamo_kv_cost": 1.2930582578577685,
     "mooncake_min_ttft": 0.838933914293221,
     "sglang_cache_aware": 1.4674989747495286,
     "claude_r1_76be082eb0f5": 0.6353751708344578
@@ -822,7 +822,7 @@
     "random": 1.0540196922082354,
     "lop_uncached": 1.0434094141749413,
     "aibrix_prefix_load": 1.028420131799833,
-    "dynamo_kv_cost": 1.0456079572215788,
+    "dynamo_kv_cost": 1.0398450668632027,
     "mooncake_min_ttft": 1.0426625396375881,
     "sglang_cache_aware": 0.9963403298355094,
     "claude_r1_76be082eb0f5": 1.0531368737433677
@@ -842,7 +842,7 @@
     "random": 2.741258023750252,
     "lop_uncached": 1.2607489285088007,
     "aibrix_prefix_load": 0.9356613157265478,
-    "dynamo_kv_cost": 1.3006420846759803,
+    "dynamo_kv_cost": 1.0798627240679337,
     "mooncake_min_ttft": 0.9155170829476771,
     "sglang_cache_aware": 0.944507081055898,
     "claude_r1_76be082eb0f5": 0.7704679585352656
@@ -858,7 +858,7 @@
     "random": 2.914569226734164,
     "lop_uncached": 1.2909646466053568,
     "aibrix_prefix_load": 0.7771406837121678,
-    "dynamo_kv_cost": 1.318012411411206,
+    "dynamo_kv_cost": 1.0489211207218487,
     "mooncake_min_ttft": 0.5110189884072481,
     "sglang_cache_aware": 0.8403194206646336,
     "claude_r1_76be082eb0f5": 0.43768773876549427
@@ -874,7 +874,7 @@
     "random": 1.0622198263819111,
     "lop_uncached": 1.0362741769431465,
     "aibrix_prefix_load": 1.00833717156833,
-    "dynamo_kv_cost": 1.0227323785690854,
+    "dynamo_kv_cost": 1.028425909023673,
     "mooncake_min_ttft": 1.037106815966704,
     "sglang_cache_aware": 0.9759255271857453,
     "claude_r1_76be082eb0f5": 1.0165309519103634
@@ -894,7 +894,7 @@
     "random": 2.134428439397349,
     "lop_uncached": 1.2348489933815814,
     "aibrix_prefix_load": 0.9220144790747425,
-    "dynamo_kv_cost": 1.2253724594140996,
+    "dynamo_kv_cost": 0.9522503595490734,
     "mooncake_min_ttft": 0.9106175808934074,
     "sglang_cache_aware": 2.182600520663444,
     "claude_r1_76be082eb0f5": 0.71405445702501
@@ -910,7 +910,7 @@
     "random": 2.216343981216538,
     "lop_uncached": 1.2743242152701342,
     "aibrix_prefix_load": 0.751798907704869,
-    "dynamo_kv_cost": 1.2492608091292325,
+    "dynamo_kv_cost": 0.7724259346262388,
     "mooncake_min_ttft": 0.6588228454602149,
     "sglang_cache_aware": 2.335491828103168,
     "claude_r1_76be082eb0f5": 0.4105077707698149
@@ -926,7 +926,7 @@
     "random": 1.041655127060306,
     "lop_uncached": 1.033566091158301,
     "aibrix_prefix_load": 1.0004433716034538,
-    "dynamo_kv_cost": 1.0186909205178643,
+    "dynamo_kv_cost": 1.027758069924126,
     "mooncake_min_ttft": 1.033576521223407,
     "sglang_cache_aware": 0.9577508597065639,
     "claude_r1_76be082eb0f5": 1.0831915083720087
@@ -946,7 +946,7 @@
     "random": 2.381556063988285,
     "lop_uncached": 1.3758748353063746,
     "aibrix_prefix_load": 20.19868496068741,
-    "dynamo_kv_cost": 0.9742540308717546,
+    "dynamo_kv_cost": 0.9750368443150864,
     "mooncake_min_ttft": 0.9326862874939128,
     "sglang_cache_aware": 1.1608462073134171,
     "claude_r1_76be082eb0f5": 0.923766920852368
@@ -962,12 +962,12 @@
     "random": 4.359686314786564,
     "lop_uncached": 1.2206428045309619,
     "aibrix_prefix_load": 48.497620259184494,
-    "dynamo_kv_cost": 0.6540601466021172,
+    "dynamo_kv_cost": 0.6554109130290459,
     "mooncake_min_ttft": 0.7002395126344618,
     "sglang_cache_aware": 1.6700470441617952,
     "claude_r1_76be082eb0f5": 0.6736631690399173
    },
-   "finalist_vs_best_of_9": 1.029971284047253,
+   "finalist_vs_best_of_9": 1.027848568963426,
    "best_of_9": "dynamo_kv_cost"
   },
   "tpot": {
@@ -978,7 +978,7 @@
     "random": 1.25652812435625,
     "lop_uncached": 1.206258608185056,
     "aibrix_prefix_load": 1.2355128773687165,
-    "dynamo_kv_cost": 1.1639359484593133,
+    "dynamo_kv_cost": 1.1758314068433118,
     "mooncake_min_ttft": 0.9547262422809657,
     "sglang_cache_aware": 1.2077482556984018,
     "claude_r1_76be082eb0f5": 1.1548891021684788
@@ -998,7 +998,7 @@
     "random": 2.393113488283939,
     "lop_uncached": 1.3263235396008417,
     "aibrix_prefix_load": 19.105026412881436,
-    "dynamo_kv_cost": 0.9540101560064216,
+    "dynamo_kv_cost": 0.9409371628366819,
     "mooncake_min_ttft": 0.9030611485712823,
     "sglang_cache_aware": 1.111337938766738,
     "claude_r1_76be082eb0f5": 0.9007010292171456
@@ -1014,12 +1014,12 @@
     "random": 4.406334188485555,
     "lop_uncached": 1.1534119892626393,
     "aibrix_prefix_load": 44.86925807044653,
-    "dynamo_kv_cost": 0.6353384340359827,
+    "dynamo_kv_cost": 0.6372663295239059,
     "mooncake_min_ttft": 0.6598379516643503,
     "sglang_cache_aware": 1.4088846117969673,
     "claude_r1_76be082eb0f5": 0.6436022932793475
    },
-   "finalist_vs_best_of_9": 1.0130070192525087,
+   "finalist_vs_best_of_9": 1.0099424109856472,
    "best_of_9": "dynamo_kv_cost"
   },
   "tpot": {
@@ -1030,7 +1030,7 @@
     "random": 1.2451515615111945,
     "lop_uncached": 1.198847034620005,
     "aibrix_prefix_load": 1.2167843746503868,
-    "dynamo_kv_cost": 1.172458144736154,
+    "dynamo_kv_cost": 1.1706374569270759,
     "mooncake_min_ttft": 1.029222928789296,
     "sglang_cache_aware": 1.2266076116208777,
     "claude_r1_76be082eb0f5": 1.08849366259689
@@ -1050,7 +1050,7 @@
     "random": 1.8669430100493263,
     "lop_uncached": 1.2780057843211554,
     "aibrix_prefix_load": 1.6361033481071106,
-    "dynamo_kv_cost": 0.9677161730221768,
+    "dynamo_kv_cost": 0.9211799713238819,
     "mooncake_min_ttft": 0.9035464546228367,
     "sglang_cache_aware": 1.0677670765541698,
     "claude_r1_76be082eb0f5": 0.9054846916970616
@@ -1066,12 +1066,12 @@
     "random": 2.5528985470981875,
     "lop_uncached": 1.0124810176244246,
     "aibrix_prefix_load": 1.769380584728279,
-    "dynamo_kv_cost": 0.6344444586023402,
+    "dynamo_kv_cost": 0.6251227900318003,
     "mooncake_min_ttft": 0.6758599081144356,
     "sglang_cache_aware": 1.1487396001661636,
     "claude_r1_76be082eb0f5": 0.6777816054023043
    },
-   "finalist_vs_best_of_9": 1.0683072351131166,
+   "finalist_vs_best_of_9": 1.0842375549415264,
    "best_of_9": "dynamo_kv_cost"
   },
   "tpot": {
@@ -1082,7 +1082,7 @@
     "random": 1.2078065699585978,
     "lop_uncached": 1.1472159667222486,
     "aibrix_prefix_load": 1.1855259860880427,
-    "dynamo_kv_cost": 1.033140566293579,
+    "dynamo_kv_cost": 1.0525172943596286,
     "mooncake_min_ttft": 0.813372593130642,
     "sglang_cache_aware": 1.0249626699197367,
     "claude_r1_76be082eb0f5": 0.8387882941876432
@@ -1102,7 +1102,7 @@
     "random": 1.9656826136413534,
     "lop_uncached": 1.2643090437922953,
     "aibrix_prefix_load": 1.1845168340019787,
-    "dynamo_kv_cost": 0.9671952110519259,
+    "dynamo_kv_cost": 0.9643408348228631,
     "mooncake_min_ttft": 0.9189510020690191,
     "sglang_cache_aware": 1.097517919726686,
     "claude_r1_76be082eb0f5": 0.9029249908487481
@@ -1118,12 +1118,12 @@
     "random": 2.717840816944511,
     "lop_uncached": 1.0047862019459182,
     "aibrix_prefix_load": 1.2674966987092335,
-    "dynamo_kv_cost": 0.6558294464687897,
+    "dynamo_kv_cost": 0.6502396804891007,
     "mooncake_min_ttft": 0.6890241886653903,
     "sglang_cache_aware": 1.2128506636650755,
     "claude_r1_76be082eb0f5": 0.6627723548432223
    },
-   "finalist_vs_best_of_9": 1.0105864541639835,
+   "finalist_vs_best_of_9": 1.0192739304139278,
    "best_of_9": "dynamo_kv_cost"
   },
   "tpot": {
@@ -1134,7 +1134,7 @@
     "random": 1.1896179937357498,
     "lop_uncached": 1.1489856335327064,
     "aibrix_prefix_load": 1.0293879648026567,
-    "dynamo_kv_cost": 1.029717115528569,
+    "dynamo_kv_cost": 1.0338070135581445,
     "mooncake_min_ttft": 0.7878429494961825,
     "sglang_cache_aware": 1.0145024153744053,
     "claude_r1_76be082eb0f5": 0.8130674131832083
@@ -1154,7 +1154,7 @@
     "random": 2.184291717420982,
     "lop_uncached": 1.4324595377072264,
     "aibrix_prefix_load": 0.9375531857212865,
-    "dynamo_kv_cost": 1.0421096024981755,
+    "dynamo_kv_cost": 0.9484466060944229,
     "mooncake_min_ttft": 0.8590056641231031,
     "sglang_cache_aware": 1.7902585902006054,
     "claude_r1_76be082eb0f5": 0.9010439286490818
@@ -1170,7 +1170,7 @@
     "random": 3.9074403635856836,
     "lop_uncached": 1.0,
     "aibrix_prefix_load": 1.1897402815835685,
-    "dynamo_kv_cost": 0.8577349293908538,
+    "dynamo_kv_cost": 0.8302628860118823,
     "mooncake_min_ttft": 0.8041302653482605,
     "sglang_cache_aware": 3.9855522522521176,
     "claude_r1_76be082eb0f5": 0.842646051519552
@@ -1186,7 +1186,7 @@
     "random": 1.1814481017773713,
     "lop_uncached": 1.0944484755097685,
     "aibrix_prefix_load": 1.0088514298885294,
-    "dynamo_kv_cost": 1.0038597777937501,
+    "dynamo_kv_cost": 0.9908782360624534,
     "mooncake_min_ttft": 0.9710958573740778,
     "sglang_cache_aware": 1.0606652000909456,
     "claude_r1_76be082eb0f5": 0.9590385666872754
@@ -1206,7 +1206,7 @@
     "random": 1.9573867671614376,
     "lop_uncached": 1.3988353559025348,
     "aibrix_prefix_load": 0.8919864265404122,
-    "dynamo_kv_cost": 0.9962759084921675,
+    "dynamo_kv_cost": 0.9377978901573623,
     "mooncake_min_ttft": 0.8472191518440676,
     "sglang_cache_aware": 1.3693534240760858,
     "claude_r1_76be082eb0f5": 0.8387693199780965
@@ -1222,13 +1222,13 @@
     "random": 3.9134160318285756,
     "lop_uncached": 1.0,
     "aibrix_prefix_load": 1.2278942297041957,
-    "dynamo_kv_cost": 0.8955834435159761,
+    "dynamo_kv_cost": 0.868463740664281,
     "mooncake_min_ttft": 0.8693622260808238,
     "sglang_cache_aware": 3.311743172710999,
     "claude_r1_76be082eb0f5": 0.8626636313747564
    },
-   "finalist_vs_best_of_9": 0.9922948173901397,
-   "best_of_9": "mooncake_min_ttft"
+   "finalist_vs_best_of_9": 0.9933214145646563,
+   "best_of_9": "dynamo_kv_cost"
   },
   "tpot": {
    "vs_best_heuristic": {
@@ -1238,7 +1238,7 @@
     "random": 1.1956430241117064,
     "lop_uncached": 1.1082277539871643,
     "aibrix_prefix_load": 1.0045994993106042,
-    "dynamo_kv_cost": 1.0159117952175984,
+    "dynamo_kv_cost": 0.9921559059489388,
     "mooncake_min_ttft": 0.9521606373983947,
     "sglang_cache_aware": 1.0578850998579372,
     "claude_r1_76be082eb0f5": 0.9553085501208223
