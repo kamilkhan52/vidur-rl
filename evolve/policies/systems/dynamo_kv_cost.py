@@ -1,5 +1,5 @@
-"""NVIDIA Dynamo KV-aware router cost (Dynamo @519e735550: docs/router/routing-concepts.md l.31,
-router-design.md l.13, l.55-96; lib/kv-router/src/sequences/prompt_registry.rs l.257-317), simplified to our views.
+"""NVIDIA Dynamo KV-aware router cost (docs @519e735550: docs/router/routing-concepts.md l.31, router-design.md
+l.13, l.55-96; source @6ebaf07bcb: lib/kv-router/src/sequences/prompt_registry.rs l.257-317), simplified to our views.
 
 cost_i = PREFILL_SCALE * prefill_i + decode_i, lowest cost wins (temperature 0; ties by RNG):
   prefill_i = prefill tokens still to compute on i (pending uncached prefill) + this request's tokens not
