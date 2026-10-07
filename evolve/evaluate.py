@@ -130,7 +130,16 @@ HELDOUT_V2 = (
 )
 BAR_V2 = DEFAULT_BASELINES + tuple(
     f"policy:{REPO / 'evolve' / 'policies' / 'systems' / n}.py" for n in ("mooncake_min_ttft", "dynamo_kv_cost"))
-STAGES = {"1": STAGE1, "heldout": HELDOUT, "search2": SEARCH_V2, "heldout2": HELDOUT_V2}
+# Final test set (2026-10-07): the held-out set has been used to choose among policies, so final claims are
+# made on fresh draws evaluated once, for frozen finalists only. Same shape as HELDOUT_V2: Tool/Conv p6-p8,
+# Synth p4-p6, 16R likewise.
+TEST_V2 = (
+    [Scenario(t, 8, sc, -1, 0, p) for t in ("Tool", "Conv") for sc in (1.0, 0.75) for p in (6, 7, 8)]
+    + [Scenario("Synth", 8, sc, -1, 0, p, jitter_s=SYNTH_JITTER_S) for sc in (1.0, 0.75) for p in (4, 5, 6)]
+    + [Scenario(t, 16, 0.5, -1, 0, p) for t in ("Tool", "Conv") for p in (6, 7, 8)]
+    + [Scenario("Synth", 16, 0.5, -1, 0, p, jitter_s=SYNTH_JITTER_S) for p in (4, 5, 6)]
+)
+STAGES = {"1": STAGE1, "heldout": HELDOUT, "search2": SEARCH_V2, "heldout2": HELDOUT_V2, "test2": TEST_V2}
 
 _WINDOW_LOCK = threading.Lock()
 
