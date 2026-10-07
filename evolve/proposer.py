@@ -76,6 +76,13 @@ Fitness 0 means "matches the best heuristic"; positive means better. The first t
 matters little here: a policy that wins TTFT by packing prefix-sharing requests onto a few
 replicas grows their decode batches and loses TPOT, which this objective punishes.
 """,
+    "tail4": """## Objective
+Minimise four tails equally: fitness weights the per-scenario log P99 ratios 0.25 each of
+end-to-end (time to last token), time-to-first-token, time-per-output-token and time-between-
+tokens (the 99th percentile over all decode-token gaps, so a single long stall counts), each
+relative to the best of five heuristic routers, minus half the worst scenario. A mean-E2E more
+than 5% worse than the best heuristic is penalised. Fitness 0 means "matches the best heuristic".
+""",
     "interactive": """## Objective
 Minimise the INTERACTIVE tail: fitness weights the per-scenario log P99 ratios 0.6 *
 time-to-first-token + 0.3 * end-to-end + 0.1 * time-per-output-token, each relative to the

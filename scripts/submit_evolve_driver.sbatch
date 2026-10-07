@@ -28,7 +28,9 @@ TASK="${TASK:-router}"
 RELAY_DIR="${RELAY_DIR:-}"
 MODEL="${MODEL:-}"
 OBJECTIVE="${OBJECTIVE:-balanced}"
-SEED_POLICY="${SEED_POLICY:-}"
+SEED_POLICY="${SEED_POLICY:-}"  # space-separated list of policy files (repo-relative)
+PROTOCOL="${PROTOCOL:-v1}"   # router task: v1 (EXP11) | v2 (two draws, bar = heuristics + Mooncake + Dynamo)
+SEED="${SEED:-0}"
 RL_PROTOCOL="${RL_PROTOCOL:-v2}"
 RUN_DIR="${RUN_DIR:-$SCRATCH/runs/deepseek_r1}"
 PROPOSER="${PROPOSER:-openrouter}"
@@ -48,7 +50,7 @@ ls cache | grep prediction_bundle || echo "WARNING: no prediction bundle; result
 EXTRA=()
 [ -n "$RELAY_DIR" ] && EXTRA+=(--relay-dir "$RELAY_DIR")
 [ -n "$MODEL" ] && EXTRA+=(--model "$MODEL")
-[ -n "$SEED_POLICY" ] && EXTRA+=(--seed-policy "$SEED_POLICY")
-EXTRA+=(--objective "$OBJECTIVE" --rl-protocol "$RL_PROTOCOL")
+for sp in $SEED_POLICY; do EXTRA+=(--seed-policy "$sp"); done
+EXTRA+=(--objective "$OBJECTIVE" --rl-protocol "$RL_PROTOCOL" --protocol "$PROTOCOL" --seed "$SEED")
 python -m evolve.driver --run-dir "$RUN_DIR" --task "$TASK" --proposer "$PROPOSER" --scenarios stage1 \
     --iterations "$ITERATIONS" --batch "$BATCH" --workers "$WORKERS" --max-cost-usd "$MAX_COST_USD" ${EXTRA[@]+"${EXTRA[@]}"}
