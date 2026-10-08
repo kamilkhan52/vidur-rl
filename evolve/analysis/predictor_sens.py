@@ -1,10 +1,14 @@
-"""Robustness of the ratio-to-bar to Vidur's execution-time model: re-run the bar and the given policies with the
-linear-regression predictor (the default is the random forest) and report each policy's P99 ratio to the bar.
+"""Robustness of the ratio-to-bar to Vidur's execution-time model: re-run the bar and the given policies with a
+perturbed predictor and report each policy's P99 ratio to the bar. Variants:
+  crude          random forest restricted to depth 4 / 50 trees (the default grid-searches up to 32 / 750)
+  attn_overhead  10 % attention batching overhead on prefill and decode (the default is 0)
+  linear         linear-regression predictor; UNUSABLE here (2026-10-08: its polynomial fits extrapolate to
+                 P99 E2E ~1e8 s for every policy), kept only to document that
 
 Results go to their own cache file (the baseline cache key does not include the predictor), so they never mix
 with default-predictor runs. Run all of it on one machine: each predictor trains its own bundle per machine.
 
-  python -m evolve.analysis.predictor_sens --policy evolve/finalists/tail4_ni.py --workers 10
+  python -m evolve.analysis.predictor_sens --variant crude --policy evolve/finalists/tail4_ni.py --workers 10
 """
 import argparse
 import json
@@ -14,7 +18,13 @@ from pathlib import Path
 import evolve.evaluate as ev
 from evolve.analysis.bar_eval import BAR
 
-EXTRA = ["--execution_time_predictor_config_type", "linear_regression"]
+RF = "--random_forest_execution_time_predictor_config_"
+VARIANTS = {
+    "crude": [RF + "max_depth", "4", RF + "num_estimators", "50"],
+    "attn_overhead": [RF + "attention_decode_batching_overhead_fraction", "0.1",
+                      RF + "attention_prefill_batching_overhead_fraction", "0.1"],
+    "linear": ["--execution_time_predictor_config_type", "linear_regression"],
+}
 SCEN = [ev.Scenario(t, 8, sc, -1, 0, p) for t in ("Tool", "Conv") for sc in (1.0, 0.75) for p in (2, 3)]
 METRICS = ("e2e", "ttft", "tpot", "tbt")
 
@@ -23,15 +33,17 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--policy", action="append", required=True)
     ap.add_argument("--workers", type=int, default=10)
-    ap.add_argument("--out", default="evolve/analysis/out/predictor_sens_lr.json")
+    ap.add_argument("--variant", choices=sorted(VARIANTS), required=True)
     a = ap.parse_args()
-    cache_path = ev.CACHE_DIR / "predictor_sens_lr.json"
+    EXTRA = VARIANTS[a.variant]
+    out = f"evolve/analysis/out/predictor_sens_{a.variant}.json"
+    cache_path = ev.CACHE_DIR / ("predictor_sens_lr.json" if a.variant == "linear" else f"predictor_sens_{a.variant}.json")
     cache = json.loads(cache_path.read_text()) if cache_path.exists() else {}
     runs = [(b, None) for b in BAR] + [("evolved", str(Path(p).resolve())) for p in a.policy]
 
     def key(name, pol, sc):
         who = name if pol is None and not name.startswith("policy:") else ev.file_sha(Path(pol or name[7:]))[:12]
-        return f"lr|{ev.code_version()}|{sc.tag}|{who}"
+        return f"{a.variant}|{ev.code_version()}|{sc.tag}|{who}"
 
     todo = []
     for name, pol in runs:
@@ -67,7 +79,7 @@ def main():
         geo = {m: math.exp(sum(math.log(r[m]) for r in rows.values()) / len(rows)) for m in METRICS}
         report[Path(p).name] = {"geo": geo, "per_scenario": rows}
         print(Path(p).name, " ".join(f"{m} {geo[m]:.3f} ({sum(r[m] < 1 for r in rows.values())}/{len(rows)})" for m in METRICS))
-    Path(a.out).write_text(json.dumps({"predictor": "linear_regression", "bar": BAR, "policies": report}, indent=1))
+    Path(out).write_text(json.dumps({"predictor": a.variant, "extra": EXTRA, "bar": BAR, "policies": report}, indent=1))
 
 
 if __name__ == "__main__":
