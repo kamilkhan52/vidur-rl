@@ -1,7 +1,11 @@
 """Robustness of the ratio-to-bar to Vidur's execution-time model: re-run the bar and the given policies with a
 perturbed predictor and report each policy's P99 ratio to the bar. Variants:
   crude          random forest restricted to depth 4 / 50 trees (the default grid-searches up to 32 / 750)
-  attn_overhead  10 % attention batching overhead on prefill and decode (the default is 0)
+  reseed         default grid, forest trained with another random seed (training noise of the predictor)
+Each variant trains into its own cache directory: Vidur's model and bundle cache keys ignore the grid-search
+parameters and the seed, so with the shared cache a variant silently reuses the default forest (2026-10-08: the
+first crude run did exactly that). The attention batching-overhead knobs are not a usable variant: Vidur applies
+them to grouped-query-attention models only, and Llama-2-7B is not one.
   linear         linear-regression predictor; UNUSABLE here (2026-10-08: its polynomial fits extrapolate to
                  P99 E2E ~1e8 s for every policy), kept only to document that
 
@@ -20,9 +24,8 @@ from evolve.analysis.bar_eval import BAR
 
 RF = "--random_forest_execution_time_predictor_config_"
 VARIANTS = {
-    "crude": [RF + "max_depth", "4", RF + "num_estimators", "50"],
-    "attn_overhead": [RF + "attention_decode_batching_overhead_fraction", "0.1",
-                      RF + "attention_prefill_batching_overhead_fraction", "0.1"],
+    "crude": [RF + "max_depth", "4", RF + "num_estimators", "50", RF + "cache_dir", "cache/predictor_crude"],
+    "reseed": [RF + "seed", "7", RF + "cache_dir", "cache/predictor_reseed"],
     "linear": ["--execution_time_predictor_config_type", "linear_regression"],
 }
 SCEN = [ev.Scenario(t, 8, sc, -1, 0, p) for t in ("Tool", "Conv") for sc in (1.0, 0.75) for p in (2, 3)]
@@ -43,7 +46,7 @@ def main():
 
     def key(name, pol, sc):
         who = name if pol is None and not name.startswith("policy:") else ev.file_sha(Path(pol or name[7:]))[:12]
-        return f"{a.variant}|{ev.code_version()}|{sc.tag}|{who}"
+        return f"{a.variant}2|{ev.code_version()}|{sc.tag}|{who}"
 
     todo = []
     for name, pol in runs:
