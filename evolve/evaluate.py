@@ -54,9 +54,12 @@ TRACES = {
     "Synth": REPO / "data/processed_traces/mooncake_synthetic_trace.csv",
 }
 BUCKETED = {"Tool", "Conv"}  # Mooncake conv/tool timestamps are 3 s buckets
-KV_CAPACITY = {"7b": 122752, "70b": 525920}
-MODEL_NAME = {"7b": "meta-llama/Llama-2-7b-hf", "70b": "meta-llama/Llama-2-70b-hf"}
-TP = {"7b": 1, "70b": 4}
+# KV-cache tokens per replica, from Vidur's MemoryPlanner (A100 80 GB). Llama-2's attention is profiled only up to
+# 4,032 KV tokens (its context window), and the random-forest predictor is flat beyond that; 58-81 % of the prefill
+# tokens of the Mooncake traces lie beyond it (found 2026-10-08). Meta-Llama-3-8B is profiled to 262,112 KV tokens.
+KV_CAPACITY = {"7b": 122752, "70b": 525920, "l3_8b": 483328}
+MODEL_NAME = {"7b": "meta-llama/Llama-2-7b-hf", "70b": "meta-llama/Llama-2-70b-hf", "l3_8b": "meta-llama/Meta-Llama-3-8B"}
+TP = {"7b": 1, "70b": 4, "l3_8b": 1}
 SEED_FLAG = {
     "random": "random_global_scheduler_config_seed",
     "round_robin": "round_robin_global_scheduler_config_seed",
