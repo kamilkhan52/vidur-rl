@@ -1,0 +1,787 @@
+{
+ "bar": [
+  "sticky_lor",
+  "lor",
+  "round_robin",
+  "random",
+  "lop_uncached",
+  "policy:/Users/kamil/vidur-rl-working/evolve/policies/systems/mooncake_min_ttft.py",
+  "policy:/Users/kamil/vidur-rl-working/evolve/policies/systems/dynamo_kv_cost.py"
+ ],
+ "stage": "heldout2",
+ "objective": "tail4",
+ "code_version": "c6fceae7bfa8",
+ "policies": {
+  "ni_attn_weight_max_dbl.py": {
+   "overall": {
+    "e2e": {
+     "geo": 0.8817,
+     "better": 26,
+     "n": 27
+    },
+    "ttft": {
+     "geo": 0.8877,
+     "better": 15,
+     "n": 27
+    },
+    "tpot": {
+     "geo": 1.0254,
+     "better": 6,
+     "n": 27
+    },
+    "tbt": {
+     "geo": 1.0121,
+     "better": 6,
+     "n": 27
+    }
+   },
+   "by_regime": {
+    "knee": {
+     "e2e": {
+      "geo": 0.7753,
+      "better": 9,
+      "n": 9
+     },
+     "ttft": {
+      "geo": 0.6856,
+      "better": 9,
+      "n": 9
+     },
+     "tpot": {
+      "geo": 1.0236,
+      "better": 0,
+      "n": 9
+     },
+     "tbt": {
+      "geo": 1.022,
+      "better": 3,
+      "n": 9
+     }
+    },
+    "s1.0": {
+     "e2e": {
+      "geo": 0.9263,
+      "better": 9,
+      "n": 9
+     },
+     "ttft": {
+      "geo": 1.0298,
+      "better": 0,
+      "n": 9
+     },
+     "tpot": {
+      "geo": 1.0,
+      "better": 5,
+      "n": 9
+     },
+     "tbt": {
+      "geo": 1.0103,
+      "better": 1,
+      "n": 9
+     }
+    },
+    "16R": {
+     "e2e": {
+      "geo": 0.9545,
+      "better": 8,
+      "n": 9
+     },
+     "ttft": {
+      "geo": 0.9909,
+      "better": 6,
+      "n": 9
+     },
+     "tpot": {
+      "geo": 1.0533,
+      "better": 1,
+      "n": 9
+     },
+     "tbt": {
+      "geo": 1.0041,
+      "better": 2,
+      "n": 9
+     }
+    }
+   },
+   "fitness_vs_bar": 0.0384,
+   "per_scenario": {
+    "7b-8R-Tool-s1.0-full-p2": {
+     "e2e": 0.9613,
+     "ttft": 1.0402,
+     "tpot": 1.0133,
+     "tbt": 1.0
+    },
+    "7b-8R-Tool-s1.0-full-p3": {
+     "e2e": 0.9451,
+     "ttft": 1.0702,
+     "tpot": 1.0172,
+     "tbt": 1.0154
+    },
+    "7b-8R-Tool-s1.0-full-p5": {
+     "e2e": 0.9569,
+     "ttft": 1.0286,
+     "tpot": 1.0021,
+     "tbt": 1.0511
+    },
+    "7b-8R-Tool-s0.75-full-p2": {
+     "e2e": 0.7856,
+     "ttft": 0.5781,
+     "tpot": 1.024,
+     "tbt": 1.0443
+    },
+    "7b-8R-Tool-s0.75-full-p3": {
+     "e2e": 0.7898,
+     "ttft": 0.5883,
+     "tpot": 1.0123,
+     "tbt": 1.0312
+    },
+    "7b-8R-Tool-s0.75-full-p5": {
+     "e2e": 0.8022,
+     "ttft": 0.6261,
+     "tpot": 1.0338,
+     "tbt": 1.0601
+    },
+    "7b-8R-Conv-s1.0-full-p2": {
+     "e2e": 0.9621,
+     "ttft": 1.0249,
+     "tpot": 0.9983,
+     "tbt": 1.0111
+    },
+    "7b-8R-Conv-s1.0-full-p3": {
+     "e2e": 0.9441,
+     "ttft": 1.0287,
+     "tpot": 0.9925,
+     "tbt": 1.0163
+    },
+    "7b-8R-Conv-s1.0-full-p5": {
+     "e2e": 0.9371,
+     "ttft": 1.0456,
+     "tpot": 1.0053,
+     "tbt": 1.0
+    },
+    "7b-8R-Conv-s0.75-full-p2": {
+     "e2e": 0.8552,
+     "ttft": 0.8222,
+     "tpot": 1.0454,
+     "tbt": 1.0436
+    },
+    "7b-8R-Conv-s0.75-full-p3": {
+     "e2e": 0.8546,
+     "ttft": 0.8326,
+     "tpot": 1.0311,
+     "tbt": 1.0552
+    },
+    "7b-8R-Conv-s0.75-full-p5": {
+     "e2e": 0.8822,
+     "ttft": 0.8394,
+     "tpot": 1.0424,
+     "tbt": 1.0539
+    },
+    "7b-8R-Synth-s1.0-full-p1-j1": {
+     "e2e": 0.8879,
+     "ttft": 1.0163,
+     "tpot": 0.9867,
+     "tbt": 1.0
+    },
+    "7b-8R-Synth-s1.0-full-p2-j1": {
+     "e2e": 0.8661,
+     "ttft": 1.0008,
+     "tpot": 0.9901,
+     "tbt": 1.0
+    },
+    "7b-8R-Synth-s1.0-full-p3-j1": {
+     "e2e": 0.8824,
+     "ttft": 1.0143,
+     "tpot": 0.9946,
+     "tbt": 1.0
+    },
+    "7b-8R-Synth-s0.75-full-p1-j1": {
+     "e2e": 0.6422,
+     "ttft": 0.6129,
+     "tpot": 1.009,
+     "tbt": 0.9695
+    },
+    "7b-8R-Synth-s0.75-full-p2-j1": {
+     "e2e": 0.6746,
+     "ttft": 0.6518,
+     "tpot": 1.0085,
+     "tbt": 0.968
+    },
+    "7b-8R-Synth-s0.75-full-p3-j1": {
+     "e2e": 0.7281,
+     "ttft": 0.6843,
+     "tpot": 1.0071,
+     "tbt": 0.9787
+    },
+    "7b-16R-Tool-s0.5-full-p2": {
+     "e2e": 0.9517,
+     "ttft": 1.0021,
+     "tpot": 1.0036,
+     "tbt": 1.0
+    },
+    "7b-16R-Tool-s0.5-full-p3": {
+     "e2e": 0.9661,
+     "ttft": 0.98,
+     "tpot": 1.0119,
+     "tbt": 1.0
+    },
+    "7b-16R-Tool-s0.5-full-p5": {
+     "e2e": 0.9534,
+     "ttft": 0.99,
+     "tpot": 1.0225,
+     "tbt": 1.0
+    },
+    "7b-16R-Conv-s0.5-full-p2": {
+     "e2e": 0.9442,
+     "ttft": 0.9863,
+     "tpot": 1.1671,
+     "tbt": 1.0125
+    },
+    "7b-16R-Conv-s0.5-full-p3": {
+     "e2e": 0.9468,
+     "ttft": 0.9916,
+     "tpot": 1.1722,
+     "tbt": 1.0125
+    },
+    "7b-16R-Conv-s0.5-full-p5": {
+     "e2e": 0.9675,
+     "ttft": 0.97,
+     "tpot": 1.1256,
+     "tbt": 1.0125
+    },
+    "7b-16R-Synth-s0.5-full-p1-j1": {
+     "e2e": 0.9388,
+     "ttft": 1.0111,
+     "tpot": 0.9856,
+     "tbt": 1.0
+    },
+    "7b-16R-Synth-s0.5-full-p2-j1": {
+     "e2e": 0.9151,
+     "ttft": 0.9717,
+     "tpot": 1.0015,
+     "tbt": 1.0
+    },
+    "7b-16R-Synth-s0.5-full-p3-j1": {
+     "e2e": 1.0092,
+     "ttft": 1.0165,
+     "tpot": 1.0114,
+     "tbt": 1.0
+    }
+   }
+  },
+  "ni_attn4.py": {
+   "overall": {
+    "e2e": {
+     "geo": 0.8887,
+     "better": 27,
+     "n": 27
+    },
+    "ttft": {
+     "geo": 0.9177,
+     "better": 16,
+     "n": 27
+    },
+    "tpot": {
+     "geo": 1.0267,
+     "better": 6,
+     "n": 27
+    },
+    "tbt": {
+     "geo": 1.0113,
+     "better": 4,
+     "n": 27
+    }
+   },
+   "by_regime": {
+    "knee": {
+     "e2e": {
+      "geo": 0.7853,
+      "better": 9,
+      "n": 9
+     },
+     "ttft": {
+      "geo": 0.7557,
+      "better": 9,
+      "n": 9
+     },
+     "tpot": {
+      "geo": 1.0166,
+      "better": 1,
+      "n": 9
+     },
+     "tbt": {
+      "geo": 1.0193,
+      "better": 1,
+      "n": 9
+     }
+    },
+    "s1.0": {
+     "e2e": {
+      "geo": 0.9361,
+      "better": 9,
+      "n": 9
+     },
+     "ttft": {
+      "geo": 1.0266,
+      "better": 0,
+      "n": 9
+     },
+     "tpot": {
+      "geo": 0.9985,
+      "better": 4,
+      "n": 9
+     },
+     "tbt": {
+      "geo": 1.012,
+      "better": 1,
+      "n": 9
+     }
+    },
+    "16R": {
+     "e2e": {
+      "geo": 0.9548,
+      "better": 9,
+      "n": 9
+     },
+     "ttft": {
+      "geo": 0.9961,
+      "better": 7,
+      "n": 9
+     },
+     "tpot": {
+      "geo": 1.0663,
+      "better": 1,
+      "n": 9
+     },
+     "tbt": {
+      "geo": 1.0028,
+      "better": 2,
+      "n": 9
+     }
+    }
+   },
+   "fitness_vs_bar": 0.0218,
+   "per_scenario": {
+    "7b-8R-Tool-s1.0-full-p2": {
+     "e2e": 0.96,
+     "ttft": 1.0538,
+     "tpot": 1.0067,
+     "tbt": 1.0002
+    },
+    "7b-8R-Tool-s1.0-full-p3": {
+     "e2e": 0.9446,
+     "ttft": 1.0428,
+     "tpot": 1.0132,
+     "tbt": 1.0084
+    },
+    "7b-8R-Tool-s1.0-full-p5": {
+     "e2e": 0.9431,
+     "ttft": 1.0352,
+     "tpot": 1.0018,
+     "tbt": 1.0517
+    },
+    "7b-8R-Tool-s0.75-full-p2": {
+     "e2e": 0.7927,
+     "ttft": 0.6012,
+     "tpot": 0.9955,
+     "tbt": 1.012
+    },
+    "7b-8R-Tool-s0.75-full-p3": {
+     "e2e": 0.8045,
+     "ttft": 0.6534,
+     "tpot": 1.0055,
+     "tbt": 1.0316
+    },
+    "7b-8R-Tool-s0.75-full-p5": {
+     "e2e": 0.8253,
+     "ttft": 0.6985,
+     "tpot": 1.0123,
+     "tbt": 1.0438
+    },
+    "7b-8R-Conv-s1.0-full-p2": {
+     "e2e": 0.9779,
+     "ttft": 1.0139,
+     "tpot": 1.0107,
+     "tbt": 1.0141
+    },
+    "7b-8R-Conv-s1.0-full-p3": {
+     "e2e": 0.9592,
+     "ttft": 1.0275,
+     "tpot": 0.9904,
+     "tbt": 1.0204
+    },
+    "7b-8R-Conv-s1.0-full-p5": {
+     "e2e": 0.945,
+     "ttft": 1.0261,
+     "tpot": 1.0027,
+     "tbt": 1.0139
+    },
+    "7b-8R-Conv-s0.75-full-p2": {
+     "e2e": 0.8452,
+     "ttft": 0.8426,
+     "tpot": 1.0285,
+     "tbt": 1.043
+    },
+    "7b-8R-Conv-s0.75-full-p3": {
+     "e2e": 0.8705,
+     "ttft": 0.9265,
+     "tpot": 1.0088,
+     "tbt": 1.0383
+    },
+    "7b-8R-Conv-s0.75-full-p5": {
+     "e2e": 0.8337,
+     "ttft": 0.8096,
+     "tpot": 1.0267,
+     "tbt": 1.0376
+    },
+    "7b-8R-Synth-s1.0-full-p1-j1": {
+     "e2e": 0.8835,
+     "ttft": 1.0232,
+     "tpot": 0.9893,
+     "tbt": 1.0
+    },
+    "7b-8R-Synth-s1.0-full-p2-j1": {
+     "e2e": 0.8954,
+     "ttft": 1.018,
+     "tpot": 0.9855,
+     "tbt": 1.0
+    },
+    "7b-8R-Synth-s1.0-full-p3-j1": {
+     "e2e": 0.9204,
+     "ttft": 1.0,
+     "tpot": 0.9869,
+     "tbt": 1.0
+    },
+    "7b-8R-Synth-s0.75-full-p1-j1": {
+     "e2e": 0.6921,
+     "ttft": 0.8342,
+     "tpot": 1.037,
+     "tbt": 1.0
+    },
+    "7b-8R-Synth-s0.75-full-p2-j1": {
+     "e2e": 0.6712,
+     "ttft": 0.7103,
+     "tpot": 1.0058,
+     "tbt": 0.9697
+    },
+    "7b-8R-Synth-s0.75-full-p3-j1": {
+     "e2e": 0.7576,
+     "ttft": 0.7819,
+     "tpot": 1.0301,
+     "tbt": 1.0
+    },
+    "7b-16R-Tool-s0.5-full-p2": {
+     "e2e": 0.9714,
+     "ttft": 0.9933,
+     "tpot": 0.9959,
+     "tbt": 1.0
+    },
+    "7b-16R-Tool-s0.5-full-p3": {
+     "e2e": 0.9681,
+     "ttft": 0.9808,
+     "tpot": 1.0085,
+     "tbt": 1.0
+    },
+    "7b-16R-Tool-s0.5-full-p5": {
+     "e2e": 0.9537,
+     "ttft": 0.9963,
+     "tpot": 1.0123,
+     "tbt": 1.0
+    },
+    "7b-16R-Conv-s0.5-full-p2": {
+     "e2e": 0.9573,
+     "ttft": 0.9973,
+     "tpot": 1.2121,
+     "tbt": 1.0125
+    },
+    "7b-16R-Conv-s0.5-full-p3": {
+     "e2e": 0.943,
+     "ttft": 0.9919,
+     "tpot": 1.21,
+     "tbt": 1.0125
+    },
+    "7b-16R-Conv-s0.5-full-p5": {
+     "e2e": 0.975,
+     "ttft": 0.9967,
+     "tpot": 1.1694,
+     "tbt": 1.0003
+    },
+    "7b-16R-Synth-s0.5-full-p1-j1": {
+     "e2e": 0.9102,
+     "ttft": 1.0149,
+     "tpot": 1.0028,
+     "tbt": 1.0
+    },
+    "7b-16R-Synth-s0.5-full-p2-j1": {
+     "e2e": 0.9431,
+     "ttft": 0.9912,
+     "tpot": 1.0056,
+     "tbt": 1.0
+    },
+    "7b-16R-Synth-s0.5-full-p3-j1": {
+     "e2e": 0.9729,
+     "ttft": 1.0024,
+     "tpot": 1.0133,
+     "tbt": 1.0
+    }
+   }
+  },
+  "ni_attn8.py": {
+   "overall": {
+    "e2e": {
+     "geo": 0.9063,
+     "better": 27,
+     "n": 27
+    },
+    "ttft": {
+     "geo": 0.9884,
+     "better": 9,
+     "n": 27
+    },
+    "tpot": {
+     "geo": 1.0357,
+     "better": 5,
+     "n": 27
+    },
+    "tbt": {
+     "geo": 1.0131,
+     "better": 8,
+     "n": 27
+    }
+   },
+   "by_regime": {
+    "knee": {
+     "e2e": {
+      "geo": 0.8474,
+      "better": 9,
+      "n": 9
+     },
+     "ttft": {
+      "geo": 0.915,
+      "better": 6,
+      "n": 9
+     },
+     "tpot": {
+      "geo": 1.0317,
+      "better": 1,
+      "n": 9
+     },
+     "tbt": {
+      "geo": 1.0303,
+      "better": 0,
+      "n": 9
+     }
+    },
+    "s1.0": {
+     "e2e": {
+      "geo": 0.9244,
+      "better": 9,
+      "n": 9
+     },
+     "ttft": {
+      "geo": 1.0499,
+      "better": 0,
+      "n": 9
+     },
+     "tpot": {
+      "geo": 0.9991,
+      "better": 4,
+      "n": 9
+     },
+     "tbt": {
+      "geo": 1.0066,
+      "better": 5,
+      "n": 9
+     }
+    },
+    "16R": {
+     "e2e": {
+      "geo": 0.9503,
+      "better": 9,
+      "n": 9
+     },
+     "ttft": {
+      "geo": 1.0052,
+      "better": 3,
+      "n": 9
+     },
+     "tpot": {
+      "geo": 1.0778,
+      "better": 0,
+      "n": 9
+     },
+     "tbt": {
+      "geo": 1.0026,
+      "better": 3,
+      "n": 9
+     }
+    }
+   },
+   "fitness_vs_bar": -0.0062,
+   "per_scenario": {
+    "7b-8R-Tool-s1.0-full-p2": {
+     "e2e": 0.9521,
+     "ttft": 1.0706,
+     "tpot": 1.007,
+     "tbt": 0.9908
+    },
+    "7b-8R-Tool-s1.0-full-p3": {
+     "e2e": 0.9427,
+     "ttft": 1.0207,
+     "tpot": 1.0037,
+     "tbt": 0.9986
+    },
+    "7b-8R-Tool-s1.0-full-p5": {
+     "e2e": 0.9492,
+     "ttft": 1.075,
+     "tpot": 1.0018,
+     "tbt": 1.0524
+    },
+    "7b-8R-Tool-s0.75-full-p2": {
+     "e2e": 0.8459,
+     "ttft": 0.749,
+     "tpot": 1.0001,
+     "tbt": 1.0316
+    },
+    "7b-8R-Tool-s0.75-full-p3": {
+     "e2e": 0.8526,
+     "ttft": 0.7268,
+     "tpot": 0.9979,
+     "tbt": 1.0251
+    },
+    "7b-8R-Tool-s0.75-full-p5": {
+     "e2e": 0.8343,
+     "ttft": 0.7423,
+     "tpot": 1.0037,
+     "tbt": 1.0401
+    },
+    "7b-8R-Conv-s1.0-full-p2": {
+     "e2e": 0.9743,
+     "ttft": 1.037,
+     "tpot": 1.015,
+     "tbt": 1.0163
+    },
+    "7b-8R-Conv-s1.0-full-p3": {
+     "e2e": 0.9505,
+     "ttft": 1.0482,
+     "tpot": 0.9934,
+     "tbt": 1.0287
+    },
+    "7b-8R-Conv-s1.0-full-p5": {
+     "e2e": 0.9229,
+     "ttft": 1.0434,
+     "tpot": 1.0095,
+     "tbt": 1.0205
+    },
+    "7b-8R-Conv-s0.75-full-p2": {
+     "e2e": 0.8546,
+     "ttft": 0.9196,
+     "tpot": 1.0208,
+     "tbt": 1.0493
+    },
+    "7b-8R-Conv-s0.75-full-p3": {
+     "e2e": 0.8721,
+     "ttft": 0.9908,
+     "tpot": 1.028,
+     "tbt": 1.0526
+    },
+    "7b-8R-Conv-s0.75-full-p5": {
+     "e2e": 0.8827,
+     "ttft": 0.9669,
+     "tpot": 1.0321,
+     "tbt": 1.0579
+    },
+    "7b-8R-Synth-s1.0-full-p1-j1": {
+     "e2e": 0.8672,
+     "ttft": 1.0212,
+     "tpot": 0.9891,
+     "tbt": 0.9873
+    },
+    "7b-8R-Synth-s1.0-full-p2-j1": {
+     "e2e": 0.8632,
+     "ttft": 1.0978,
+     "tpot": 0.9866,
+     "tbt": 0.986
+    },
+    "7b-8R-Synth-s1.0-full-p3-j1": {
+     "e2e": 0.9045,
+     "ttft": 1.0374,
+     "tpot": 0.9866,
+     "tbt": 0.9812
+    },
+    "7b-8R-Synth-s0.75-full-p1-j1": {
+     "e2e": 0.7919,
+     "ttft": 1.0046,
+     "tpot": 1.0835,
+     "tbt": 1.012
+    },
+    "7b-8R-Synth-s0.75-full-p2-j1": {
+     "e2e": 0.8358,
+     "ttft": 1.1502,
+     "tpot": 1.0733,
+     "tbt": 1.003
+    },
+    "7b-8R-Synth-s0.75-full-p3-j1": {
+     "e2e": 0.8601,
+     "ttft": 1.093,
+     "tpot": 1.0496,
+     "tbt": 1.0025
+    },
+    "7b-16R-Tool-s0.5-full-p2": {
+     "e2e": 0.9675,
+     "ttft": 1.0111,
+     "tpot": 1.0067,
+     "tbt": 1.0
+    },
+    "7b-16R-Tool-s0.5-full-p3": {
+     "e2e": 0.9613,
+     "ttft": 0.9873,
+     "tpot": 1.0104,
+     "tbt": 1.0
+    },
+    "7b-16R-Tool-s0.5-full-p5": {
+     "e2e": 0.9605,
+     "ttft": 0.9876,
+     "tpot": 1.0123,
+     "tbt": 1.0
+    },
+    "7b-16R-Conv-s0.5-full-p2": {
+     "e2e": 0.9596,
+     "ttft": 0.9913,
+     "tpot": 1.2072,
+     "tbt": 1.0125
+    },
+    "7b-16R-Conv-s0.5-full-p3": {
+     "e2e": 0.957,
+     "ttft": 1.0,
+     "tpot": 1.2281,
+     "tbt": 1.0125
+    },
+    "7b-16R-Conv-s0.5-full-p5": {
+     "e2e": 0.9582,
+     "ttft": 1.0104,
+     "tpot": 1.1886,
+     "tbt": 1.0011
+    },
+    "7b-16R-Synth-s0.5-full-p1-j1": {
+     "e2e": 0.8998,
+     "ttft": 1.0142,
+     "tpot": 1.0195,
+     "tbt": 1.0
+    },
+    "7b-16R-Synth-s0.5-full-p2-j1": {
+     "e2e": 0.9094,
+     "ttft": 1.0046,
+     "tpot": 1.0283,
+     "tbt": 0.9971
+    },
+    "7b-16R-Synth-s0.5-full-p3-j1": {
+     "e2e": 0.9821,
+     "ttft": 1.041,
+     "tpot": 1.0318,
+     "tbt": 1.0
+    }
+   }
+  }
+ }
+}
