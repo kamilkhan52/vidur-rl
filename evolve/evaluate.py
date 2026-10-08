@@ -139,7 +139,12 @@ TEST_V2 = (
     + [Scenario(t, 16, 0.5, -1, 0, p) for t in ("Tool", "Conv") for p in (6, 7, 8)]
     + [Scenario("Synth", 16, 0.5, -1, 0, p, jitter_s=SYNTH_JITTER_S) for p in (4, 5, 6)]
 )
-STAGES = {"1": STAGE1, "heldout": HELDOUT, "search2": SEARCH_V2, "heldout2": HELDOUT_V2, "test2": TEST_V2}
+# Model generalisation (2026-10-08): Llama-2-70B TP4, 8 replicas. Calibrated with LOR / sticky-LOR / LOP on Tool p1:
+# scale 1.0 and 1.5 overload (P99 E2E 1,000-3,500 s), 2.0 is the knee (P99 E2E 143-201 s), 3.0 moderate (85-91 s).
+# Fresh draws p2, p3; never used for search or selection.
+GEN70 = [Scenario(t, 8, sc, -1, 0, p, model="70b") for t in ("Tool", "Conv") for sc in (2.0, 3.0) for p in (2, 3)]
+STAGES = {"1": STAGE1, "heldout": HELDOUT, "search2": SEARCH_V2, "heldout2": HELDOUT_V2, "test2": TEST_V2,
+          "gen70": GEN70}
 
 _WINDOW_LOCK = threading.Lock()
 

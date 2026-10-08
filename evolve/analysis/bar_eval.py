@@ -19,7 +19,11 @@ BAR = list(ev.DEFAULT_BASELINES) + SYS
 
 
 def regime(tag: str) -> str:
-    return "16R" if "16R" in tag else ("knee" if "s0.75" in tag else "s1.0")
+    if "16R" in tag:
+        return "16R"
+    if tag.startswith("70b"):  # 70B TP4 (GEN70): its knee is scale 2.0, moderate load 3.0
+        return "knee" if "-s2.0-" in tag else "s1.0"
+    return "knee" if "s0.75" in tag else "s1.0"
 
 
 def geo(xs):
