@@ -240,6 +240,8 @@ def main():
                     help="extra seed program file (repeatable), e.g. an earlier finalist")
     ap.add_argument("--objective", choices=sorted(ev.OBJECTIVES), default="balanced",
                     help="tail objective (weights on P99 E2E/TTFT/TPOT); see evaluate.OBJECTIVES")
+    ap.add_argument("--search-stage", default=None, choices=sorted(ev.STAGES),
+                    help="router v2: search on this evaluate.STAGES set instead of SEARCH_V2 (e.g. cal70)")
     ap.add_argument("--task", choices=["router", "rl"], default="router",
                     help="router: evolve routing code (EXP11); rl: evolve an RL router design (EXP12)")
     a = ap.parse_args()
@@ -262,6 +264,12 @@ def main():
         from evolve.proposer import system_prompt_v2
 
         proposer.system_prompt = system_prompt_v2(a.objective)
+        if a.search_stage:
+            stage1 = ev.STAGES[a.search_stage]
+            if {sc.model for sc in stage1} == {"70b"}:  # describe the deployment the candidates are scored on
+                proposer.system_prompt = proposer.system_prompt.replace(
+                    "Llama-2-7b replicas (A100,", "Llama-2-70b replicas (4x A100 tensor parallel, grouped-query attention,"
+                ).replace("122,752 KV-cache tokens", "525,920 KV-cache tokens")
     run(Path(a.run_dir), a.iterations, a.batch, a.workers, proposer.propose, stage1=stage1,
         launcher=launcher, seed=a.seed, max_cost_usd=a.max_cost_usd, task=a.task, objective=a.objective,
         extra_seeds=a.seed_policy, rl_protocol=a.rl_protocol)
