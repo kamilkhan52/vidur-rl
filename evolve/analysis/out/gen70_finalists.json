@@ -1,0 +1,379 @@
+{
+ "bar": [
+  "sticky_lor",
+  "lor",
+  "round_robin",
+  "random",
+  "lop_uncached",
+  "policy:/Users/kamil/vidur-rl-working/evolve/policies/systems/mooncake_min_ttft.py",
+  "policy:/Users/kamil/vidur-rl-working/evolve/policies/systems/dynamo_kv_cost.py"
+ ],
+ "stage": "gen70",
+ "objective": "tail4",
+ "code_version": "c6fceae7bfa8",
+ "policies": {
+  "tail4_ni.py": {
+   "overall": {
+    "e2e": {
+     "geo": 0.967,
+     "better": 7,
+     "n": 8
+    },
+    "ttft": {
+     "geo": 1.0963,
+     "better": 0,
+     "n": 8
+    },
+    "tpot": {
+     "geo": 1.0002,
+     "better": 2,
+     "n": 8
+    },
+    "tbt": {
+     "geo": 1.002,
+     "better": 2,
+     "n": 8
+    }
+   },
+   "by_regime": {
+    "knee": {
+     "e2e": {
+      "geo": 0.9776,
+      "better": 3,
+      "n": 4
+     },
+     "ttft": {
+      "geo": 1.1593,
+      "better": 0,
+      "n": 4
+     },
+     "tpot": {
+      "geo": 0.9988,
+      "better": 2,
+      "n": 4
+     },
+     "tbt": {
+      "geo": 1.0045,
+      "better": 0,
+      "n": 4
+     }
+    },
+    "s1.0": {
+     "e2e": {
+      "geo": 0.9565,
+      "better": 4,
+      "n": 4
+     },
+     "ttft": {
+      "geo": 1.0367,
+      "better": 0,
+      "n": 4
+     },
+     "tpot": {
+      "geo": 1.0017,
+      "better": 0,
+      "n": 4
+     },
+     "tbt": {
+      "geo": 0.9996,
+      "better": 2,
+      "n": 4
+     }
+    }
+   },
+   "fitness_vs_bar": -0.0431,
+   "per_scenario": {
+    "70b-8R-Tool-s2.0-full-p2": {
+     "e2e": 0.9625,
+     "ttft": 1.199,
+     "tpot": 1.0004,
+     "tbt": 1.0033
+    },
+    "70b-8R-Tool-s2.0-full-p3": {
+     "e2e": 0.9783,
+     "ttft": 1.2739,
+     "tpot": 1.0002,
+     "tbt": 1.0033
+    },
+    "70b-8R-Tool-s3.0-full-p2": {
+     "e2e": 0.9614,
+     "ttft": 1.0247,
+     "tpot": 1.0001,
+     "tbt": 0.9991
+    },
+    "70b-8R-Tool-s3.0-full-p3": {
+     "e2e": 0.9557,
+     "ttft": 1.0533,
+     "tpot": 1.0001,
+     "tbt": 0.9991
+    },
+    "70b-8R-Conv-s2.0-full-p2": {
+     "e2e": 1.0045,
+     "ttft": 1.0473,
+     "tpot": 0.9978,
+     "tbt": 1.0057
+    },
+    "70b-8R-Conv-s2.0-full-p3": {
+     "e2e": 0.9658,
+     "ttft": 1.1291,
+     "tpot": 0.9967,
+     "tbt": 1.0055
+    },
+    "70b-8R-Conv-s3.0-full-p2": {
+     "e2e": 0.9584,
+     "ttft": 1.0445,
+     "tpot": 1.0015,
+     "tbt": 1.0
+    },
+    "70b-8R-Conv-s3.0-full-p3": {
+     "e2e": 0.9504,
+     "ttft": 1.0247,
+     "tpot": 1.0051,
+     "tbt": 1.0
+    }
+   }
+  },
+  "tail4_ni_attn2.py": {
+   "overall": {
+    "e2e": {
+     "geo": 0.9776,
+     "better": 7,
+     "n": 8
+    },
+    "ttft": {
+     "geo": 1.1405,
+     "better": 0,
+     "n": 8
+    },
+    "tpot": {
+     "geo": 1.0005,
+     "better": 3,
+     "n": 8
+    },
+    "tbt": {
+     "geo": 1.0023,
+     "better": 2,
+     "n": 8
+    }
+   },
+   "by_regime": {
+    "knee": {
+     "e2e": {
+      "geo": 0.9949,
+      "better": 3,
+      "n": 4
+     },
+     "ttft": {
+      "geo": 1.2481,
+      "better": 0,
+      "n": 4
+     },
+     "tpot": {
+      "geo": 0.9988,
+      "better": 2,
+      "n": 4
+     },
+     "tbt": {
+      "geo": 1.005,
+      "better": 0,
+      "n": 4
+     }
+    },
+    "s1.0": {
+     "e2e": {
+      "geo": 0.9607,
+      "better": 4,
+      "n": 4
+     },
+     "ttft": {
+      "geo": 1.0422,
+      "better": 0,
+      "n": 4
+     },
+     "tpot": {
+      "geo": 1.0023,
+      "better": 1,
+      "n": 4
+     },
+     "tbt": {
+      "geo": 0.9996,
+      "better": 2,
+      "n": 4
+     }
+    }
+   },
+   "fitness_vs_bar": -0.0625,
+   "per_scenario": {
+    "70b-8R-Tool-s2.0-full-p2": {
+     "e2e": 0.9918,
+     "ttft": 1.3238,
+     "tpot": 1.0006,
+     "tbt": 1.0039
+    },
+    "70b-8R-Tool-s2.0-full-p3": {
+     "e2e": 0.9855,
+     "ttft": 1.3171,
+     "tpot": 1.0001,
+     "tbt": 1.0033
+    },
+    "70b-8R-Tool-s3.0-full-p2": {
+     "e2e": 0.9651,
+     "ttft": 1.0285,
+     "tpot": 0.9999,
+     "tbt": 0.9991
+    },
+    "70b-8R-Tool-s3.0-full-p3": {
+     "e2e": 0.9778,
+     "ttft": 1.0647,
+     "tpot": 1.0001,
+     "tbt": 0.9991
+    },
+    "70b-8R-Conv-s2.0-full-p2": {
+     "e2e": 0.9998,
+     "ttft": 1.157,
+     "tpot": 0.9981,
+     "tbt": 1.0063
+    },
+    "70b-8R-Conv-s2.0-full-p3": {
+     "e2e": 1.0025,
+     "ttft": 1.2032,
+     "tpot": 0.9966,
+     "tbt": 1.0063
+    },
+    "70b-8R-Conv-s3.0-full-p2": {
+     "e2e": 0.9499,
+     "ttft": 1.0433,
+     "tpot": 1.0015,
+     "tbt": 1.0
+    },
+    "70b-8R-Conv-s3.0-full-p3": {
+     "e2e": 0.9503,
+     "ttft": 1.0327,
+     "tpot": 1.0076,
+     "tbt": 1.0
+    }
+   }
+  },
+  "claude_r1_76be082eb0f5.py": {
+   "overall": {
+    "e2e": {
+     "geo": 1.0117,
+     "better": 2,
+     "n": 8
+    },
+    "ttft": {
+     "geo": 1.0122,
+     "better": 4,
+     "n": 8
+    },
+    "tpot": {
+     "geo": 1.0023,
+     "better": 1,
+     "n": 8
+    },
+    "tbt": {
+     "geo": 1.004,
+     "better": 2,
+     "n": 8
+    }
+   },
+   "by_regime": {
+    "knee": {
+     "e2e": {
+      "geo": 1.0205,
+      "better": 0,
+      "n": 4
+     },
+     "ttft": {
+      "geo": 1.0248,
+      "better": 1,
+      "n": 4
+     },
+     "tpot": {
+      "geo": 1.0031,
+      "better": 0,
+      "n": 4
+     },
+     "tbt": {
+      "geo": 1.0078,
+      "better": 0,
+      "n": 4
+     }
+    },
+    "s1.0": {
+     "e2e": {
+      "geo": 1.003,
+      "better": 2,
+      "n": 4
+     },
+     "ttft": {
+      "geo": 0.9998,
+      "better": 3,
+      "n": 4
+     },
+     "tpot": {
+      "geo": 1.0015,
+      "better": 1,
+      "n": 4
+     },
+     "tbt": {
+      "geo": 1.0002,
+      "better": 2,
+      "n": 4
+     }
+    }
+   },
+   "fitness_vs_bar": -0.0173,
+   "per_scenario": {
+    "70b-8R-Tool-s2.0-full-p2": {
+     "e2e": 1.0067,
+     "ttft": 1.0533,
+     "tpot": 1.0049,
+     "tbt": 1.0071
+    },
+    "70b-8R-Tool-s2.0-full-p3": {
+     "e2e": 1.0004,
+     "ttft": 1.0411,
+     "tpot": 1.0046,
+     "tbt": 1.0072
+    },
+    "70b-8R-Tool-s3.0-full-p2": {
+     "e2e": 0.9919,
+     "ttft": 0.9948,
+     "tpot": 1.0026,
+     "tbt": 0.9991
+    },
+    "70b-8R-Tool-s3.0-full-p3": {
+     "e2e": 1.0099,
+     "ttft": 1.0217,
+     "tpot": 1.0028,
+     "tbt": 0.9998
+    },
+    "70b-8R-Conv-s2.0-full-p2": {
+     "e2e": 1.0463,
+     "ttft": 1.0223,
+     "tpot": 1.0021,
+     "tbt": 1.0092
+    },
+    "70b-8R-Conv-s2.0-full-p3": {
+     "e2e": 1.0295,
+     "ttft": 0.9837,
+     "tpot": 1.001,
+     "tbt": 1.0075
+    },
+    "70b-8R-Conv-s3.0-full-p2": {
+     "e2e": 0.991,
+     "ttft": 0.9934,
+     "tpot": 0.9993,
+     "tbt": 1.0009
+    },
+    "70b-8R-Conv-s3.0-full-p3": {
+     "e2e": 1.0194,
+     "ttft": 0.9898,
+     "tpot": 1.0013,
+     "tbt": 1.0009
+    }
+   }
+  }
+ }
+}

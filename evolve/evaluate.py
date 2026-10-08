@@ -143,8 +143,9 @@ TEST_V2 = (
 # scale 1.0 and 1.5 overload (P99 E2E 1,000-3,500 s), 2.0 is the knee (P99 E2E 143-201 s), 3.0 moderate (85-91 s).
 # Fresh draws p2, p3; never used for search or selection.
 GEN70 = [Scenario(t, 8, sc, -1, 0, p, model="70b") for t in ("Tool", "Conv") for sc in (2.0, 3.0) for p in (2, 3)]
+CAL70 = [Scenario(t, 8, sc, -1, 0, 1, model="70b") for t in ("Tool", "Conv") for sc in (2.0, 3.0)]  # 70B tuning draw
 STAGES = {"1": STAGE1, "heldout": HELDOUT, "search2": SEARCH_V2, "heldout2": HELDOUT_V2, "test2": TEST_V2,
-          "gen70": GEN70}
+          "gen70": GEN70, "cal70": CAL70}
 
 _WINDOW_LOCK = threading.Lock()
 
