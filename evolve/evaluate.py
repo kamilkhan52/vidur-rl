@@ -35,6 +35,7 @@ import sys
 import tempfile
 import threading
 import time
+import dataclasses
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -147,8 +148,16 @@ TEST_V2 = (
 # Fresh draws p2, p3; never used for search or selection.
 GEN70 = [Scenario(t, 8, sc, -1, 0, p, model="70b") for t in ("Tool", "Conv") for sc in (2.0, 3.0) for p in (2, 3)]
 CAL70 = [Scenario(t, 8, sc, -1, 0, 1, model="70b") for t in ("Tool", "Conv") for sc in (2.0, 3.0)]  # 70B tuning draw
+# Protocol v3 (2026-10-08): the v2 sets on Meta-Llama-3-8B (attention profiled to 262k KV tokens; Llama-2 stops at 4k).
+# Calibrated on Tool/Conv p1 with LOR / sticky-LOR / LOP: scale 0.5 overloads (P99 E2E 1,200-1,600 s), 0.75 is the
+# knee (sticky-LOR 0.42x / 0.60x LOR's P99 E2E on Tool / Conv), 1.0 moderate (LOP best E2E and TTFT), 1.5 light.
+def _on(model, scenarios):
+    return [dataclasses.replace(sc, model=model) for sc in scenarios]
+
+
+SEARCH_L3, HELDOUT_L3, TEST_L3 = (_on("l3_8b", x) for x in (SEARCH_V2, HELDOUT_V2, TEST_V2))
 STAGES = {"1": STAGE1, "heldout": HELDOUT, "search2": SEARCH_V2, "heldout2": HELDOUT_V2, "test2": TEST_V2,
-          "gen70": GEN70, "cal70": CAL70}
+          "gen70": GEN70, "cal70": CAL70, "search3": SEARCH_L3, "heldout3": HELDOUT_L3, "test3": TEST_L3}
 
 _WINDOW_LOCK = threading.Lock()
 
