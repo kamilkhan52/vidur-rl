@@ -432,12 +432,16 @@ def _ensure_baselines(scenarios, baselines, workers, launcher, timeout) -> dict:
     todo = [(b, sc, None) for sc in scenarios for b in baselines if baseline_key(b, sc) not in cache]
     # "policy:<path>" references are evolved-router runs of that policy file
     jobs = [("evolved", sc, b[len("policy:"):]) if b.startswith("policy:") else (b, sc, None) for b, sc, _ in todo]
+    failed = []
     for (b, sc, _), res in zip(todo, run_many(jobs, workers, launcher, timeout)):
-        if not res.get("ok"):
-            raise RuntimeError(f"baseline {b} failed on {sc.tag}: {res}")
-        cache[baseline_key(b, sc)] = res
-    if todo:
+        if res.get("ok"):
+            cache[baseline_key(b, sc)] = res
+        else:
+            failed.append(f"{b} on {sc.tag}: {res}")
+    if todo:  # keep every completed run, even when another one failed
         save_baseline_cache(cache)
+    if failed:
+        raise RuntimeError(f"{len(failed)} baseline run(s) failed: " + "; ".join(failed))
     return {(b, sc): cache[baseline_key(b, sc)] for sc in scenarios for b in baselines}
 
 
