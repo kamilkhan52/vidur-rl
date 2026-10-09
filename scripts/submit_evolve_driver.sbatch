@@ -31,6 +31,7 @@ OBJECTIVE="${OBJECTIVE:-balanced}"
 SEED_POLICY="${SEED_POLICY:-}"  # space-separated list of policy files (repo-relative)
 PROTOCOL="${PROTOCOL:-v1}"   # router task: v1 (EXP11) | v2 (two draws, bar = heuristics + Mooncake + Dynamo)
 SEED="${SEED:-0}"
+SEARCH_STAGE="${SEARCH_STAGE:-}"  # router v2: evaluate.STAGES set to search on (e.g. search3 = Llama-3-8B)
 RL_PROTOCOL="${RL_PROTOCOL:-v2}"
 RUN_DIR="${RUN_DIR:-$SCRATCH/runs/deepseek_r1}"
 PROPOSER="${PROPOSER:-openrouter}"
@@ -50,6 +51,7 @@ ls cache | grep prediction_bundle || echo "WARNING: no prediction bundle; result
 EXTRA=()
 [ -n "$RELAY_DIR" ] && EXTRA+=(--relay-dir "$RELAY_DIR")
 [ -n "$MODEL" ] && EXTRA+=(--model "$MODEL")
+[ -n "$SEARCH_STAGE" ] && EXTRA+=(--search-stage "$SEARCH_STAGE")
 for sp in $SEED_POLICY; do EXTRA+=(--seed-policy "$sp"); done
 EXTRA+=(--objective "$OBJECTIVE" --rl-protocol "$RL_PROTOCOL" --protocol "$PROTOCOL" --seed "$SEED")
 python -m evolve.driver --run-dir "$RUN_DIR" --task "$TASK" --proposer "$PROPOSER" --scenarios stage1 \
