@@ -266,10 +266,15 @@ def main():
         proposer.system_prompt = system_prompt_v2(a.objective)
         if a.search_stage:
             stage1 = ev.STAGES[a.search_stage]
-            if {sc.model for sc in stage1} == {"70b"}:  # describe the deployment the candidates are scored on
+            models = {sc.model for sc in stage1}  # describe the deployment the candidates are scored on
+            if models == {"70b"}:
                 proposer.system_prompt = proposer.system_prompt.replace(
                     "Llama-2-7b replicas (A100,", "Llama-2-70b replicas (4x A100 tensor parallel, grouped-query attention,"
                 ).replace("122,752 KV-cache tokens", "525,920 KV-cache tokens")
+            elif models == {"l3_8b"}:
+                proposer.system_prompt = proposer.system_prompt.replace(
+                    "Llama-2-7b replicas (A100,", "Meta-Llama-3-8B replicas (A100, grouped-query attention,"
+                ).replace("122,752 KV-cache tokens", "483,328 KV-cache tokens")
     run(Path(a.run_dir), a.iterations, a.batch, a.workers, proposer.propose, stage1=stage1,
         launcher=launcher, seed=a.seed, max_cost_usd=a.max_cost_usd, task=a.task, objective=a.objective,
         extra_seeds=a.seed_policy, rl_protocol=a.rl_protocol)
