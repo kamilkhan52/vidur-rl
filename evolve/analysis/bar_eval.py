@@ -21,7 +21,7 @@ BAR = list(ev.DEFAULT_BASELINES) + SYS
 def regime(tag: str) -> str:
     if "16R" in tag:
         return "16R"
-    if tag.startswith("70b"):  # 70B TP4 (GEN70): its knee is scale 2.0, moderate load 3.0
+    if tag.startswith("70b") or tag.startswith("l3_70b"):  # 70B TP4 (GEN70, GEN_L370): knee 2.0, moderate 3.0
         return "knee" if "-s2.0-" in tag else "s1.0"
     return "knee" if "s0.75" in tag else "s1.0"
 

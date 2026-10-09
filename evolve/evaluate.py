@@ -161,9 +161,21 @@ SEARCH_L3, HELDOUT_L3, TEST_L3 = (_on("l3_8b", x) for x in (SEARCH_V2, HELDOUT_V
 # (11x request imbalance across replicas on Synth); Synth was not in the search set. Adds two fresh Synth draws (p7;
 # held-out uses p1-p3, test p4-p6).
 SEARCH_L3B = SEARCH_L3 + [Scenario("Synth", 8, sc, -1, 0, 7, model="l3_8b", jitter_s=SYNTH_JITTER_S) for sc in (1.0, 0.75)]
+# Second fresh test set (2026-10-09), fixed before any round-3 candidate was looked at: test3 has been used once (for
+# the frozen round-2 finalists); a later winner needs draws nobody has seen. Same shape: Tool/Conv p9-p11, Synth
+# p8-p10 (p7 is in search3b), 16R likewise.
+TEST_L3B = _on("l3_8b",
+    [Scenario(t, 8, sc, -1, 0, p) for t in ("Tool", "Conv") for sc in (1.0, 0.75) for p in (9, 10, 11)]
+    + [Scenario("Synth", 8, sc, -1, 0, p, jitter_s=SYNTH_JITTER_S) for sc in (1.0, 0.75) for p in (8, 9, 10)]
+    + [Scenario(t, 16, 0.5, -1, 0, p) for t in ("Tool", "Conv") for p in (9, 10, 11)]
+    + [Scenario("Synth", 16, 0.5, -1, 0, p, jitter_s=SYNTH_JITTER_S) for p in (8, 9, 10)])
+# Model generalisation on Meta-Llama-3-70B TP4 (attention profiled to 262k). Calibrated on Tool/Conv p1 with LOR /
+# sticky / LOP: scale 1.5 overloads (P99 E2E 2,766-3,837 s), 2.0 is the knee (sticky 0.43x / 0.51x LOR on Tool /
+# Conv, 693 / 1,075 s), 3.0 moderate (135-209 s; LOP best TTFT), 4.0 light. Fresh draws p2, p3.
+GEN_L370 = [Scenario(t, 8, sc, -1, 0, p, model="l3_70b") for t in ("Tool", "Conv") for sc in (2.0, 3.0) for p in (2, 3)]
 STAGES = {"1": STAGE1, "heldout": HELDOUT, "search2": SEARCH_V2, "heldout2": HELDOUT_V2, "test2": TEST_V2,
           "gen70": GEN70, "cal70": CAL70, "search3": SEARCH_L3, "heldout3": HELDOUT_L3, "test3": TEST_L3,
-          "search3b": SEARCH_L3B}
+          "search3b": SEARCH_L3B, "test3b": TEST_L3B, "gen_l370": GEN_L370}
 
 _WINDOW_LOCK = threading.Lock()
 
