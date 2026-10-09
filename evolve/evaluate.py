@@ -156,8 +156,13 @@ def _on(model, scenarios):
 
 
 SEARCH_L3, HELDOUT_L3, TEST_L3 = (_on("l3_8b", x) for x in (SEARCH_V2, HELDOUT_V2, TEST_V2))
+# Round 2 search (2026-10-09): the round-1 winners won Synth E2E/TTFT by 0.46-0.86x but lost Synth TPOT by 1.2-1.6x
+# (11x request imbalance across replicas on Synth); Synth was not in the search set. Adds two fresh Synth draws (p7;
+# held-out uses p1-p3, test p4-p6).
+SEARCH_L3B = SEARCH_L3 + [Scenario("Synth", 8, sc, -1, 0, 7, model="l3_8b", jitter_s=SYNTH_JITTER_S) for sc in (1.0, 0.75)]
 STAGES = {"1": STAGE1, "heldout": HELDOUT, "search2": SEARCH_V2, "heldout2": HELDOUT_V2, "test2": TEST_V2,
-          "gen70": GEN70, "cal70": CAL70, "search3": SEARCH_L3, "heldout3": HELDOUT_L3, "test3": TEST_L3}
+          "gen70": GEN70, "cal70": CAL70, "search3": SEARCH_L3, "heldout3": HELDOUT_L3, "test3": TEST_L3,
+          "search3b": SEARCH_L3B}
 
 _WINDOW_LOCK = threading.Lock()
 
