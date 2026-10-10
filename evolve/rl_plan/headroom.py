@@ -84,19 +84,23 @@ read). Windows: Tool and
 Conv, 8R s0.75 p1, w0+2000 and w2000+2000 (``pilot_windows``; ``pilot_verdict`` refuses any other set). Per window,
 with L = the closed ``full`` lookahead run's log P99 ratios vs pi_e (tail score at the pre-specified weight), P = >= 20
 placebo runs at the same deviation rate, N = >= 20 noise runs (arrival jitter, d = 5 ms; only rows of the current
-per-mode ``decision_sha``, one noise kind, never pooled), CENTRED: each metric's N shifted by its median
-(``NOISE_CENTRE``). Review G r6 check, Tool w0+2000, 9 jittered runs each against the unjittered run: the jitter
-raises P99 E2E for every policy (pi_e median +0.022, 7/9 worse; lor +0.072, 8/9; mooncake +0.021, 7/9) and P99 TTFT
-for pi_e (+0.022, 8/9) and lor (+0.158, 8/9) but not mooncake (-0.037, 4/9). The unjittered realisation, where L is
-measured, is atypically favourable; uncentred, the lookahead would get that offset as a free edge against N. Centring
-keeps N's spread (the window's P99 lottery) around the unjittered pi_e (0) and assumes the lookahead shares pi_e's
-offset; the offsets and the uncentred band check are reported (``noise_offset``, ``zero_in_raw_noise_band``). For
-E2E and TTFT: "below" = L < P2.5(N); "better" = below and L < P5(P); "worse" = L > P97.5(N); "within" = P2.5(N) <=
-L <= P97.5(N). Pace guard (non-inferiority, relative to the noise band,
-not a knife edge: on Tool N's TPOT band is ~0.1 % wide and offset from 0): L_tpot <= max(P97.5(N_tpot),
-P97.5(P_tpot)), likewise TBT. Labels, in this order:
-- ``inconclusive_noise_model``: 0 (pi_e itself) outside [P2.5(N), P97.5(N)] for E2E or TTFT (cannot happen once N is
-  centred; kept for ``NOISE_CENTRE = "none"``);
+per-mode ``decision_sha``, one noise kind, never pooled). REFERENCE for L (``NOISE_CENTRE = "pairwise"``, review G
+r7): the 380 ordered pairwise differences N_j - N_k (j != k) of the 20 noise runs; below, "N" means this reference.
+Review G r6 check, Tool w0+2000, 9 jittered runs each against the unjittered run: the jitter raises P99 E2E for every
+policy (pi_e median +0.022, 7/9 worse; lor +0.072, 8/9; mooncake +0.021, 7/9) and P99 TTFT for pi_e (+0.022, 8/9)
+and lor (+0.158, 8/9) but not mooncake (-0.037, 4/9): the unjittered realisation, where L is measured, is atypically
+favourable, so the reference must not carry that offset. And L = lookahead minus pi_e on the same arrivals is the
+difference of TWO lottery draws. The pairwise differences are centred at 0 (the jitter harm and pi_e's own draw
+cancel; the lookahead, being unjittered, need only suffer no jitter harm itself), and their spread, 2(s_g^2 + s_c^2)
+for a lottery split into an arrival part shared by policies (s_g) and trajectory chaos (s_c), is >= that of L - delta
+(2 s_c^2): exact when nothing is shared, conservative otherwise. (Centring the runs on their median, the r6 choice,
+gives one draw's spread: ~1.3-1.4x too narrow at the ~0.1 cross-policy correlation of the r6 runs; true-null windows
+then read ``negative`` ~20 % of the time.) The offsets and the uncentred check are reported (``noise_offset``,
+``zero_in_raw_noise_band``). For E2E and TTFT: "below" = L < P2.5(N); "better" = below and L < P5(P);
+"worse" = L > P97.5(N); "within" = P2.5(N) <= L <= P97.5(N). Pace guard (non-inferiority, relative to the
+reference band, not a knife edge): L_tpot <= max(P97.5(N_tpot), P97.5(P_tpot)), likewise TBT. Labels, in this order:
+- ``inconclusive_noise_model``: 0 (pi_e itself) outside [P2.5(N), P97.5(N)] for E2E or TTFT (cannot happen with the
+  pairwise or median reference; kept for ``NOISE_CENTRE = "none"``);
 - ``trade``: one of E2E/TTFT better and the other worse, or both better with the pace guard failed;
 - ``positive``: both better and the pace guard holds;
 - ``negative``: at least one worse and neither below the noise band (review G r6: a tail below the band but within
@@ -106,7 +110,8 @@ P97.5(P_tpot)), likewise TBT. Labels, in this order:
 Cross-window claim (``pilot_verdict``, recomputed from the rows with the current code; stored labels are not trusted):
 - ``headroom``: all 4 windows ``positive``;
 - ``no headroom``: all 4 ``null`` or ``negative``, AND the pooled statistic Z (``pooled_stat``: sum over windows of
-  (L - median N) / (IQR(N) / 1.349) on the centred N, against the sum of one leave-one-out noise draw per window) is
+  (L - median N) / (IQR(N) / 1.349) on the pairwise reference, against the sum of one leave-one-out draw of it per
+  window, by seeded draws) is
   not below its null 5 % quantile, for E2E and for TTFT;
 - ``inconclusive`` otherwise, with reasons. A ``trade`` never counts toward either claim.
 The 4 windows must share one setup (``meta`` except ``scenario``) and the current ``code_version``. Each null window
@@ -115,13 +120,22 @@ decision (cross-fitted); the closed loop then ran at ``tails``, without a mean t
 mean-for-tail trade; (ii) ``rule_met: True``: per-decision tail gains exist (``gain_xfit`` CI) but do not reach
 window P99 beyond the bound.
 EFFECT SIZE (data-based). A null does not bound the gain at 0. "No headroom" means: no one-step-lookahead P99 gain
-larger than the bound the data support. Per window (``ruled_out``): the one-sided 97.5 % bound L - P97.5(N) on the
-lookahead's log P99 change (L = delta + a lottery draw distributed like the centred N, so delta >= L - P97.5(N));
-pooled (``effect_size_ruled_out_pct``): a common change delta shifts Z by delta * sum_w 1/s_w, so the one-sided 95 %
-bound is (Z - q95) / sum_w 1/s_w. Both are measured from the observed L, relative to the noise distribution, not from
-0. The design MDEs (``detectable_pct``: P2.5(N) - median N per window; the pooled shift at which the null's median
-reaches q5) only say what the design can see. From the G r6 9-run noise set on Tool w0 (E2E sd 0.023, TTFT 0.041), a
-window with L = 0 excludes only gains beyond roughly 4-8 %; the pooled bound is tighter.
+larger than the bound the data support. Per window (``ruled_out``): L - P97.5(N), a one-sided bound on the lookahead's
+log P99 change (L is the difference of two lottery draws, lookahead and pi_e on the same arrivals; its reference is
+the difference of two noise runs, so delta >= L - P97.5(N)); nominal 97.5 %, realised ~96-98 % with 20 noise runs in
+review G r7's synthetic model (conservative because the reference is at least as wide as L's lottery). Pooled
+(``effect_size_ruled_out_pct``): a common change delta shifts Z by delta * sum_w 1/s_w, so the one-sided 95 % bound
+is (Z - q95) / sum_w 1/s_w (~95 % realised in the same model). Both are measured from the observed L, relative to the
+noise distribution, not from 0. The design MDEs (``detectable_pct``: P2.5(N) - median N per window; the pooled shift
+at which the null's median reaches q5) only say what the design can see. On the G r6 spreads (one jittered run: E2E sd
+~0.022, TTFT ~0.041, so a difference of two ~0.03 and ~0.06), a window with L = 0 excludes only gains beyond ~6 %
+(E2E) and ~11 % (TTFT); the pooled bound is tighter.
+POWER. "headroom" needs every one of 4 windows ``positive`` on both tails, so on these spreads it needs true gains of
+roughly 20 % or more on BOTH P99 E2E and P99 TTFT in EVERY window (G r7 synthetic, 20 noise runs: a true -20 % on both
+tails reads "headroom" in ~2/3 of pilots, -15 % in ~1/4). An "inconclusive" at a true 10-15 % gain is therefore
+expected and is NOT evidence against headroom; each window prints its ``detectable_pct``. Under a true null the claim
+is "no headroom" ~3/4 of the time and "inconclusive" otherwise; false "headroom" did not occur in ~2,000 synthetic
+null pilots, and a trade never reads "no headroom".
 
 Cost (CPU-s per planned decision = R rollouts; Mac at load ~6-7, upper bounds; Alpine is faster per core). Tool 8R
 s0.75 w0+2000, a full pi_e run ~25 s: ``full`` from the first decision after the cut 81 (10 per rollout), falling
@@ -195,6 +209,7 @@ import argparse
 import gc
 import hashlib
 import inspect
+import itertools
 import json
 import math
 import os
@@ -1205,16 +1220,21 @@ TAILS2 = ("e2e", "ttft")
 # Review G r6 check (Tool w0+2000, 9 jittered runs each vs the unjittered run): the +-5 ms jitter raises P99 E2E for
 # every policy (pi_e median +0.022, 7/9 worse; lor +0.072, 8/9; mooncake +0.021, 7/9) and TTFT for pi_e (+0.022, 8/9)
 # and lor (+0.158, 8/9), not for mooncake (-0.037, 4/9). The unjittered realisation, in which L is measured, is
-# atypically favourable, so the noise runs are CENTRED: each metric's N is shifted by its median, keeping its spread
-# (the window's P99 lottery) around the unjittered pi_e (0). Assumes the lookahead shares pi_e's offset.
-NOISE_CENTRE = "median"
+# atypically favourable, so the reference must be free of that offset. L, though, is the difference of TWO lottery
+# draws (lookahead and pi_e on the same arrivals), so the reference for L is the set of ordered pairwise differences
+# N_j - N_k (j != k; review G r7): centred at 0, the jitter harm h and pi_e's own draw cancel, and its spread
+# 2(s_g^2 + s_c^2) >= the spread of L - delta (2 s_c^2) for any split of the lottery into a shared arrival part s_g and
+# trajectory chaos s_c (exact when nothing is shared, conservative otherwise). "median" (one draw, centred) is kept for
+# comparison only: it is too narrow by ~1.3-1.4x at the cross-policy correlation the G r6 runs show (~0.1).
+NOISE_CENTRE = "pairwise"
 
 
 def verdict_inputs(rows: dict, shas: Optional[dict] = None, noise_delta: Optional[float] = None,
                    weight: Optional[float] = None) -> dict:
     """The head row (``head_rows``) and its controls: placebo runs at its deviation rate and noise runs of one kind,
-    only rows of the current per-mode ``decision_sha`` (``shas``), never pooled across kinds. ``{"missing": reason}``
-    when something is absent."""
+    only rows of the current per-mode ``decision_sha`` (``shas``), never pooled across kinds; ``N`` is the reference
+    distribution for L (``NOISE_CENTRE``: the 380 ordered pairwise differences of 20 noise runs), ``N_raw`` the runs
+    and ``noise_offset`` their medians (the jitter's offset). ``{"missing": reason}`` when something is absent."""
     shas = shas or {}
     heads = head_rows(rows, shas.get("closed"), weight)
     if len(heads) != 1:
@@ -1237,9 +1257,14 @@ def verdict_inputs(rows: dict, shas: Optional[dict] = None, noise_delta: Optiona
     if len(P) < 20 or len(N_raw) < 20:
         return {"missing": f"{len(P)} placebo (rate {rate:.4f}) and {len(N_raw)} noise ({want}) runs; need 20",
                 **counts}
-    off = {m: float(np.median([x[f"log_p99_{m}"] for x in N_raw])) if NOISE_CENTRE == "median" else 0.0
-           for m in METRICS4}
-    N = [{f"log_p99_{m}": x[f"log_p99_{m}"] - off[m] for m in METRICS4} for x in N_raw]
+    off = {m: float(np.median([x[f"log_p99_{m}"] for x in N_raw])) for m in METRICS4}  # the jitter's offset
+    if NOISE_CENTRE == "pairwise":
+        N = [{f"log_p99_{m}": a[f"log_p99_{m}"] - b[f"log_p99_{m}"] for m in METRICS4}
+             for a, b in itertools.permutations(N_raw, 2)]
+    elif NOISE_CENTRE == "median":
+        N = [{f"log_p99_{m}": x[f"log_p99_{m}"] - off[m] for m in METRICS4} for x in N_raw]
+    else:
+        N = list(N_raw)
     return {"head": heads[0], "L": heads[0]["vs_pi_e"], "rate": rate, "P": P, "N": N, "N_raw": N_raw,
             "noise_offset": off, "noise_kind": want, **counts}
 
@@ -1247,10 +1272,11 @@ def verdict_inputs(rows: dict, shas: Optional[dict] = None, noise_delta: Optiona
 def window_verdict(rows: dict, shas: Optional[dict] = None, noise_delta: Optional[float] = None,
                    weight: Optional[float] = None) -> dict:
     """The module docstring's per-window rule (labels positive / negative / trade / null / inconclusive /
-    inconclusive_noise_model) from the summary rows, with every clause, the noise band per metric, the data-based
-    bound (``ruled_out``: the one-sided 97.5 % confidence bound L - P97.5(N) on the lookahead's P99 change, i.e. gains
-    larger than it are excluded; relative to the noise distribution, not to 0) and, for design only, the shift the
-    window can detect (``detectable_pct`` = P2.5(N) - median(N))."""
+    inconclusive_noise_model) from the summary rows, with every clause, the reference band per metric (N here is the
+    reference built by ``verdict_inputs``: pairwise noise differences), the data-based bound (``ruled_out``: L -
+    P97.5(N), a one-sided bound on the lookahead's P99 change, nominal 97.5 %, realised ~96-98 % with 20 noise runs in
+    review G r7's synthetic model, i.e. gains larger than it are excluded; relative to the noise distribution, not
+    to 0) and, for design only, the shift the window can detect (``detectable_pct`` = P2.5(N) - median(N))."""
     inp = verdict_inputs(rows, shas, noise_delta, weight)
     if "missing" in inp:
         return {"label": "missing", "reason": inp.pop("missing"), **inp}
@@ -1281,7 +1307,8 @@ def window_verdict(rows: dict, shas: Optional[dict] = None, noise_delta: Optiona
     else:
         label = "inconclusive"
     return {"label": label, "lookahead": lab, "rate": inp["rate"], "weight": _params(inp["head"]).get("weight"),
-            "n_placebo": len(P), "n_noise": len(N), "noise_kind": inp["noise_kind"], "noise_centre": NOISE_CENTRE,
+            "n_placebo": len(P), "n_noise": len(inp["N_raw"]), "n_reference": len(N),
+            "noise_kind": inp["noise_kind"], "noise_centre": NOISE_CENTRE,
             "noise_offset": inp["noise_offset"], "zero_in_raw_noise_band": zero_in_raw,
             "noise_by_kind": inp["noise_by_kind"], "stale_controls": inp["stale_controls"],
             "clauses": {"zero_in_noise_band": zero_in, "below_noise": below, "better": better, "worse": worse,

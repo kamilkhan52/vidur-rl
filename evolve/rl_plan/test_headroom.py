@@ -448,7 +448,7 @@ def test_window_verdict_rule():
     assert V(base)["label"] == "missing"
     assert lab(-0.2, -0.2) == "positive"
     assert lab(-0.2, -0.2, 0.0, 0.3) == "trade"  # tails bought with token pace
-    assert lab(-0.3, 0.05) == "trade" and lab(0.2, -0.2) == "trade"  # review G r5: not "negative"
+    assert lab(-0.3, 0.1) == "trade" and lab(0.2, -0.2) == "trade"  # review G r5: not "negative"
     assert lab(0.2, 0.0) == "negative" and lab(0.2, 0.2) == "negative"
     assert lab(0.0, 0.0) == "null"
     assert lab(-0.2, 0.0) == "inconclusive"
@@ -458,11 +458,12 @@ def test_window_verdict_rule():
     # pace guard relative to the band: a TPOT ratio at the band's upper edge passes, above it fails
     edge = v["clauses"]["pace_limit"]["tpot"]
     assert lab(-0.2, -0.2, edge - 1e-6) == "positive" and lab(-0.2, -0.2, edge + 1e-3) == "trade"
-    # data-based bound: L - P97.5(centred N), not measured from 0
+    # data-based bound: L - P97.5(reference), not measured from 0; the reference is the 380 pairwise differences
     v0 = V(base | {"L": dict(head, vs_pi_e=_vs(0.0, 0.0))})
+    assert v0["n_noise"] == 20 and v0["n_reference"] == 380 and v0["noise_centre"] == "pairwise"
     assert v0["ruled_out"]["e2e"]["log"] == pytest.approx(-v0["band"]["e2e"]["noise_p97.5"])
     assert v0["ruled_out"]["e2e"]["pct"] < 0 and v0["detectable_pct"]["e2e"] < 0
-    # review G r6: the jitter's offset is removed (N centred on its median); L = 0 stays null, L = offset is worse
+    # review G r6/r7: the jitter's offset cancels in the pairwise reference; L = 0 stays null, L = offset is worse
     off = _controls(np.random.default_rng(0), n_off=0.1)
     vo = hr.window_verdict(off | {"L": dict(head, vs_pi_e=_vs(0.0, 0.0))}, SHAS, 0.005)
     assert vo["label"] == "null" and vo["noise_offset"]["e2e"] == pytest.approx(0.1, abs=0.02)
@@ -470,7 +471,7 @@ def test_window_verdict_rule():
     assert hr.window_verdict(off | {"L": dict(head, vs_pi_e=_vs(0.1, 0.1))}, SHAS, 0.005)["label"] == "negative"
     # review G r6 finding 4: below the noise band but within the placebo's reach, the other tail worse: not negative
     wide = _controls(np.random.default_rng(0), p_sd=0.06)
-    vw = hr.window_verdict(wide | {"L": dict(head, vs_pi_e=_vs(-0.05, 0.1))}, SHAS, 0.005)
+    vw = hr.window_verdict(wide | {"L": dict(head, vs_pi_e=_vs(-0.07, 0.1))}, SHAS, 0.005)
     assert vw["clauses"]["below_noise"]["e2e"] and not vw["clauses"]["better"]["e2e"]
     assert vw["label"] == "inconclusive"
     few = {k: v for k, v in base.items() if k != "noise0"}
@@ -585,7 +586,7 @@ def test_pilot_verdict(cv):
     assert all(x < 0 for x in v["effect_size_ruled_out_pct"].values())
     assert all(w["mechanism"].startswith("(ii)") and w["ruled_out"]["e2e"]["pct"] < 0 for w in v["windows"].values())
     assert P([_window(t, (-0.2, -0.2), seed=i) for i, t in enumerate(tags)])["claim"] == "headroom"
-    trade = nulls[:3] + [_window(tags[3], (-0.3, 0.1), seed=3)]
+    trade = nulls[:3] + [_window(tags[3], (-0.3, 0.15), seed=3)]
     assert P(trade)["claim"] == "inconclusive" and P(trade)["windows"][tags[3]]["label"] == "trade"
     # review G r6: rule_met False and a positive cross-fitted gain are mechanisms, not gates
     v = P(nulls[:3] + [_window(tags[3], (0.2, 0.0), rule_met=False, seed=3)])
@@ -623,28 +624,70 @@ def _regime_rows(regime, seed, gain_h=1.0, cost_sum=30.0, R=8, npts=165):
     return out
 
 
-def test_synthetic_null_reaches_no_headroom(cv):
-    """Review G r6 finding 1: with the reviewer's synthetic open-loop rows choosing the weight (regime 0: chaos only;
-    regime 1: real per-decision hinge gains), closed-loop results that are true nulls (L = the window's own P99
-    lottery draw around 0, noise runs offset by the jitter's +0.022) mostly reach "no headroom"; true positives
-    (-15 %) read "headroom". The rate is a property of the rule, not 1: 8 one-sided per-metric tests on 20-run bands
-    plus the pooled test; 200 synthetic pilots gave 109 "no headroom" / 91 "inconclusive" (mostly one window's tail
-    below its band by chance), never "headroom"."""
+SD = {"e2e": 0.022, "ttft": 0.041, "tpot": 0.02, "tbt": 0.02}  # one jittered pi_e draw, Tool w0 (G r6)
+
+
+def _window_b(tag, delta, rng, choice=None, rho=0.1, h=0.022):
+    """Review G r7's model B: a window log P99 = mu + g(arrivals, shared by policies) + c(trajectory chaos); pi_e's own
+    unjittered run is one draw c0. Noise N_j = h + g_j + c_j - c0 (h: the jitter's harm), placebo P_j = c'_j - c0,
+    lookahead L = delta + c_la - c0 on every metric (TPOT/TBT drawn too, no true pace change)."""
+    sg = {m: SD[m] * math.sqrt(rho) for m in SD}
+    sc = {m: SD[m] * math.sqrt(1 - rho) for m in SD}
+    dl = {"e2e": delta[0], "ttft": delta[1], "tpot": 0.0, "tbt": 0.0}
+    c0 = {m: rng.normal(0, sc[m]) for m in SD}
+    vs = lambda d: {f"log_p99_{m}": float(d[m]) for m in SD}  # noqa: E731
+    shas = {m: hr.decision_sha(m) for m in ("closed", "placebo", "noise")}
+    rows = {f"placebo{i}": _ctl("placebo", vs({m: rng.normal(0, sc[m]) - c0[m] for m in SD}), sha=shas["placebo"],
+                                rate=0.2) for i in range(20)}
+    rows |= {f"noise{i}": _ctl("noise", vs({m: h + rng.normal(0, sg[m]) + rng.normal(0, sc[m]) - c0[m] for m in SD}),
+                               sha=shas["noise"], noise_kind="jitter", noise_delta=hr.NOISE_DELTA) for i in range(20)}
+    ch = choice or {"label": "100m", "weight_m": 100.0, "weight": 100.0, "rule_met": True, "fallback": False,
+                    "gain_xfit": {"n": 10, "mean": 0.0, "lo": -1.0, "hi": 1.0}}
+    rows["L"] = dict(HEAD, params=dict(HEAD["params"], decision_sha=shas["closed"], weight=ch["weight"]),
+                     vs_pi_e=vs({m: dl[m] + rng.normal(0, sc[m]) - c0[m] for m in SD}))
+    rows["ol"] = {"params": {"mode": "openloop", "max_points": None, "future": "true",
+                             "decision_sha": hr.decision_sha("openloop")},
+                  "post_sha": hr.post_sha(), "stats": {"full": {"weight_choice": ch}}}
+    return {"meta": {"scenario": tag, "code_version": CV, "bundle": "b"}, "rows": rows}
+
+
+def _oc(delta, n, seed, choices=None):
+    """Claims, window labels and E2E bound coverage over n synthetic pilots (model B)."""
     tags = hr.pilot_windows()
-    choices = {}
-    for regime, kw in ((0, {}), (1, {"gain_h": 3.0})):
-        chs = [hr.weight_sweep(_regime_rows(regime, s, **kw), "full", 1.0)["choice"] for s in range(4)]
-        choices[regime] = chs
+    rng = np.random.default_rng(seed)
+    claims, labels, cov_w, cov_p = [], [], [], []
+    for _ in range(n):
+        v = hr.pilot_verdict({t: _window_b(t, delta, rng, (choices or [None] * 4)[i]) for i, t in enumerate(tags)})
+        claims.append(v["claim"])
+        labels += [w["label"] for w in v["windows"].values()]
+        cov_w += [w["ruled_out"]["e2e"]["log"] <= delta[0] for w in v["windows"].values()]
+        cov_p.append(v["pooled"]["e2e"]["bound_log"] <= delta[0])
+    return claims, labels, float(np.mean(cov_w)), float(np.mean(cov_p))
+
+
+def test_synthetic_operating_characteristic(cv):
+    """Review G r6 finding 1 and r7: synthetic pilots through the real ``pilot_verdict`` under model B (pi_e's own
+    draw random, arrival share rho = 0.1, jitter harm +0.022, TPOT/TBT drawn). The weight comes from the reviewer's
+    synthetic open-loop rows (regime 0: chaos only -> fallback; regime 1: real per-decision hinge gains -> rule met,
+    cross-fitted gain > 0): neither gates the claim. G r7 rates (300 pilots): true null "no headroom" ~77 %, window
+    bound coverage ~98 %, pooled ~95 %; true -20 % on both tails "headroom" ~66 %; a trade never "no headroom"."""
+    choices = {0: [hr.weight_sweep(_regime_rows(0, s), "full", 1.0)["choice"] for s in range(4)],
+               1: [hr.weight_sweep(_regime_rows(1, s, gain_h=3.0), "full", 1.0)["choice"] for s in range(4)]}
     assert not all(c["rule_met"] for c in choices[0])  # chaos only: mostly the fallback ...
     assert any(c["rule_met"] and c["gain_xfit"]["lo"] > 0 for c in choices[1])  # ... real gains: rule met, xfit > 0
+    claims, labels, cov_w, cov_p = [], [], [], []
     for regime, chs in choices.items():
-        claims = [hr.pilot_verdict({t: _window(t, (0.0, 0.0), seed=100 * j + i, n_off=0.022, L_sd=0.02,
-                                               choice=chs[i]) for i, t in enumerate(tags)})["claim"]
-                  for j in range(20)]
-        assert claims.count("no headroom") >= 7 and "headroom" not in claims, (regime, claims)
-        pos = [hr.pilot_verdict({t: _window(t, (-0.15, -0.15), seed=100 * j + i, n_off=0.022, L_sd=0.02,
-                                            choice=chs[i]) for i, t in enumerate(tags)})["claim"] for j in range(5)]
-        assert pos == ["headroom"] * 5, (regime, pos)
+        c, lab, w, p = _oc((0.0, 0.0), 30, 10 + regime, chs)
+        claims += c
+        labels += lab
+        cov_w.append(w)
+        cov_p.append(p)
+    assert "headroom" not in claims and claims.count("no headroom") >= 0.6 * len(claims), claims
+    assert labels.count("negative") <= 0.1 * len(labels) and np.mean(cov_w) >= 0.94 and np.mean(cov_p) >= 0.85
+    pos, plab, _, _ = _oc((-0.2, -0.2), 30, 20)
+    assert pos.count("headroom") >= 0.45 * len(pos) and "no headroom" not in pos, pos
+    trade, tlab, _, _ = _oc((-0.15, 0.15), 15, 30)
+    assert "no headroom" not in trade and "headroom" not in trade and tlab.count("trade") >= 0.5 * len(tlab)
 
 
 def test_boot_ci():
