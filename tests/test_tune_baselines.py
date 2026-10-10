@@ -106,20 +106,20 @@ def test_install_writes_the_frozen_policy(tmp_path, monkeypatch):
     load_policy(str(out))
 
 
-def test_history_keeps_consumed_failures_and_retries_only_the_last_generation(tmp_path):
+def test_history_keeps_every_record_and_repairs_the_file(tmp_path):
     import json
     from evolve.analysis.tune_baselines import load_history
     log = tmp_path / "history.jsonl"
-    rec = lambda a, valid, gen: {"params": {"A": a}, "fitness": 0.1 if valid else -1e9, "valid": valid, "gen": gen}
-    rows = [rec(0.0, True, -1), rec(1.0, False, 0), rec(2.0, True, 0), rec(3.0, False, 1), rec(4.0, True, 1)]
+    rec = lambda a, valid: {"params": {"A": a}, "fitness": 0.1 if valid else -1e9, "valid": valid}
+    rows = [rec(0.0, True), rec(1.0, False), rec(2.0, True)]
     log.write_text("".join(json.dumps(r) + "\n" for r in rows) + '{"params": {"A": 5')
-    done = load_history(log)
-    keys = {json.loads(k)["A"] for k in done}
-    assert keys == {0.0, 1.0, 2.0, 4.0}  # 1.0 failed in a finished generation (consumed); 3.0 is retried
-    assert log.read_text().endswith("\n") and len(log.read_text().splitlines()) == 5  # truncated line removed
-    old = [{k: v for k, v in r.items() if k != "gen"} for r in rows]  # pre-"gen" records: inferred from position
-    log.write_text("".join(json.dumps(r) + "\n" for r in old))
-    assert {json.loads(k)["A"] for k in load_history(log, lam=2)} == {0.0, 1.0, 2.0, 4.0}
+    assert {json.loads(k)["A"] for k in load_history(log)} == {0.0, 1.0, 2.0}  # failures are kept, not retried
+    assert log.read_text() == "".join(json.dumps(r) + "\n" for r in rows)  # truncated line removed
+    log.write_text(log.read_text().rstrip("\n"))  # complete last record without its newline
+    load_history(log)
+    with log.open("a") as f:
+        f.write(json.dumps(rec(3.0, True)) + "\n")
+    assert len(load_history(log)) == 4
 
 
 def test_resume_replays_without_new_evaluations(tmp_path, monkeypatch):
@@ -163,7 +163,7 @@ def test_resume_after_a_mid_run_failure_and_a_kill_follows_the_original_trajecto
         x = float(re.search(r"^PREFILL_SCALE = (.*)$", open(path).read(), re.M).group(1))
         first = x not in seen
         seen.add(x)
-        if first and len(seen) == 5:  # one transient failure in generation 0, consumed by the ES
+        if first and len(seen) == 5:  # a transient failure (would succeed on retry), consumed by the ES
             return {"combined_score": -1e9, "valid": False, "failures": {"s": {"reason": "timeout"}}}
         return {"combined_score": -abs(x - 2.0), "valid": True, "code_version": ev.code_version()}
 
@@ -176,16 +176,16 @@ def test_resume_after_a_mid_run_failure_and_a_kill_follows_the_original_trajecto
         return [json.loads(l) for l in (d / "history.jsonl").read_text().splitlines()]
 
     full = run(tmp_path / "full")
-    seen.clear()
-    part = tmp_path / "part"
-    part.mkdir()
-    (part / "meta.json").write_text((tmp_path / "full" / "meta.json").read_text())
-    killed = full[:12]  # killed mid-generation; mark one in-flight candidate of the last generation as failed
-    killed[-1] = dict(killed[-1], valid=False, fitness=-1e9)
-    (part / "history.jsonl").write_text("".join(json.dumps(r) + "\n" for r in killed))
-    seen.update(float(r["params"]["PREFILL_SCALE"]) for r in full[:5])  # the transient failure does not recur
-    resumed = run(part)
-    key = lambda rows: sorted(json.dumps(r["params"], sort_keys=True) for r in rows if r["valid"])
-    assert key(resumed) == key(full)
-    assert json.loads((part / "best.json").read_text())["params"] == json.loads(
-        (tmp_path / "full" / "best.json").read_text())["params"]
+    for cut in (3, 12, 25):  # killed in the defaults' generation, mid-run, after finishing
+        seen.clear()
+        seen.update(float(r["params"]["PREFILL_SCALE"]) for r in full[:cut])  # recorded: a retry would succeed
+        part = tmp_path / f"part{cut}"
+        part.mkdir()
+        (part / "meta.json").write_text((tmp_path / "full" / "meta.json").read_text())
+        lines = (tmp_path / "full" / "history.jsonl").read_text().splitlines()[:cut]
+        (part / "history.jsonl").write_text("".join(l + "\n" for l in lines) + lines[-1][:20])  # mid-write kill
+        resumed = run(part)
+        key = lambda rows: sorted((json.dumps(r["params"], sort_keys=True), r["valid"]) for r in rows)
+        assert key(resumed) == key(full)
+        pick = lambda d: {k: v for k, v in json.loads((d / "best.json").read_text()).items() if k != "file"}
+        assert pick(part) == pick(tmp_path / "full")

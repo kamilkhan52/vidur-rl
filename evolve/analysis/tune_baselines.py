@@ -95,7 +95,7 @@ def install(family: str, run: Path) -> Path:
     """Write run/best.json's constants into evolve/policies/tuned/<template>_best.py, with provenance in a header."""
     template_path, space = FAMILIES[family]
     best = json.loads((run / "best.json").read_text())
-    n = sum(1 for _ in (run / "history.jsonl").open())
+    n = len(load_history(run / "history.jsonl"))
     if best["code_version"] != ev.code_version():
         raise SystemExit(f"best.json was scored under code_version {best['code_version']}, not {ev.code_version()}")
     header = (f"# Frozen by evolve.analysis.tune_baselines --install from {run.name}/best.json: fitness {best['fitness']:+.4f} "
@@ -106,40 +106,40 @@ def install(family: str, run: Path) -> Path:
     return out
 
 
-def load_history(log: Path, lam: int = 0) -> dict:
-    """Evaluations to reuse on resume, by params key, so the resumed ES replays the original trajectory exactly.
+def load_history(log: Path) -> dict:
+    """Every recorded evaluation, by params key, failed ones included, so a resumed ES replays exactly what an
+    uninterrupted run would have done. A job's time-limit kill takes the tuner down with its simulations, so it
+    leaves no record; a failed record is a real failure (sim timeout, one simulation OOM-killed) that the
+    uninterrupted run saw too, and retrying it could change every later generation (review D_r3).
 
-    Each record carries the ES generation it belongs to ("gen"; -1 = the defaults). A failed evaluation in an earlier
-    generation was already consumed by the ES (as fitness -1e9), so it is kept: retrying it could change every later
-    generation and break the equal budget. A failed evaluation in the last recorded generation was not consumed (the
-    job died before the generation finished, usually a time-limit or out-of-memory kill), so it is dropped and
-    retried. A truncated last line (killed mid-write) is removed from the file, so later appends stay parseable.
-    Records written before "gen" existed get it from their position (defaults first, then blocks of lam)."""
+    A truncated last line (killed mid-write) is removed and a missing final newline is added, so later appends stay
+    parseable."""
     done = {}
     if not log.exists():
         return done
-    text = log.read_text()
-    lines = text.splitlines()
-    recs = []
+    lines = log.read_text().splitlines()
+    good = []
     for i, line in enumerate(lines):
         try:
-            recs.append(json.loads(line))
+            r = json.loads(line)
         except json.JSONDecodeError:
             if i != len(lines) - 1:
                 raise
-            tmp = log.with_suffix(".tmp")
-            tmp.write_text("".join(l + "\n" for l in lines[:-1]))
-            tmp.replace(log)
-    for i, r in enumerate(recs):
-        if "gen" not in r:
-            if not lam:
-                raise ValueError("history records without 'gen' need lam to infer it")
-            r["gen"] = -1 if i == 0 else (i - 1) // lam
-    last = max((r["gen"] for r in recs), default=-1)
-    for r in recs:
-        if r.get("valid") or r["gen"] < last:
-            done[json.dumps(r["params"], sort_keys=True)] = r
+            continue
+        good.append(line)
+        done[json.dumps(r["params"], sort_keys=True)] = r
+    text = "".join(l + "\n" for l in good)
+    if log.read_text() != text:
+        tmp = log.with_suffix(".tmp")
+        tmp.write_text(text)
+        tmp.replace(log)
     return done
+
+
+def _write_atomic(path: Path, text: str) -> None:
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(text)
+    tmp.replace(path)
 
 
 def main():
@@ -167,14 +167,16 @@ def main():
     bar = [b if not b.startswith("policy:") else f"{Path(b[7:]).name}:{ev.file_sha(Path(b[7:]))[:12]}"
            for b in ev.BAR_V4]
     meta = {"family": a.family, "stage": a.stage, "objective": a.objective, "seed": a.seed, "budget": a.budget,
-            "code_version": ev.code_version(), "bar": bar}
+            "code_version": ev.code_version(), "bar": bar, "template_sha": ev.file_sha(template_path)[:16],
+            "tuner_sha": ev.file_sha(Path(__file__))[:16]}
     if (run / "meta.json").exists():
         old = json.loads((run / "meta.json").read_text())
         if old != meta:
             raise SystemExit(f"run dir was started with {old}, not {meta}")
     else:
-        (run / "meta.json").write_text(json.dumps(meta, indent=2))
-    done = load_history(log, lam_of(len(names)))
+        _write_atomic(run / "meta.json", json.dumps(meta, indent=2))
+    done = load_history(log)
+    loaded = set(done)
     scenarios = ev.STAGES[a.stage]
 
     lock = threading.Lock()
@@ -183,6 +185,7 @@ def main():
     def score(params: dict) -> float:
         key = json.dumps(params, sort_keys=True)
         with lock:
+            loaded.discard(key)
             if key in done:
                 return done[key]["fitness"]
         # Named by content, so a resumed run never reuses another candidate's file name.
@@ -213,8 +216,13 @@ def main():
             return list(ex.map(lambda u: score(params_of(u)), pop))
 
         ask_tell(a.budget - 1, len(names), evaluate, seed=a.seed)
-    best = max(done.values(), key=lambda r: r["fitness"])  # valid evaluations only
-    (run / "best.json").write_text(json.dumps(best, indent=2))
+    if loaded:  # records the replayed trajectory never asked for: the history is not this run's
+        raise SystemExit(f"{len(loaded)} recorded evaluations are not on the replayed ES trajectory")
+    valid = [r for r in done.values() if r.get("valid")]
+    if not valid:
+        raise SystemExit("no valid evaluation")
+    best = max(valid, key=lambda r: r["fitness"])
+    _write_atomic(run / "best.json", json.dumps(best, indent=2))
     print(f"best {best['params']} fitness {best['fitness']:+.4f} ({len(done)} evaluations)")
 
 
