@@ -152,7 +152,7 @@ def _build_net(torch, in_dim: int, hidden: List[int]):
 
 class _Decision:
     __slots__ = ("rid", "x", "a", "t", "teacher_a", "views", "mask", "reward", "r_interval", "next_x",
-                 "next_mask", "dt", "done")
+                 "next_mask", "dt", "done", "stored")
 
     def __init__(self, rid, x, a, t, teacher_a, views, mask):
         self.rid, self.x, self.a, self.t, self.teacher_a, self.views = rid, x, a, t, teacher_a, views
@@ -163,6 +163,7 @@ class _Decision:
         self.next_x = None
         self.dt = 0.0
         self.done = False
+        self.stored = False  # a decision enters the replay buffer once (v4 fix: bandits stored early completions twice)
 
 
 class LearnedGlobalScheduler(EvolvedGlobalScheduler):
@@ -401,6 +402,8 @@ class LearnedGlobalScheduler(EvolvedGlobalScheduler):
         return max(-clip, min(clip, r))
 
     def _maybe_store(self, d: _Decision) -> None:
+        if d.stored:
+            return
         if callable(self._outcome_reward) and d.reward is None:
             return  # outcome not known yet
         if callable(self._interval_reward) and d.r_interval is None and not d.done:
@@ -418,6 +421,7 @@ class LearnedGlobalScheduler(EvolvedGlobalScheduler):
         else:
             self._buffer[self._buf_pos] = item
             self._buf_pos = (self._buf_pos + 1) % cap
+        d.stored = True
         self._decisions.pop(d.rid, None)
         self._n_stored += 1
         if len(self._buffer) >= self._cfg["learning_starts"] and self._n_stored % self._cfg["train_every"] == 0:

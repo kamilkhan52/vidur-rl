@@ -24,6 +24,7 @@ import argparse
 import json
 from collections import defaultdict
 from pathlib import Path
+from typing import Optional
 
 import pandas as pd
 
@@ -130,9 +131,34 @@ def expand_block_hashes(hash_ids: list, input_length: int, output_length: int,
     return expanded, adjusted_prefill_tokens
 
 
+def expand_block_hashes_unpadded(hash_ids: list, input_length: int, output_length: int,
+                                 src_block_size: int = 512, dst_block_size: int = 16,
+                                 unique_base: int = 5_000_000_000) -> tuple:
+    """v4 conversion: keep the true prompt length (no padding to whole 512-token blocks).
+
+    The prompt's full 16-token blocks, positions 0 .. input_length // 16 - 1, take the sub-ids of the Mooncake
+    blocks that cover them. Mooncake hashes partial last blocks too, so equal ids mean equal tokens. Every later
+    position (the partial last prompt block and the decode blocks) gets an id unique to the row, so it can never
+    hit. The list is never truncated below (prefill + decode) // 16, which would recreate phantom tails
+    (changelog SC-1). Returns (ids, input_length).
+    """
+    factor = src_block_size // dst_block_size
+    prompt_blocks = input_length // dst_block_size
+    expanded = []
+    for h in hash_ids:
+        if len(expanded) >= prompt_blocks:
+            break
+        expanded.extend(range(h * factor, h * factor + factor))
+    expanded = expanded[:prompt_blocks]
+    total_blocks = (input_length + output_length) // dst_block_size
+    expanded.extend(range(unique_base + len(expanded), unique_base + total_blocks))
+    return expanded, input_length
+
+
 def convert_trace(input_path: Path, output_path: Path,
                   src_block_size: int = 512,
-                  dst_block_size: int = 16) -> dict:
+                  dst_block_size: int = 16, unpadded: bool = False,
+                  sessions_from: Optional[Path] = None) -> dict:
     """
     Convert a Mooncake trace to Vidur format.
 
@@ -153,8 +179,15 @@ def convert_trace(input_path: Path, output_path: Path,
 
     print(f"  Loaded {len(records):,} records")
 
-    # Infer sessions
-    session_ids = infer_sessions(records)
+    # Infer sessions (or carry them over row by row from an earlier file, so a conversion change does not also
+    # change sessions)
+    if sessions_from is not None:
+        prev = pd.read_csv(sessions_from, usecols=['arrived_at', 'session_id'])
+        assert len(prev) == len(records), f"{sessions_from}: {len(prev)} rows, raw trace has {len(records)}"
+        assert all(abs(a - float(r['timestamp']) / 1000.0) < 1e-6 for a, r in zip(prev['arrived_at'], records))
+        session_ids = prev['session_id'].tolist()
+    else:
+        session_ids = infer_sessions(records)
     num_sessions = len(set(session_ids))
     print(f"  Inferred {num_sessions:,} sessions")
 
@@ -162,7 +195,8 @@ def convert_trace(input_path: Path, output_path: Path,
     converted = []
     for i, r in enumerate(records):
         unique_base = 5_000_000_000 + i * 1_000_000
-        expanded_hashes, adjusted_tokens = expand_block_hashes(
+        expand = expand_block_hashes_unpadded if unpadded else expand_block_hashes
+        expanded_hashes, adjusted_tokens = expand(
             r['hash_ids'], r['input_length'], r['output_length'],
             src_block_size, dst_block_size, unique_base
         )
@@ -209,6 +243,8 @@ def main():
                         help='Input directory with JSONL files')
     parser.add_argument('--output_dir', type=str, default='data/processed_traces',
                         help='Output directory for CSV files')
+    parser.add_argument('--v4', action='store_true',
+                        help='v4 traces: unpadded prompts, sessions carried over from the v3 files, *_v4.csv names')
     args = parser.parse_args()
 
     input_dir = Path(args.input_dir)
@@ -241,7 +277,12 @@ def main():
             print(f"  Skipping {trace_name}: {input_path} not found")
             continue
 
-        all_stats[trace_name] = convert_trace(input_path, output_path)
+        if args.v4:
+            v3 = output_dir / ('mooncake_conversation_trace.csv' if trace_name == 'conversation' else output_file)
+            output_path = output_dir / (v3.stem + '_v4.csv')
+            all_stats[trace_name] = convert_trace(input_path, output_path, unpadded=True, sessions_from=v3)
+        else:
+            all_stats[trace_name] = convert_trace(input_path, output_path)
 
     # Summary
     print("=" * 70)

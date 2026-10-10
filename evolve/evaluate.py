@@ -47,13 +47,23 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "scripts"))
 from tail_metrics import summarize_rows  # noqa: E402
 
+# v4 traces (2026-10-10): every trace converted by scripts/convert_mooncake_traces.py --v4 from the raw Mooncake
+# files: true prompt lengths (v3 padded prompts to whole 512-token blocks: +287 / +512 / +302 tokens on
+# Tool / Conv / Synth), sessions carried over row by row from the v3 files. Checksums: data/TRACES.sha256.
 TRACES = {
-    "Tool": REPO / "data/processed_traces/mooncake_toolagent_trace.csv",
-    # v1 conversation trace: the file every Alpine experiment used (git-tracked; identical on all
-    # machines). The untracked v2 differs in prompt padding and inferred sessions.
-    "Conv": REPO / "data/processed_traces/mooncake_conversation_trace.csv",
-    "Synth": REPO / "data/processed_traces/mooncake_synthetic_trace.csv",
+    "Tool": REPO / "data/processed_traces/mooncake_toolagent_trace_v4.csv",
+    "Conv": REPO / "data/processed_traces/mooncake_conversation_trace_v4.csv",
+    "Synth": REPO / "data/processed_traces/mooncake_synthetic_trace_v4.csv",
 }
+# EVOLVE_V3_DATA=1: v3 traces and no context cap, for byte-identity checks of behaviour-preserving changes against
+# the v3 golden set, and for v3-vs-v4 comparisons.
+V3_DATA = os.environ.get("EVOLVE_V3_DATA") == "1"
+if V3_DATA:
+    TRACES = {
+        "Tool": REPO / "data/processed_traces/mooncake_toolagent_trace.csv",
+        "Conv": REPO / "data/processed_traces/mooncake_conversation_trace.csv",
+        "Synth": REPO / "data/processed_traces/mooncake_synthetic_trace.csv",
+    }
 BUCKETED = {"Tool", "Conv"}  # Mooncake conv/tool timestamps are 3 s buckets
 # KV-cache tokens per replica, from Vidur's MemoryPlanner (A100 80 GB). Llama-2's attention is profiled only up to
 # 4,032 KV tokens (its context window), and the random-forest predictor is flat beyond that; 58-81 % of the prefill
@@ -62,6 +72,13 @@ KV_CAPACITY = {"7b": 122752, "70b": 525920, "l3_8b": 483328, "l3_70b": 525920}
 MODEL_NAME = {"7b": "meta-llama/Llama-2-7b-hf", "70b": "meta-llama/Llama-2-70b-hf", "l3_8b": "meta-llama/Meta-Llama-3-8B",
               "l3_70b": "meta-llama/Meta-Llama-3-70B"}
 TP = {"7b": 1, "70b": 4, "l3_8b": 1, "l3_70b": 4}
+# v4: the Meta-Llama-3 profiles stand in for Llama-3.1 (same architecture; 3.1 differs in RoPE scaling and its
+# 128K context). Requests longer than the model's context are dropped from the trace (10 Synth requests).
+MODEL_LABEL = {"7b": "Llama-2-7B", "70b": "Llama-2-70B", "l3_8b": "Llama-3.1-8B (Meta-Llama-3-8B profile)",
+               "l3_70b": "Llama-3.1-70B (Meta-Llama-3-70B profile)"}
+MAX_CONTEXT = {} if V3_DATA else {"l3_8b": 131072, "l3_70b": 131072}  # Llama-2 keeps v3 behaviour (supplementary)
+# KV capacity on other devices, from Vidur's MemoryPlanner; filled in as deployments are added.
+KV_CAPACITY_DEVICE: Dict[tuple, int] = {}
 SEED_FLAG = {
     "random": "random_global_scheduler_config_seed",
     "round_robin": "round_robin_global_scheduler_config_seed",
@@ -72,7 +89,8 @@ SEED_FLAG = {
     "learned": "learned_global_scheduler_config_seed",
 }
 DEFAULT_BASELINES = ("sticky_lor", "lor", "round_robin", "random", "lop_uncached")
-CACHE_DIR = Path(os.environ.get("EVOLVE_CACHE_DIR", REPO / "evolve" / ".cache"))
+# One cache directory per simulator release, so v3 and v4 numbers never mix (keys also carry code_version).
+CACHE_DIR = Path(os.environ.get("EVOLVE_CACHE_DIR", REPO / "evolve" / ".cache_v4"))
 
 
 @dataclass(frozen=True)
@@ -87,6 +105,7 @@ class Scenario:
     warmup_frac: float = 0.2  # requests arriving in the first 20 % of the window are not scored
     transform: str = ""  # stress workload applied to the window: see TRANSFORMS (EXP12 v3)
     jitter_s: float = -1.0  # >= 0 overrides the arrival jitter (protocol v2: Synth arrivals jittered too)
+    device: str = "a100"  # v4: A100 or H100 twins (profiles exist for both)
 
     @property
     def seed(self) -> int:
@@ -103,7 +122,8 @@ class Scenario:
         w = "full" if self.window_start < 0 else f"w{self.window_start}+{self.window_len}"
         x = f"-{self.transform}" if self.transform else ""
         j = f"-j{self.jitter_s:g}" if self.jitter_s >= 0 else ""
-        return f"{self.model}-{self.replicas}R-{self.trace}-s{self.scale}-{w}-p{self.perturbation}{x}{j}"
+        d = "" if self.device == "a100" else f"-{self.device}"
+        return f"{self.model}{d}-{self.replicas}R-{self.trace}-s{self.scale}-{w}-p{self.perturbation}{x}{j}"
 
 
 # Stage-1 search set (2026-09-29, from frontier v2): FULL traces in the band where
@@ -267,12 +287,12 @@ def _atomic_write(path: Path, write) -> None:
 
 def _window_csv(sc: Scenario) -> Path:
     src = TRACES[sc.trace]
-    key = hashlib.sha256(f"{file_sha(src)}|{sc.window_start}|{sc.window_len}|{KV_CAPACITY[sc.model]}".encode()).hexdigest()[:16]
+    key = hashlib.sha256(f"{file_sha(src)}|{sc.window_start}|{sc.window_len}|{max_request_tokens(sc)}".encode()).hexdigest()[:16]
     out = CACHE_DIR / "windows" / f"{sc.trace}_{sc.window_start}_{sc.window_len}_{key}.csv"
     if out.exists():
         return out
     df = pd.read_csv(src)
-    df = df[(df.num_prefill_tokens + df.num_decode_tokens) <= KV_CAPACITY[sc.model]].reset_index(drop=True)
+    df = df[(df.num_prefill_tokens + df.num_decode_tokens) <= max_request_tokens(sc)].reset_index(drop=True)
     if sc.window_start >= 0:
         df = df.iloc[sc.window_start: sc.window_start + sc.window_len].copy()
         if len(df) < sc.window_len:
@@ -354,7 +374,7 @@ def code_version() -> str:
                 h.update(f.encode())
                 h.update(file_sha(REPO / f).encode())
             # The parts of this harness that shape a run (not the scenario lists or scoring).
-            for fn in (sim_command, run_one, _window_csv):
+            for fn in (sim_command, run_one, _window_csv, max_request_tokens):
                 h.update(inspect.getsource(fn).encode())
             _VERSION["v"] = "c" + h.hexdigest()[:11]
         except Exception:
@@ -362,12 +382,18 @@ def code_version() -> str:
     return _VERSION["v"]
 
 
+def max_request_tokens(sc: Scenario) -> int:
+    """Largest request kept in the trace: the replica's KV capacity, capped by the model's context window."""
+    cap = KV_CAPACITY[sc.model] if sc.device == "a100" else KV_CAPACITY_DEVICE[(sc.model, sc.device)]
+    return min(cap, MAX_CONTEXT.get(sc.model, cap))
+
+
 def sim_command(scheduler: str, policy: Optional[str], sc: Scenario, trace_csv: Path, out_dir: Path,
                 extra: Optional[List[str]] = None) -> List[str]:
     gtype = scheduler if scheduler in ("evolved", "learned") else ("evolved" if policy else scheduler)
     cmd = [
         sys.executable, "-m", "vidur.main",
-        "--replica_config_device", "a100",
+        "--replica_config_device", sc.device,
         "--replica_config_model_name", MODEL_NAME[sc.model],
         "--replica_config_tensor_parallel_size", str(TP[sc.model]),
         "--cluster_config_num_replicas", str(sc.replicas),
@@ -376,7 +402,7 @@ def sim_command(scheduler: str, policy: Optional[str], sc: Scenario, trace_csv: 
         "--request_generator_config_type", "trace",
         "--trace_request_generator_config_trace_file", str(trace_csv),
         "--trace_request_generator_config_time_scale_factor", str(sc.scale),
-        "--trace_request_generator_config_max_tokens", str(KV_CAPACITY[sc.model]),
+        "--trace_request_generator_config_max_tokens", str(max_request_tokens(sc)),
         "--trace_request_generator_config_seed", str(sc.seed),
         "--seed", str(sc.seed),
         f"--{SEED_FLAG[gtype]}", str(sc.seed),

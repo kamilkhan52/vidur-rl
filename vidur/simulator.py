@@ -56,6 +56,7 @@ class Simulator:
         configure_queue_diagnostics(self._config)
 
         self._validate_request_capacity()
+        self._validate_block_size()
 
         self._init_event_queue()
         # Outputs are written by an explicit write_output() call (vidur.main), not at interpreter exit: an atexit
@@ -153,6 +154,14 @@ class Simulator:
             out += [{"where": "waiting", "replica": rid, "request_id": r.id} for r in rs._waiting_queue]
             out += [{"where": "running", "replica": rid, "request_id": r.id} for r in rs._running]
         return out
+
+    def _validate_block_size(self) -> None:
+        """Trace hash ids are only comparable with cache blocks of the same size (changelog KV-10): a trace hashed
+        at 32 tokens replayed on 16-token blocks would match prefixes wrongly and silently."""
+        sizes = {int(b) for b in getattr(self._request_generator, "_block_size", []) if b == b and b is not None}
+        cache_block = self._config.cluster_config.cache_config.block_size
+        if sizes and sizes != {cache_block}:
+            raise ValueError(f"Trace block_size {sorted(sizes)} does not match the KV cache block size {cache_block}.")
 
     def write_output(self) -> None:
         """Write metrics and end-state files once. Raises on failure (the caller exits non-zero)."""

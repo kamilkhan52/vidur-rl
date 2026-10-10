@@ -1,3 +1,4 @@
+import dataclasses
 from collections import deque
 from typing import Deque, Dict, List, Optional, Tuple
 
@@ -50,7 +51,16 @@ class VLLMV1ReplicaScheduler(BaseReplicaScheduler):
         return self._kv_cache_manager.usage * 100
 
     def get_cached_prefill_length(self, request: Request) -> int:
-        _, num_computed_tokens = self._kv_cache_manager.get_computed_blocks(request)
+        """Router probe: tokens of the request's prompt cached on this replica. Leaves no state behind
+        (changelog GS-15): get_computed_blocks stores the request's hash list and bumps the hit statistics, which
+        used to leak one hash list per request on every replica probed but not chosen."""
+        kv = self._kv_cache_manager
+        had = request.id in kv.req_to_block_hashes
+        stats = dataclasses.replace(kv.prefix_cache_stats)
+        _, num_computed_tokens = kv.get_computed_blocks(request)
+        if not had:
+            kv.req_to_block_hashes.pop(request.id, None)
+        kv.prefix_cache_stats = stats
         return num_computed_tokens
 
     @property
@@ -245,7 +255,9 @@ class VLLMV1ReplicaScheduler(BaseReplicaScheduler):
             while len(self._waiting_queue) and token_budget > 0:
                 waiting_depth_before = len(self._waiting_queue)
                 token_budget_before = token_budget
-                lookahead_stats = self._collect_topk_lookahead_budget_stats(token_budget_before)
+                # Diagnostics only: skip the top-K scan of the waiting queue when no diagnostics writer is active.
+                lookahead_stats = (self._collect_topk_lookahead_budget_stats(token_budget_before)
+                                   if get_queue_diagnostics_writer() is not None else {})
 
                 if len(self._running) >= self._max_micro_batch_size:
                     self._log_replica_diag_event(

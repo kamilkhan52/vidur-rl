@@ -194,3 +194,13 @@ def test_replay_buffer_persists_across_episodes(conv_session_trace, tmp_path):
     s2 = json.loads(Path(str(ck2) + ".stats.json").read_text())
     assert s2["buffer_loaded_from_previous_episode"] == s1["buffer_size_end"]
     assert s2["buffer_size_end"] > s1["buffer_size_end"]
+
+
+def test_each_decision_is_stored_once(conv_session_trace, tmp_path):
+    """v4 fix: a bandit with an outcome reward used to store a decision twice when its request finished before
+    the next routing decision (rl_inventory §3.3)."""
+    design = design_with(tmp_path, buffer_size=500000)  # buffer never wraps on this trace
+    ck = tmp_path / "net.pt"
+    run(conv_session_trace, tmp_path / "train", design, ckpt_out=str(ck))
+    stats = json.loads(Path(str(ck) + ".stats.json").read_text())
+    assert stats["buffer_size_end"] == stats["decisions"] - stats["unfinished_decisions_dropped"]
