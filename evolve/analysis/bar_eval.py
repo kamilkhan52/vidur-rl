@@ -37,7 +37,10 @@ def main():
     ap.add_argument("--workers", type=int, default=10)
     ap.add_argument("--out", default=None)
     ap.add_argument("--objective", default="balanced", choices=sorted(ev.OBJECTIVES))
+    ap.add_argument("--bar", default="v2", choices=sorted(ev.BARS))
     a = ap.parse_args()
+    global BAR
+    BAR = list(ev.BARS[a.bar])
     scen = ev.STAGES[a.stage]
     pols = [f"policy:{Path(p).resolve()}" for p in a.policy]
     base = ev.ensure_baselines(scen, BAR + pols, workers=a.workers)
@@ -66,7 +69,7 @@ def main():
         for g, d in out["by_regime"].items():
             print(f"  {g:5s}   " + "  ".join(f"{m} {v['geo']:.3f} ({v['better']}/{v['n']})" for m, v in d.items()))
     if a.out:
-        Path(a.out).write_text(json.dumps({"bar": BAR, "stage": a.stage, "objective": a.objective, "code_version": ev.code_version(), "policies": report}, indent=1))
+        Path(a.out).write_text(json.dumps({"bar": BAR, "bar_name": a.bar, "provenance": ev.provenance(), "stage": a.stage, "objective": a.objective, "code_version": ev.code_version(), "policies": report}, indent=1))
 
 
 if __name__ == "__main__":
