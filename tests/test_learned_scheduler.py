@@ -204,3 +204,91 @@ def test_each_decision_is_stored_once(conv_session_trace, tmp_path):
     run(conv_session_trace, tmp_path / "train", design, ckpt_out=str(ck))
     stats = json.loads(Path(str(ck) + ".stats.json").read_text())
     assert stats["buffer_size_end"] == stats["decisions"] - stats["unfinished_decisions_dropped"]
+
+
+# --------------------------------------------------------------------------- RL_LOGGING_SPEC (2026-10-10)
+
+# Digest of the DQN + teacher run below, computed with the learner as committed before the logging change (HEAD
+# 29b4dc9 + the v4 tree, code_version c16266a8ef49) on the Mac mini. Floating-point results depend on the torch /
+# numpy build, so the comparison is skipped on other versions; the log-on == log-off check always runs.
+GOLDEN_OFF = ("2.10.0", "1.26.4", "3e58176078ab8b9a8adefca297f3d3c26f91cfeba4eedb5520ac7a34cc8b840b")
+GOLDEN_CFG = dict(algorithm="dqn", beta=0.1, learning_starts=8, batch_size=8, teacher_mix=0.5, imitation_weight=1.0,
+                  target_update=5)
+TIMING_KEYS = ("train_seconds", "policy_seconds", "logging")
+
+
+def _digest(ck):
+    """sha256 over the network tensors, the replay buffer arrays and the learner stats (wall-clock keys and the
+    additive logging block excluded)."""
+    import hashlib
+
+    import torch
+
+    h = hashlib.sha256()
+    c = torch.load(ck, weights_only=False)
+    for k in sorted(c["net"]):
+        h.update(k.encode())
+        h.update(c["net"][k].numpy().tobytes())
+    z = np.load(str(ck) + ".buffer.npz")
+    for k in sorted(z.files):
+        h.update(k.encode())
+        h.update(np.ascontiguousarray(z[k]).tobytes())
+    s = json.loads(Path(str(ck) + ".stats.json").read_text())
+    h.update(json.dumps({k: v for k, v in s.items() if k not in TIMING_KEYS}, sort_keys=True).encode())
+    return h.hexdigest()
+
+
+def test_logging_off_matches_golden_and_logging_is_observe_only(conv_session_trace, tmp_path):
+    import torch
+
+    off = tmp_path / "off.pt"
+    run(conv_session_trace, tmp_path / "a", design_with(tmp_path, **GOLDEN_CFG), ckpt_out=str(off),
+        teacher=str(TEACHER))
+    d_off = _digest(off)
+    on_dir = tmp_path / "on"
+    on_dir.mkdir()
+    on = on_dir / "on.pt"
+    run(conv_session_trace, tmp_path / "b", design_with(on_dir, **GOLDEN_CFG, log=True, log_interval=4),
+        ckpt_out=str(on), teacher=str(TEACHER))
+    assert _digest(on) == d_off  # logging never changes an action, a gradient step or a stored transition
+    s_off = json.loads(Path(str(off) + ".stats.json").read_text())
+    s_on = json.loads(Path(str(on) + ".stats.json").read_text())
+    assert "logging" not in s_off and "train_seed" not in s_off  # off: no additive keys
+    assert not any(Path(str(off) + suf).exists() for suf in (".updates.npz", ".trace.npz", ".buffer.meta.npz"))
+    lg = s_on["logging"]
+    assert lg["buffer_start"] == 0 and lg["buffer_rows_added"] == s_on["buffer_size_end"]
+    assert sum(lg["who_counts"].values()) == s_on["decisions"]
+    assert lg["decision_latency_us"]["n"] == s_on["decisions"]
+    u = np.load(str(on) + ".updates.npz")
+    assert int(u["n_updates"].sum()) == s_on["gradient_steps"] and u["target_syncs"].sum() >= 1
+    for k in ("td_sd", "grad_norm_p95", "loss_td_mean", "loss_imit_mean", "q_top2_gap", "replay_age_mean"):
+        assert k in u.files
+    t = np.load(str(on) + ".trace.npz")
+    assert len(t["a"]) == s_on["buffer_size_end"] and t["slot"].tolist() == list(range(len(t["a"])))
+    n = len(t["a"])  # who flag agrees with the learner's own counters (every stored decision is in the trace)
+    assert abs((t["who"] == 1).sum() / n - s_on["explore_frac"]) < 0.05 + 1.0 / n
+    assert ((t["who"] == 2) <= (t["a"] == t["ta"])).all()  # a teacher-acted row executed the teacher's action
+    assert set(t["out_rid"].tolist()) >= set(t["rid"].tolist())
+    if (torch.__version__.split("+")[0], np.__version__) == GOLDEN_OFF[:2]:
+        assert d_off == GOLDEN_OFF[2], "log-off run differs from the pre-change learner"
+
+
+def test_train_seed_seeds_the_learner_only(conv_session_trace, tmp_path):
+    import torch
+
+    nets, decisions = [], []
+    for s in (1, 1, 2):
+        d = tmp_path / f"s{s}_{len(nets)}"
+        d.mkdir()
+        ck = d / "net.pt"
+        run(conv_session_trace, d / "o", design_with(d, learning_starts=10**5, train_seed=s), ckpt_out=str(ck))
+        nets.append(torch.load(ck, weights_only=False)["net"])
+        st = json.loads(Path(str(ck) + ".stats.json").read_text())
+        assert st["train_seed"] == s
+        decisions.append(st["decisions"])
+    same = all(torch.equal(nets[0][k], nets[1][k]) for k in nets[0])
+    diff = any(not torch.equal(nets[0][k], nets[2][k]) for k in nets[0])
+    assert same and diff and len(set(decisions)) == 1  # init follows train_seed; the workload is unchanged
+    for bad in ({"train_seed": -1}, {"train_seed": 1.5}, {"train_seed": True}, {"log": 1}, {"log_trace_frac": 0.0}):
+        with pytest.raises(PolicyError):
+            resolve_config(bad)

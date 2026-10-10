@@ -73,3 +73,11 @@ def test_fit_regressor_linear_and_mlp_fit_signal():
     assert ro.ev(y[2000:], pv) > 0.99
     _, pv = ro.fit_regressor(X[:2000], y[:2000], X[2000:], width=16, max_epochs=30, batch=64)
     assert ro.ev(y[2000:], pv) > 0.95
+
+
+def test_episode_labels_from_logged_ranges_survive_wrap():
+    # capacity 5; episode 0 writes slots 0-3, episode 1 writes 4,0,1 (wraps), so slots 2-3 keep episode 0
+    lab = ro.episode_labels_from_ranges([0, 4], [4, 3], 5, 5)
+    assert lab.tolist() == [1, 1, 0, 0, 1]
+    assert ro.episode_labels_from_ranges([0, None], [4, 3], 5, 5) is None
+    assert ro.episode_labels_from_ranges([2], [2], 5, 100).tolist() == [-1, -1, 0, 0, -1]  # unlogged rows -> -1

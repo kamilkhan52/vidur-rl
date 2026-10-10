@@ -62,16 +62,13 @@ NOT_AVAILABLE = [
     ("Greedy learning curves (fitness of net_ep{k} vs decisions)",
      "Simulations: score training/<id>/net_ep{k}.pt greedily on the search set; rl_heldout.py needs a "
      "--stage loto_search choice (PROTOCOLS[p]['search']) and a loop over checkpoints (gap 5)."),
-    ("Training-seed variance",
-     "New runs: add train_seed to rl_task.train() (append --seed <s>, offset "
-     "--learned_global_scheduler_config_seed); train finalists and key seeds with >= 5 seeds (gap 3)."),
-    ("Gradient norm",
-     "learned_global_scheduler._train_step: keep gn = clip_grad_norm_(...) (return value is discarded today) (gap 7)."),
-    ("TD error, target mean, TD vs DQfD loss split, batch Q spread / imitation accuracy",
-     "_train_step: record |y - q| mean/p95, mean y, the Huber and margin losses separately, max-min and top-2 "
-     "gap of q_all, and mean(ta == argmax q_all) every 50 steps (gap 7)."),
-    ("Raw time series (instead of 5-number summaries), lr and epsilon per step",
-     "Write every logged step to <ckpt>.trace.jsonl from _train_step / _act (gap 7)."),
+    ("Training-seed variance (runs before 2026-10-10)",
+     "Implemented for new runs: rl_task.train(..., train_seed=s) / train_seeds(); train finalists and key "
+     "ablations with >= 5 seeds (gap 3). Old runs have one seed (the episode-0 scenario seed)."),
+    ("Gradient norm, TD error, TD vs DQfD loss split, batch Q spread, target drift, replay age (runs before "
+     "2026-10-10)",
+     "Implemented for new runs with CONFIG log=True (rl_task.train(log=True)): <ckpt>.updates.npz, one row per "
+     "log_interval updates; summarised under candidate['logging'] (gap 7). Not recoverable for old runs."),
     ("Inference diagnostics (action share, Q gap, shadow-teacher agreement at deployment)",
      "Let inference write <out>.stats.json (checkpoint_out unused in inference) and accept teacher_path in "
      "inference for logging only (gap 8)."),
@@ -365,11 +362,18 @@ def episodes_of(row, d):
     if eps:
         return eps, "archive"
     out = []
+    tags = {}
+    man = Path(d) / "manifest.json" if d is not None else None
+    if man is not None and man.exists():  # logged runs: episode tags from the manifest
+        try:
+            tags = {e["k"]: e["tag"] for e in json.loads(man.read_text()).get("episodes", [])}
+        except Exception:
+            tags = {}
     for k, p in ckpt_files(d):
         s = Path(str(p) + ".stats.json")
         if s.exists():
             try:
-                out.append({"episode": None, "k": k, "learner": json.loads(s.read_text())})
+                out.append({"episode": tags.get(k), "k": k, "learner": json.loads(s.read_text())})
             except Exception:
                 pass
     return out, ("stats_files" if out else None)
@@ -401,6 +405,17 @@ def episode_rows(eps, cap=None):
              "action_entropy_norm": H, "action_max_share": mx,
              "buffer_size_end": bend, "buffer_loaded": bload,
              "unfinished_dropped": L.get("unfinished_decisions_dropped")}
+        lg = L.get("logging")
+        if lg:  # RL_LOGGING_SPEC block (runs with CONFIG log=True)
+            wc = lg.get("who_counts") or {}
+            nw = sum(wc.values()) or None
+            r.update({"train_seed": L.get("train_seed"), "buffer_start": lg.get("buffer_start"),
+                      "buffer_rows_added": lg.get("buffer_rows_added"), "buffer_capacity": lg.get("buffer_capacity"),
+                      "who_epsilon_frac": wc.get("epsilon", 0) / nw if nw else None,
+                      "who_teacher_frac": wc.get("teacher", 0) / nw if nw else None,
+                      "decision_us_p50": get(lg, "decision_latency_us", "p50"),
+                      "decision_us_p99": get(lg, "decision_latency_us", "p99"),
+                      "features_us_p50": get(lg, "features_latency_us", "p50")})
         for key, nm in (("reward", "reward"), ("loss", "loss"), ("q_mean", "q"), ("interval_reward", "ireward")):
             for s in ("mean", "p5", "p95", "first", "last"):
                 r[f"{nm}_{s}"] = get(L, key, s)
@@ -487,6 +502,73 @@ def learner_diagnostics(er, cfg):
     return out
 
 
+# ----------------------------------------------------------------------------- RL_LOGGING_SPEC files
+
+def _finite(v):
+    return None if v is None or not math.isfinite(float(v)) else float(v)
+
+
+def logging_summary(d):
+    """What a logged training dir holds beyond the stats JSONs (RL_LOGGING_SPEC): manifest.json, per-episode
+    <ckpt>.updates.npz (per-interval learning signals), traces, probe and held-out files. None if none exist."""
+    if d is None:
+        return None
+    out = {"manifest": None, "episodes": []}
+    man = Path(d) / "manifest.json"
+    if man.exists():
+        try:
+            m = json.loads(man.read_text())
+            out["manifest"] = {k: m.get(k) for k in ("code_version", "design_sha256", "train_seed", "options",
+                                                      "prediction_bundle", "teacher_sha256", "torch", "numpy", "host")}
+        except Exception as e:
+            out["manifest"] = {"error": str(e)}
+    any_file = out["manifest"] is not None
+    for k, p in ckpt_files(Path(d)):
+        e = {"k": k}
+        u = Path(str(p) + ".updates.npz")
+        if u.exists():
+            any_file = True
+            z = np.load(u)
+            n = z["n_updates"]
+
+            def last(key, z=z):
+                return _finite(z[key][-1]) if key in z.files and len(z[key]) else None
+
+            def wmean(key, z=z, n=n):
+                v = z[key] if key in z.files else np.array([])
+                ok = np.isfinite(v)
+                return float(np.average(v[ok], weights=n[ok])) if ok.any() and n[ok].sum() > 0 else None
+
+            e.update({"update_rows": int(len(n)), "updates": int(n.sum()),
+                      "td_sd_first": _finite(z["td_sd"][0]), "td_sd_last": last("td_sd"),
+                      "td_mean_last": last("td_mean"), "loss_td_mean_last": last("loss_td_mean"),
+                      "loss_imit_mean_last": last("loss_imit_mean"),
+                      "grad_norm_p95_max": _finite(np.nanmax(z["grad_norm_p95"])), "clip_frac": wmean("clip_frac"),
+                      "q_spread_std_last": last("q_spread_std"), "q_top2_gap_last": last("q_top2_gap"),
+                      "ev_batch_last": last("ev_batch"), "target_drift_mean": wmean("target_drift"),
+                      "replay_age_mean_last": last("replay_age_mean"), "buffer_fill_last": last("buffer_fill")})
+            if e["q_top2_gap_last"] is not None and e["td_sd_last"]:
+                e["gap_over_td_sd_last"] = e["q_top2_gap_last"] / e["td_sd_last"]  # signal-to-noise of the choice
+        for suf in ("trace.npz", "probe.json", "heldout.json"):
+            f = Path(str(p) + "." + suf)
+            e["has_" + suf.split(".")[0]] = f.exists()
+            if f.exists():
+                any_file = True
+                if suf.endswith(".json"):
+                    try:
+                        e[suf.split(".")[0]] = json.loads(f.read_text())
+                    except Exception as ex:
+                        e[suf.split(".")[0]] = {"error": str(ex)}
+        out["episodes"].append(e)
+    if not any_file:
+        return None
+    sd = [e.get("td_sd_last") for e in out["episodes"] if e.get("td_sd_last") is not None]
+    out["td_sd_trend"] = slope(sd)
+    churn = [get(e, "probe", "churn_vs_prev") for e in out["episodes"]]
+    out["probe_churn"] = [c for c in churn if c is not None] or None
+    return out
+
+
 # ----------------------------------------------------------------------------- candidates and runs
 
 def candidate_summary(repo, run, run_dir, row, defaults, orphan_dir=None):
@@ -511,6 +593,11 @@ def candidate_summary(repo, run, run_dir, row, defaults, orphan_dir=None):
                               for m in METRICS}
     try:
         dp, note = design_path(repo, run, run_dir, row)
+        man = (d / "manifest.json") if d is not None else None
+        if dp is None and man is not None and man.exists():  # standalone / logged training dir
+            mp = json.loads(man.read_text()).get("design")
+            if mp and Path(mp).exists():
+                dp, note = Path(mp), "design path from manifest.json"
         di = design_info(dp, defaults)
         if note:
             di["note"] = note
@@ -549,6 +636,9 @@ def candidate_summary(repo, run, run_dir, row, defaults, orphan_dir=None):
     c["episodes"] = er
     c["learner"] = learner_diagnostics(er, cfg)
     c["n_training_seeds"] = 1 if er else None  # torch seed = episode-0 scenario seed, fixed by the protocol
+    c["logging"] = logging_summary(d)
+    if c["logging"] and get(c["logging"], "manifest", "train_seed") is not None:
+        c["train_seed"] = c["logging"]["manifest"]["train_seed"]
     tags = [r["tag"] for r in er if r.get("tag")] + [x.get("scenario") for x in res.get("details", [])]
     c["models"] = sorted({(parse_tag(t) or {}).get("model", "?") for t in tags if t})
     return c
@@ -832,7 +922,8 @@ def offline_candidate(c, repo):
     x, a, r, ta, g = z["x"], z["a"], z["r"].astype(np.float64), z["ta"], z["g"]
     T, N, F = x.shape
     alg = get(c, "summary", "algorithm") or ("bandit" if not np.any(g) else "dqn")
-    out = {"status": "ok", "buffer": str(buf.relative_to(repo)), "T": int(T), "N": int(N), "F": int(F),
+    out = {"status": "ok", "buffer": str(buf.relative_to(repo)) if str(buf).startswith(str(repo)) else str(buf),
+           "T": int(T), "N": int(N), "F": int(F),
            "final_ckpt_episode": kmax, "algorithm": alg, "teacher_coverage": float((ta >= 0).mean())}
     # episode chunks from the per-episode buffer_size_end (valid only while the buffer never wrapped)
     eps = c.get("episodes") or []
@@ -844,6 +935,12 @@ def offline_candidate(c, repo):
             and all(loads[k] == ends[k - 1] for k in range(1, len(ends))) and loads[0] == 0:
         starts = [0] + ends[:-1]
         chunks = list(zip(starts, ends))
+    if chunks is None and eps and all(e.get("buffer_start") is not None for e in eps):
+        # logged runs: buffer_start / buffer_rows_added per episode stay exact after the buffer wraps; use them when
+        # every episode's rows are still contiguous in the final buffer (no wrap during the run)
+        rng_ = [(e["buffer_start"], e["buffer_start"] + e["buffer_rows_added"]) for e in eps]
+        if rng_[-1][1] == T and all(rng_[k][0] == rng_[k - 1][1] for k in range(1, len(rng_))) and rng_[0][0] == 0:
+            chunks = rng_
     out["chunks_exact"] = chunks is not None
     qf = _q_all(torch, nets[kmax], x)
     qa = qf[np.arange(T), a]
@@ -1181,14 +1278,71 @@ def write_md(s, path, offline_requested):
     Path(path).write_text("\n".join(L) + "\n")
 
 
+def summarize_train_dirs(dirs, repo=REPO, offline=False):
+    """Standalone training dirs (no search archive): smoke runs, training/<id>/seed<s>/ of train_seeds()."""
+    defaults = learner_defaults()
+    out = {"generated": datetime.now().strftime("%Y-%m-%d %H:%M"), "candidates": {}, "offline": {}, "warnings": []}
+    for d in dirs:
+        d = Path(d).resolve()
+        try:
+            c = candidate_summary(repo, d.parent.name, None, {"id": d.name, "valid": False}, defaults, orphan_dir=d)
+            c.pop("invalid_reason", None)
+            out["candidates"][str(d)] = c
+            if offline and c.get("n_checkpoints"):
+                out["offline"][str(d)] = offline_candidate(c, repo)
+        except Exception as e:
+            out["warnings"].append(f"{d}: {type(e).__name__}: {e}")
+    return out
+
+
+def write_train_dirs_md(s, path):
+    L = [f"# RL training dirs ({s['generated']})", "", "Generated by `python -m evolve.analysis.rl_stats --train-dir`.",
+         ""] + [f"- warning: {w}" for w in s["warnings"]]
+    for key, c in s["candidates"].items():
+        sm, lg = c.get("summary") or {}, c.get("logging") or {}
+        L += [f"## {key}", "", f"algorithm {sm.get('algorithm')}, hidden {sm.get('hidden')}, features "
+              f"{sm.get('n_features')}, train_seed {c.get('train_seed')}, code_version "
+              f"{get(lg, 'manifest', 'code_version')}, bundle {get(lg, 'manifest', 'prediction_bundle')}", "",
+              "| ep | tag | decisions | steps | eps frac | teacher frac | agree | dec p50/p99 us | TD sd first/last "
+              "| gap/TD sd | grad p95 max | clip | drift | age | probe agree | churn | held-out P99 TTFT |",
+              "|---" * 17 + "|"]
+        lge = {e["k"]: e for e in lg.get("episodes", [])}
+        for r in c.get("episodes", []):
+            e = lge.get(r["k"], {})
+            ho = "; ".join(f"{fnum(h.get('p99_ttft'))}" for h in (e.get("heldout") or []))
+            L.append(f"| {r['k']} | {r.get('tag')} | {fnum(r.get('decisions_ep'))} | {fnum(r.get('steps_ep'))} | "
+                     f"{fnum(r.get('who_epsilon_frac'))} | {fnum(r.get('who_teacher_frac'))} | "
+                     f"{fnum(r.get('teacher_agreement'))} | {fnum(r.get('decision_us_p50'), 0)}/"
+                     f"{fnum(r.get('decision_us_p99'), 0)} | {fnum(e.get('td_sd_first'))}/{fnum(e.get('td_sd_last'))} | "
+                     f"{fnum(e.get('gap_over_td_sd_last'))} | {fnum(e.get('grad_norm_p95_max'))} | "
+                     f"{fnum(e.get('clip_frac'))} | {fnum(e.get('target_drift_mean'))} | "
+                     f"{fnum(e.get('replay_age_mean_last'), 0)} | {fnum(get(e, 'probe', 'teacher_agreement'))} | "
+                     f"{fnum(get(e, 'probe', 'churn_vs_prev'))} | {ho or 'n/a'} |")
+        off = s["offline"].get(key)
+        if off:
+            L += ["", f"Offline: {off.get('status')}, chunks exact {off.get('chunks_exact')}, imitation acc (final net) "
+                  f"{fnum(off.get('imitation_acc_final_net'))}, advantage SNR {fnum(off.get('advantage_snr'))}"]
+        L.append("")
+    Path(path).write_text("\n".join(L) + "\n")
+
+
 def main():
     ap = argparse.ArgumentParser()
+    ap.add_argument("--train-dir", action="append", help="summarise standalone training dirs instead of archives")
     ap.add_argument("--runs", nargs="*", default=None, help="run dirs or archive.jsonl files (default: discover all)")
     ap.add_argument("--out", default="evolve/analysis/out/rl_stats", help="writes <out>.json and <out>.md")
     ap.add_argument("--offline", action="store_true", help="also analyse replay buffers and checkpoints")
     ap.add_argument("--offline-budget-s", type=float, default=900)
     a = ap.parse_args()
     t0 = time.time()
+    if a.train_dir:
+        s = summarize_train_dirs(a.train_dir, REPO, offline=a.offline)
+        out = Path(a.out)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        Path(str(out) + ".json").write_text(json.dumps(s, indent=1, default=str))
+        write_train_dirs_md(s, str(out) + ".md")
+        print(f"wrote {out}.json and {out}.md ({len(s['candidates'])} dirs, {len(s['warnings'])} warnings)")
+        return
     sources = discover(REPO, a.runs)
     print("archives:", ", ".join(f"{n} <- {p.relative_to(REPO) if str(p).startswith(str(REPO)) else p}"
                                  for n, p, _ in sources))

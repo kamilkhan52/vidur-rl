@@ -39,6 +39,7 @@ REPO = rl_stats.REPO
 FINALISTS = ["rl_loto_r2/e413fe9e193c", "rl_loto_synth_r1/d2cb78118623"]
 WIDTHS = [0, 16, 64, 256, 1024]  # 0 = linear (ridge)
 FRACTIONS = [0.1, 0.25, 0.5, 1.0]
+MIN_EPS_ROWS = 100  # fewest epsilon-explored rows for the beyond-rule test on those rows alone
 
 
 # ----------------------------------------------------------------------------- small pure helpers (tested)
@@ -98,6 +99,41 @@ def episode_labels(ends, loads, T):
         lab[s:e] = k
         s = e
     return lab
+
+
+def episode_labels_from_ranges(starts, added, T, cap):
+    """Buffer slot -> episode index from the per-episode logging block (buffer_start, buffer_rows_added): episode k
+    wrote slots (start + j) % cap for j < added; later episodes overwrite earlier ones, so this stays exact after the
+    buffer wraps. Slots never written by a logged episode get -1. None if the ranges are missing."""
+    if not starts or any(v is None for v in starts) or any(v is None for v in added):
+        return None
+    lab = np.full(T, -1, dtype=np.int64)
+    for k, (s0, n) in enumerate(zip(starts, added)):
+        idx = (int(s0) + np.arange(int(n))) % int(cap)
+        lab[idx[idx < T]] = k
+    return lab
+
+
+def load_traces(d, n_episodes):
+    """Concatenate the per-episode <ckpt>.trace.npz files of a training dir (RL_LOGGING_SPEC section 3). Returns
+    None unless every episode has one with transitions. Keys: x3, a, r, ta, g, who, lab, r_outcome, trace_frac."""
+    files = rl_stats.ckpt_files(d)
+    if not files or len(files) != n_episodes:
+        return None
+    parts = []
+    for k, p in files:
+        f = Path(str(p) + ".trace.npz")
+        if not f.exists():
+            return None
+        z = np.load(f)
+        if "x" not in z.files:
+            return None
+        parts.append((k, z))
+    cat = lambda key: np.concatenate([z[key] for _, z in parts])  # noqa: E731
+    return {"x3": cat("x"), "a": cat("a"), "r": cat("r").astype(np.float64), "ta": cat("ta"), "g": cat("g"),
+            "who": cat("who"), "r_outcome": cat("r_outcome"),
+            "lab": np.concatenate([np.full(len(z["a"]), k, dtype=np.int64) for k, z in parts]),
+            "trace_frac": float(parts[0][1]["trace_frac"])}
 
 
 def dedup_index(x_taken, r):
@@ -274,32 +310,87 @@ def load_candidate(key, runs):
     return row, buf, eps, design
 
 
+def _rel(p):
+    p = Path(p)
+    return str(p.relative_to(REPO)) if str(p).startswith(str(REPO)) else str(p)
+
+
 def analyse(key, runs, light=False, log=print):
-    t0 = time.time()
     row, buf, eps, design = load_candidate(key, runs)
-    out = {"candidate": key, "buffer": str(buf.relative_to(REPO)), "fitness": row.get("fitness")}
-    if not buf.exists():
-        out["status"] = "no buffer"
-        return out
-    z = np.load(buf)
-    x3, a, r, ta, g = z["x"], z["a"], z["r"].astype(np.float64), z["ta"], z["g"]
+    out = {"candidate": key, "buffer": _rel(buf), "fitness": row.get("fitness")}
+    return analyse_data(out, buf.parent, buf, eps, design, light, log)
+
+
+def analyse_dir(d, design=None, light=False, log=print):
+    """A standalone training directory (e.g. a smoke run or training/<id>/seed<s>), outside any search archive."""
+    d = Path(d)
+    files = rl_stats.ckpt_files(d)
+    if not files:
+        return {"candidate": str(d), "status": "no checkpoints"}
+    man = d / "manifest.json"
+    if design is None and man.exists():
+        design = json.loads(man.read_text()).get("design")
+    eps, _ = rl_stats.episodes_of({}, d)
+    buf = Path(str(files[-1][1]) + ".buffer.npz")
+    out = {"candidate": _rel(d), "buffer": _rel(buf), "fitness": None}
+    return analyse_data(out, d, buf, eps, design, light, log)
+
+
+def analyse_data(out, d, buf, eps, design, light=False, log=print):
+    t0 = time.time()
+    key = Path(out["candidate"]).name if "/" in out["candidate"] and Path(out["candidate"]).is_absolute() \
+        else out["candidate"]
+    tr = load_traces(d, len(eps)) if d is not None else None
+    who = None
+    if tr is not None:  # logged run: every episode's rows with the who-acted flag, exact episode labels
+        x3, a, r, ta, g, who, lab = tr["x3"], tr["a"], tr["r"], tr["ta"], tr["g"], tr["who"], tr["lab"]
+        out.update({"source": "traces", "trace_frac": tr["trace_frac"]})
+    else:
+        if not buf.exists():
+            out["status"] = "no buffer"
+            return out
+        z = np.load(buf)
+        x3, a, r, ta, g = z["x"], z["a"], z["r"].astype(np.float64), z["ta"], z["g"]
+        out["source"] = "buffer"
     T, N, F = x3.shape
     out.update({"T": int(T), "N": int(N), "F": int(F), "algorithm": "bandit" if not np.any(g) else "dqn"})
     if out["algorithm"] != "bandit":
         out["status"] = "skipped: DQN target is bootstrapped (needs the target net; not saved)"
         return out
-    ends = [(e.get("learner") or {}).get("buffer_size_end") for e in eps]
-    loads = [(e.get("learner") or {}).get("buffer_loaded_from_previous_episode") for e in eps]
-    lab = episode_labels(ends, loads, T)
-    if lab is None:
-        out["status"] = "skipped: episode boundaries not recoverable (buffer wrapped or not reloaded)"
-        return out
+    if tr is None:
+        lg = [(e.get("learner") or {}).get("logging") or {} for e in eps]
+        lab = episode_labels_from_ranges([x.get("buffer_start") for x in lg], [x.get("buffer_rows_added") for x in lg],
+                                         T, (lg[-1].get("buffer_capacity") if lg else None) or T + 1) if lg else None
+        if lab is not None:
+            out["labels"] = "logged buffer ranges"
+        else:
+            ends = [(e.get("learner") or {}).get("buffer_size_end") for e in eps]
+            loads = [(e.get("learner") or {}).get("buffer_loaded_from_previous_episode") for e in eps]
+            lab = episode_labels(ends, loads, T)
+            out["labels"] = "buffer_size_end (valid only without wrap)"
+        if lab is None:
+            out["status"] = "skipped: episode boundaries not recoverable (buffer wrapped or not reloaded)"
+            return out
+        sel = np.where(lab >= 0)[0]  # rows of earlier, unlogged runs (never in our episodes) are dropped
+        x3, a, r, ta, g, lab = x3[sel], a[sel], r[sel], ta[sel], g[sel], lab[sel]
+        T = len(r)
     out["episode_tags"] = [e.get("episode") for e in eps]
     xa = x3[np.arange(T), a]
-    keep = dedup_index(xa, r)
-    out["dedup_removed"] = int(T - len(keep))
-    x3, a, r, ta, lab, xa = x3[keep], a[keep], r[keep], ta[keep], lab[keep], xa[keep]
+    if tr is None:  # buffers of v3 runs hold each early-completing decision twice (fixed in v4)
+        keep = dedup_index(xa, r)
+        out["dedup_removed"] = int(T - len(keep))
+        x3, a, r, ta, lab, xa = x3[keep], a[keep], r[keep], ta[keep], lab[keep], xa[keep]
+    else:
+        keep = np.arange(T)
+        out["dedup_removed"] = 0
+    if who is not None:
+        who = who[keep]
+        out["who_frac"] = {n: float((who == i).mean()) for i, n in enumerate(("greedy", "epsilon", "teacher"))}
     T = len(r)
+    n_ep = len(np.unique(lab))
+    if n_ep < 2:
+        out["status"] = "skipped: fewer than 2 episodes (folds hold out whole episodes)"
+        return out
     src = Path(design).read_text() if design else ""
     groups = feature_groups(src, F) or [(f"f{i}", [i]) for i in range(F)]
     out["groups"] = {n: idx for n, idx in groups}
@@ -313,7 +404,7 @@ def analyse(key, runs, light=False, log=print):
         out["var_share_of_price"] = float(np.var(p_a) / np.var(r)) if np.var(r) > 0 else None
     smask = state_feature_mask(x3)
     out["state_features"] = [int(i) for i in np.where(smask)[0]]
-    folds = group_folds(lab, 4)
+    folds = group_folds(lab, min(4, n_ep))
     out["fold_rows"] = [int(f.sum()) for f in folds]
     main_t = "r_out" if "r_out" in targets else "r"
 
@@ -343,7 +434,7 @@ def analyse(key, runs, light=False, log=print):
               if (lab == k).sum() > 500]
         w = np.array([v["n"] for v in vs], float)
         out["noise_within_episode"][tn] = {"ceiling_ev_mean": float(np.average([v["ceiling_ev"] for v in vs],
-                                                                                 weights=w)),
+                                                                                 weights=w)) if vs else None,
                                            "n_episodes": len(vs)}
     if light:
         out["seconds"] = round(time.time() - t0, 1)
@@ -363,11 +454,19 @@ def analyse(key, runs, light=False, log=print):
     # information beyond the rule (rows where the teacher's choice was recorded)
     ht = ta >= 0
     out["teacher_coverage"] = float(ht.mean())
+    rows_used = "all rows with a teacher action (confounded by who acted)"
+    if who is not None:  # epsilon-random actions: outcomes are unbiased counterfactuals of the rule's choice
+        he = ht & (who == 1)
+        if he.sum() >= MIN_EPS_ROWS and all(he[f].any() and he[~f].any() for f in folds):
+            ht = he
+            rows_used = "epsilon-explored rows only (who acted = epsilon)"
+        else:
+            rows_used += f"; only {int(he.sum())} epsilon rows (< {MIN_EPS_ROWS} or a fold without any)"
     xs, ys_ = xa[ht], targets[main_t][ht]
     is_t = (a[ht] == ta[ht]).astype(np.float64)[:, None]
     fh = [f[ht] for f in folds]
     st_cols = np.where(smask)[0]
-    beyond = {}
+    beyond = {"rows": rows_used, "n_rows": int(ht.sum())}
     for name, X in (("state_only", xs[:, st_cols]), ("state+is_teacher", np.hstack([xs[:, st_cols], is_t])),
                     ("all_features", xs), ("all+is_teacher", np.hstack([xs, is_t]))):
         beyond[name] = cv_ev(X, ys_, fh, best_w)["val_ev"]
@@ -379,6 +478,9 @@ def analyse(key, runs, light=False, log=print):
     out["beyond_rule"] = {"target": main_t, "width": best_w, **beyond}
 
     # can the features reproduce the rule? listwise classifier; and the reward model's argmax vs the rule
+    ht = ta >= 0  # all rows with a teacher action: imitation is about states, not about who acted
+    xs, ys_ = xa[ht], targets[main_t][ht]
+    fh = [f[ht] for f in folds]
     x3h, tah = x3[ht], ta[ht]
     acc, agree = [], []
     for f, va in enumerate(fh):
@@ -421,6 +523,11 @@ def to_markdown(res):
         if not c.get("status", "").startswith("ok"):
             L += [f"Status: {c.get('status')}", ""]
             continue
+        src = c.get("source", "buffer")
+        L += [f"Source: {src}" + (f" (trace_frac {c.get('trace_frac')})" if src == "traces" else
+                                   f" (episode labels from {c.get('labels', 'buffer_size_end')})")
+              + (", who acted: " + ", ".join(f"{k} {fmt(100 * v, 1)} %" for k, v in c["who_frac"].items())
+                 if c.get("who_frac") else "") + ".", ""]
         L += [f"T = {c['T']} decisions after removing {c['dedup_removed']} duplicates, N = {c['N']} replicas, "
               f"F = {c['F']} features ({len(c['state_features'])} state-only), fitness {fmt(c.get('fitness'))}. "
               + (f"Price feature #{c['price_feature']}: {fmt(100 * c['var_share_of_price'], 1)} % of Var(r); "
@@ -445,14 +552,17 @@ def to_markdown(res):
         if "beyond_rule" in c:
             b = c["beyond_rule"]
             L += [f"**Information beyond the rule** ({b['target']}, held-out EV, teacher coverage "
-                  f"{fmt(100 * c['teacher_coverage'], 1)} %)", "",
+                  f"{fmt(100 * c['teacher_coverage'], 1)} %; rows: {b.get('rows', 'all rows with a teacher action')}"
+                  + (f", n = {b['n_rows']}" if 'n_rows' in b else "") + ")", "",
                   "| state only | state + is-teacher-action | all features | all + is-teacher-action |",
                   "|---|---|---|---|",
                   f"| {fmt(b['state_only'])} | {fmt(b['state+is_teacher'])} | {fmt(b['all_features'])} | "
                   f"{fmt(b['all+is_teacher'])} |", "",
                   f"Executed action = rule's on {fmt(100 * b['executed_eq_teacher'], 1)} % of rows; mean "
                   f"{b['target']} {fmt(b['mean_target_if_teacher_action'])} when it was, "
-                  f"{fmt(b['mean_target_if_other_action'])} when not (confounded by who acted).", ""]
+                  f"{fmt(b['mean_target_if_other_action'])} when not"
+                  + (" (unconfounded: epsilon rows)." if str(b.get("rows", "")).startswith("epsilon")
+                     else " (confounded by who acted)."), ""]
             ti = c["teacher_imitation"]
             L += [f"Rule reproducible from the features: listwise classifier held-out accuracy "
                   f"{fmt(ti['listwise_val_acc'])} (chance {fmt(ti['chance'])}). Fitted reward model's argmax = "
@@ -469,18 +579,28 @@ def main(argv=None):
     ap.add_argument("--cand", action="append", help="run/id (default: the two v3.1 finalists)")
     ap.add_argument("--sweep", type=int, default=0, help="also run the light analysis on the top-N valid "
                                                           "candidates (by fitness) of each finalist's run")
+    ap.add_argument("--train-dir", action="append", help="a standalone training dir (net_ep*.pt [+ traces]); "
+                                                         "replaces the default finalists")
+    ap.add_argument("--design", help="design file for --train-dir (default: the manifest's design)")
+    ap.add_argument("--light", action="store_true", help="representation + noise only")
     ap.add_argument("--threads", type=int, default=6)
     ap.add_argument("--out", default=str(REPO / "evolve/analysis/out/rl_offline"))
     args = ap.parse_args(argv)
     import torch
 
     torch.set_num_threads(args.threads)
-    runs = rl_stats.load_runs(rl_stats.discover(REPO))
-    keys = args.cand or FINALISTS
     res = {"generated": datetime.now().strftime("%Y-%m-%d %H:%M"), "candidates": {}}
+    if args.train_dir:
+        for d in args.train_dir:
+            print(f"[rl_offline] {d}")
+            res["candidates"][d] = analyse_dir(d, args.design, light=args.light)
+        keys = []
+    else:
+        runs = rl_stats.load_runs(rl_stats.discover(REPO))
+        keys = args.cand or FINALISTS
     for k in keys:
         print(f"[rl_offline] {k}")
-        res["candidates"][k] = analyse(k, runs)
+        res["candidates"][k] = analyse(k, runs, light=args.light)
     if args.sweep:
         for run in sorted({k.split("/")[0] for k in keys}):
             rows = [r for r in runs[run]["rows"] if r.get("valid") and r.get("fitness") is not None]

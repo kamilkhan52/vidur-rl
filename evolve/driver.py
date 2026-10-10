@@ -32,6 +32,7 @@ SEEDS = ["lor", "sticky_lor", "lop_uncached", "round_robin"]
 # Router search protocol: v1 = EXP11 (STAGE1, five heuristics); v2 = SEARCH_V2 against BAR_V2 (set in main()).
 BASELINES = ev.DEFAULT_BASELINES
 NO_DEFAULT_SEEDS = False
+RL_TRAIN_KW: dict = {}  # --rl-log / --rl-train-seed: RL_LOGGING_SPEC options passed to rl_task.train
 STAGE0 = [ev.Scenario("Tool", 4, 1.5, 12000, 150, 1)]
 # Plumbing check only (seconds per simulation); not a research scenario set.
 SMOKE = [ev.Scenario("Tool", 4, 1.5, 12000, 200, 1), ev.Scenario("Conv", 4, 2.0, 6000, 200, 1)]
@@ -98,7 +99,7 @@ def evaluate_candidate(code: str, archive: Archive, parent: Optional[str], stage
         res = rl_task.evaluate_design(str(path), archive.dir / "training" / pid,
                                       stage1 if (smoke or rl_protocol == "v2") else None, workers=workers,
                                       launcher=launcher, episodes=rl_task.SMOKE_EPISODES if smoke else None,
-                                      protocol=rl_protocol, objective=objective)
+                                      protocol=rl_protocol, objective=objective, train_kw=RL_TRAIN_KW or None)
         feedback = rl_task.feedback_text(res)
     else:
         res = ev.evaluate_policy(str(path), stage1, workers=workers, launcher=launcher, objective=objective,
@@ -236,6 +237,13 @@ def main():
                     help="router task: v1 = EXP11 search set and heuristic bar; v2 = two draws per scenario, "
                          "bar = heuristics + Mooncake + Dynamo, seeds only from --seed-policy")
     ap.add_argument("--rl-protocol", default="v2", help="with --task rl: v2 | loto_conv (see rl_task.PROTOCOLS)")
+    ap.add_argument("--rl-log", action="store_true",
+                    help="with --task rl: learner logs per training episode (RL_LOGGING_SPEC: manifest.json, "
+                         "<ckpt>.updates.npz, <ckpt>.trace.npz); behaviour unchanged")
+    ap.add_argument("--rl-log-trace-frac", type=float, default=1.0,
+                    help="with --rl-log: fraction of transitions kept in the per-episode traces")
+    ap.add_argument("--rl-train-seed", type=int, default=None,
+                    help="with --task rl: training seed separate from the scenario seeds (default: scenario seed)")
     ap.add_argument("--seed-policy", action="append", default=[],
                     help="extra seed program file (repeatable), e.g. an earlier finalist")
     ap.add_argument("--objective", choices=sorted(ev.OBJECTIVES), default="balanced",
@@ -256,6 +264,10 @@ def main():
 
         proposer.system_prompt = rl_task.SYSTEM_PROMPT if a.rl_protocol == "v2" else rl_task.system_prompt_v3(a.objective)
     launcher = ["srun", "--exact", "-n1", "-c1", "--mem=6G"] if a.srun else None
+    if a.rl_log:
+        RL_TRAIN_KW.update(log=True, log_trace_frac=a.rl_log_trace_frac)
+    if a.rl_train_seed is not None:
+        RL_TRAIN_KW["train_seed"] = a.rl_train_seed
     stage1 = SMOKE if a.scenarios == "smoke" else ev.STAGE1
     if a.task == "router" and a.protocol == "v2":
         global BASELINES, NO_DEFAULT_SEEDS

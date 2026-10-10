@@ -66,3 +66,41 @@ Stored as a compact array file `net_ep<k>.pt.updates.npz` (one row per interval)
 - With all new options off, the golden set is byte-identical to v3 (plan §2 procedure).
 - A smoke run (`driver --scenarios smoke`) produces `manifest.json`, `updates.npz`, per-episode buffers, and
   `rl_stats` / `rl_offline` read them without warnings.
+
+## Implementation status (2026-10-10)
+
+**How options reach the learner (deviation from the `[v]` notes above).** `vidur/main.py`, `vidur/config/config.py`
+and the four hashed harness functions are untouched, so `code_version` stays `c16266a8ef49`. New learner options are
+CONFIG keys validated by `resolve_config` (`learned_global_scheduler.py` is in `_VERSION_EXCLUDE`): `train_seed`
+(None), `log` (False), `log_interval` (200 updates per row), `log_trace_frac` (1.0). `rl_task.train(..., train_seed=,
+log=)` passes them by writing `<work_dir>/design_run.py` = the design + one appended `CONFIG = dict(CONFIG, ...)`
+line; the original design file and hash are untouched and both hashes go into the manifest. With every option off,
+`train` runs the original design file exactly as before (no new file, no new key).
+
+| Item | Status | Where |
+|---|---|---|
+| `train_seed` | done, learner-local | `_init_net` calls `torch.manual_seed(train_seed)` before building a fresh net; the learner RNG (exploration, batch sampling) and the teacher's `ctx.rng` use `train_seed * 1000003 + scenario seed` (episodes keep distinct streams). The design's own `ctx.rng` and the simulator still follow the scenario seed, so arrivals are unchanged (smoke check: identical `request_arrived_at`). |
+| ≥ 5 seeds | hook | `rl_task.train_seeds(design, dir, seeds)` -> `dir/seed<s>/`, sequential. Not yet run for any finalist. |
+| Manifest | done | `<work_dir>/manifest.json` when any option is on (`rl_task.write_manifest`), bundle added after episode 0. |
+| §1 per-update | done except entropy/KL | `<ckpt>.updates.npz`: loss total/TD/imitation (mean, p95), grad norm (mean, p95, max) and clip fraction, TD error mean/sd/p5/p50/p95, Q mean, target mean, Q spread (std across replicas) and top-2 gap, batch EV, target syncs and drift, replay age, buffer fill, lr, ε, teacher_mix, imitation weight. Entropy/KL: n/a (no PPO/softmax policy in the learner). |
+| §2 per-episode | done | stats JSON gets an additive `logging` block (only with `log=True`): `buffer_start`, `buffer_rows_added`, `buffer_end` (slots `(start + j) % capacity`, exact after a wrap), who-acted counts, decision/features/act latency (p50/p99/mean/max µs), file row counts; `train_seed` key when set. Episode tag, scenario seed and train seed are in the manifest and the returned log rows. |
+| Held-out greedy eval per checkpoint | hook, off by default | `train(heldout=[Scenario...])` -> `<ckpt>.heldout.json` (P99 E2E/TTFT/TPOT/TBT, mean E2E). One simulation per scenario and episode; tested on one 200-request window. |
+| Probe agreement and churn | hook, off by default | `make_probe_set(traces, out, n=5000)` once, then `train(probe=file)` -> `<ckpt>.probe.json` (greedy vs teacher agreement, fraction of greedy actions changed vs the previous checkpoint). No simulation. |
+| §3 per decision | done (sampled) | `<ckpt>.trace.npz` per episode instead of persisting the whole buffer each episode: x, a, r, nx, γ, teacher action, `who` (0 greedy / 1 ε / 2 teacher), candidate mask, next mask, request id, buffer slot, store id, t, dt, `r_outcome`, `r_interval`, decision latency; plus every finished request's outcome (`out_*`: TTFT, E2E, TPOT, replica, tokens, cached, routed_at). Row sample `log_trace_frac`, deterministic in the request id (no RNG draw). `keep_buffers=True` keeps every episode's buffer as well. |
+| Reward components | partial | Outcome and interval rewards are logged separately, with the raw outcome. A design's internal terms (e.g. e413's TTFT/E2E/TPOT terms and price) are not visible to the learner; the price part is still recoverable from the price feature. A design hook (e.g. `reward_components(outcome)`) is left for later. |
+| Readers | done | `rl_stats`: logging fields per episode, `candidate['logging']` (updates/probe/held-out summaries), exact chunks from logged ranges, `--train-dir` for standalone dirs. `rl_offline`: reads traces when every episode has one (else the buffer, labelled by logged ranges, else `buffer_size_end` as before); beyond-rule test on ε rows only when the flag exists (≥ 100 rows); `--train-dir`, `--light`. Old runs: `rl_stats` output identical apart from the new `logging: null` key and the updated "not available" texts; `rl_offline` gives the same T / dedup / folds on both finalists. `driver --task rl --rl-log [--rl-train-seed s]`. |
+
+**Verification.** (1) Smoke training (`rl_task.train(..., episodes=SMOKE_EPISODES)`, two designs: e413 bandit with
+teacher and seed_dqn_teacher, small `learning_starts`), before vs after the change with options off: checkpoint
+net and optimizer tensors `torch.equal`, buffer arrays equal, stats JSON equal on every key except the wall-clock
+`train_seconds`/`policy_seconds`, `request_metrics.csv` and `token_gaps.npz` byte-identical (the pre-change
+reference was itself deterministic on a rerun). (2) Same with `log=True`: identical, only the additive `logging` key
+and new files. (3) `tests/test_learned_scheduler.py::test_logging_off_matches_golden_and_logging_is_observe_only`
+checks a digest of a tiny DQN+teacher run against the pre-change learner (torch 2.10.0 / numpy 1.26.4; skipped on
+other builds) and log on == log off. (4) `train_seed`: same seed twice identical, a different seed changes the
+network, arrivals unchanged.
+
+**Left.** Run the ≥ 5-seed protocol for finalists; decide the probe set and held-out windows for real runs (cost:
+about 3 short simulations per episode); a design-level reward-components hook; entropy/KL once a softmax/PPO learner
+exists; a full `driver --scenarios smoke --task rl --rl-log` run (needs a proposer; the training path it calls was
+run directly).

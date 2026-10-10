@@ -151,36 +151,198 @@ def crash_check(design: str, launcher=None) -> dict:
                           extra=learned_args("inference", ckpt_in=ck))
 
 
-def train(design: str, work_dir: Path, episodes=None, launcher=None, timeout=3600) -> dict:
-    """Run the training episodes in sequence; return per-episode tails and learner diagnostics."""
+def _sha256(p: Path) -> str:
+    import hashlib
+
+    return hashlib.sha256(Path(p).read_bytes()).hexdigest()
+
+
+def run_design(design: str, work_dir: Path, overrides: dict) -> Path:
+    """Copy of ``design`` with CONFIG run options appended (RL_LOGGING_SPEC: train_seed, log, ...). The options go
+    through the design's CONFIG (resolve_config validates them), so no simulator flag or vidur/config change is
+    needed; the original design file and its hash are untouched (the manifest records both)."""
+    src = Path(design).read_text()
+    out = work_dir / "design_run.py"
+    out.write_text(src + "\n\n# --- appended by evolve.rl_task.train: run options, not part of the design ---\n"
+                   f"CONFIG = dict(globals().get('CONFIG') or {{}}, **{overrides!r})\n")
+    return out
+
+
+def _resolved_config(design_file: Path) -> Optional[dict]:
+    try:
+        import types
+
+        from vidur.scheduler.global_scheduler.learned_global_scheduler import resolve_config
+
+        mod = types.ModuleType("rl_design_manifest")  # exec, not import: no __pycache__ beside the run
+        mod.__file__ = str(design_file)
+        exec(compile(Path(design_file).read_text(), str(design_file), "exec"), mod.__dict__)
+        return resolve_config(getattr(mod, "CONFIG", None))
+    except Exception as e:  # recorded, never fatal: the simulator validates the design itself
+        return {"error": f"{type(e).__name__}: {e}"}
+
+
+def write_manifest(work_dir: Path, design: str, run_file: Path, episodes, teacher: Optional[Path],
+                   options: dict, bundle: Optional[str] = None, extra: Optional[dict] = None) -> Path:
+    """training/<id>/manifest.json (RL_LOGGING_SPEC section 0): everything needed to identify the run."""
+    import datetime
+    import platform
+
+    import numpy
+    import torch
+
+    prov = ev.provenance()
+    m = {"created": datetime.datetime.now().isoformat(timespec="seconds"), "code_version": ev.code_version(),
+         "design": str(design), "design_sha256": _sha256(Path(design)),
+         "run_design": str(run_file), "run_design_sha256": _sha256(run_file),
+         "config": _resolved_config(run_file),
+         "teacher": str(teacher) if teacher else None, "teacher_sha256": _sha256(teacher) if teacher else None,
+         "episodes": [{"k": k, "tag": sc.tag, "scenario_seed": sc.seed, "trace": sc.trace, "replicas": sc.replicas,
+                       "scale": sc.scale, "window_start": sc.window_start, "window_len": sc.window_len,
+                       "perturbation": sc.perturbation, "transform": sc.transform, "model": sc.model}
+                      for k, sc in enumerate(episodes)],
+         "train_seed": options.get("train_seed"), "options": options, "prediction_bundle": bundle,
+         "host": platform.node(), "platform": platform.platform(), "python": platform.python_version(),
+         "torch": torch.__version__, "numpy": numpy.__version__, "pandas": prov.get("pandas"),
+         "sklearn": prov.get("sklearn")}
+    m.update(extra or {})
+    p = work_dir / "manifest.json"
+    p.write_text(json.dumps(m, indent=1, default=str))
+    return p
+
+
+def make_probe_set(trace_files, out: Path, n: int = 5000, seed: int = 0) -> Path:
+    """Fixed probe set of saved states (RL_LOGGING_SPEC section 2): n decisions with a recorded teacher action, drawn
+    from <ckpt>.trace.npz files. Reuse the same file across runs so the probe metrics are comparable."""
+    import numpy as np
+
+    xs, tas, ms = [], [], []
+    for f in trace_files:
+        z = np.load(f)
+        if "x" not in z.files:
+            continue
+        keep = z["ta"] >= 0
+        xs.append(z["x"][keep])
+        tas.append(z["ta"][keep])
+        ms.append(z["mask"][keep])
+    x, ta, mask = np.concatenate(xs), np.concatenate(tas), np.concatenate(ms)
+    idx = np.sort(np.random.default_rng(seed).choice(len(ta), size=min(n, len(ta)), replace=False))
+    np.savez_compressed(out, x=x[idx], ta=ta[idx], mask=mask[idx])
+    return out
+
+
+def probe_metrics(ckpt: Path, probe: Path, prev_greedy=None):
+    """Greedy agreement of a checkpoint with the teacher on the probe set, and the fraction of greedy actions that
+    changed since the previous checkpoint (policy churn). Returns (metrics, greedy actions). No simulation."""
+    import numpy as np
+    import torch
+
+    from vidur.scheduler.global_scheduler.learned_global_scheduler import _build_net
+
+    z = np.load(probe)
+    ck = torch.load(ckpt, map_location="cpu", weights_only=False)
+    net = _build_net(torch, int(ck["feature_dim"]), list(ck["hidden"]))
+    net.load_state_dict(ck["net"])
+    net.eval()
+    if z["x"].shape[2] != int(ck["feature_dim"]):
+        return {"error": f"probe has {z['x'].shape[2]} features, net {ck['feature_dim']}"}, None
+    with torch.no_grad():
+        q = net(torch.from_numpy(np.ascontiguousarray(z["x"]))).squeeze(-1).numpy()
+    q = np.where(z["mask"], q, -np.inf)
+    g = q.argmax(1)
+    m = {"n": int(len(g)), "teacher_agreement": float((g == z["ta"]).mean()),
+         "churn_vs_prev": float((g != prev_greedy).mean()) if prev_greedy is not None else None}
+    return m, g
+
+
+def heldout_eval(design: str, ckpt: Path, scenarios, launcher=None, timeout=3600, workers=1) -> list:
+    """Greedy inference of one checkpoint on fixed unseen scenarios (RL_LOGGING_SPEC section 2, plan E3)."""
+    import concurrent.futures as cf
+
+    extra = learned_args("inference", ckpt_in=ckpt)
+    with cf.ThreadPoolExecutor(max_workers=workers) as ex:
+        res = list(ex.map(lambda sc: ev.run_one("learned", sc, design, timeout, launcher, extra), scenarios))
+    keys = ("p99_e2e", "p99_ttft", "p99_tpot", "p99_tbt", "mean_e2e", "wall_s")
+    return [{"scenario": sc.tag, "ok": bool(r.get("ok")), **({k: r.get(k) for k in keys} if r.get("ok") else
+                                                              {"reason": r.get("reason")})}
+            for sc, r in zip(scenarios, res)]
+
+
+def train(design: str, work_dir: Path, episodes=None, launcher=None, timeout=3600, train_seed: Optional[int] = None,
+          log: bool = False, log_interval: int = 200, log_trace_frac: float = 1.0, keep_buffers: bool = False,
+          heldout=None, probe: Optional[Path] = None, heldout_workers: int = 1, manifest_extra: Optional[dict] = None
+          ) -> dict:
+    """Run the training episodes in sequence; return per-episode tails and learner diagnostics.
+
+    RL_LOGGING_SPEC options (all off by default; off = exactly the v3 behaviour and outputs):
+      train_seed      seed of the learner (network initialisation, exploration, batch sampling) separate from the
+                      scenario seed; passed through the design CONFIG (see run_design).
+      log             learner logs per episode: <ckpt>.updates.npz, <ckpt>.trace.npz, stats["logging"]; also
+                      writes <work_dir>/manifest.json and keeps per-episode metadata in the returned log.
+      keep_buffers    keep every episode's replay buffer (default: only the newest; the traces hold each
+                      episode's rows anyway when log_trace_frac = 1).
+      heldout         Scenarios for a greedy held-out evaluation of every checkpoint (costs one simulation per
+                      scenario and episode; off by default).
+      probe           probe-set file (make_probe_set) for teacher agreement and policy churn per checkpoint.
+    """
     episodes = episodes or TRAIN_EPISODES
     work_dir.mkdir(parents=True, exist_ok=True)
-    prev, log = None, []
+    options = {}
+    if train_seed is not None:
+        options["train_seed"] = int(train_seed)
+    if log:
+        options.update({"log": True, "log_interval": int(log_interval), "log_trace_frac": float(log_trace_frac)})
+    run_file = run_design(design, work_dir, options) if options else None
+    policy = str(run_file) if run_file else design
+    if options:
+        write_manifest(work_dir, design, run_file, episodes, TEACHER, options, extra=manifest_extra)
+    prev, log_rows, prev_greedy = None, [], None
     for k, sc in enumerate(episodes):
         ck = work_dir / f"net_ep{k}.pt"
-        r = ev.run_one("learned", sc, policy=design, timeout=timeout, launcher=launcher,
+        r = ev.run_one("learned", sc, policy=policy, timeout=timeout, launcher=launcher,
                        extra=learned_args("training", ckpt_in=prev, ckpt_out=ck))
         if not r.get("ok"):
             return {"ok": False, "reason": f"training episode {k} ({sc.tag}): {r.get('reason')}",
-                    "stderr": r.get("stderr", ""), "episodes": log}
-        if prev is not None:  # the replay buffer now lives beside the newest checkpoint only
+                    "stderr": r.get("stderr", ""), "episodes": log_rows}
+        if prev is not None and not keep_buffers:  # the replay buffer now lives beside the newest checkpoint only
             Path(str(prev) + ".buffer.npz").unlink(missing_ok=True)
+            Path(str(prev) + ".buffer.meta.npz").unlink(missing_ok=True)
         stats = json.loads((Path(str(ck) + ".stats.json")).read_text())
-        log.append({"episode": sc.tag, "p99_e2e": r["p99_e2e"], "p99_ttft": r["p99_ttft"],
-                    "p99_tpot": r["p99_tpot"], "mean_e2e": r["mean_e2e"], "wall_s": r["wall_s"],
-                    "learner": stats})
+        row = {"episode": sc.tag, "p99_e2e": r["p99_e2e"], "p99_ttft": r["p99_ttft"],
+               "p99_tpot": r["p99_tpot"], "mean_e2e": r["mean_e2e"], "wall_s": r["wall_s"],
+               "learner": stats}
+        if options:
+            row.update({"scenario_seed": sc.seed, "train_seed": options.get("train_seed"), "bundle": r.get("bundle")})
+            if k == 0:
+                write_manifest(work_dir, design, run_file, episodes, TEACHER, options, bundle=r.get("bundle"),
+                               extra=manifest_extra)
+        if heldout:
+            row["heldout"] = heldout_eval(policy, ck, heldout, launcher, timeout, heldout_workers)
+            Path(str(ck) + ".heldout.json").write_text(json.dumps(row["heldout"], indent=1))
+        if probe is not None:
+            pm, prev_greedy = probe_metrics(ck, Path(probe), prev_greedy)
+            row["probe"] = pm
+            Path(str(ck) + ".probe.json").write_text(json.dumps(pm, indent=1))
+        log_rows.append(row)
         prev = ck
-    return {"ok": True, "checkpoint": str(prev), "episodes": log,
-            "train_wall_s": sum(e["wall_s"] for e in log)}
+    return {"ok": True, "checkpoint": str(prev), "episodes": log_rows,
+            "train_wall_s": sum(e["wall_s"] for e in log_rows)}
+
+
+def train_seeds(design: str, work_dir: Path, seeds=(0, 1, 2, 3, 4), **kw) -> dict:
+    """Train one design with several training seeds, one after the other, into work_dir/seed<s>/ (>= 5 seeds for
+    every finalist and key ablation; report mean +- CI across seeds, never the best seed)."""
+    return {int(s): train(design, work_dir / f"seed{int(s)}", train_seed=int(s), **kw) for s in seeds}
 
 
 def evaluate_design(design: str, work_dir: Path, scenarios=None, workers=4, launcher=None,
-                    timeout=3600, episodes=None, protocol: str = "v2", objective: str = "balanced") -> dict:
+                    timeout=3600, episodes=None, protocol: str = "v2", objective: str = "balanced",
+                    train_kw: Optional[dict] = None) -> dict:
     proto = PROTOCOLS[protocol]
     scenarios = scenarios or proto["search"] or ev.STAGE1
     episodes = episodes or proto["train"]
     baselines = tuple(ev.DEFAULT_BASELINES) + tuple(proto["references"])
-    tr = train(design, work_dir, episodes=episodes, launcher=launcher, timeout=timeout)
+    tr = train(design, work_dir, episodes=episodes, launcher=launcher, timeout=timeout, **(train_kw or {}))
     if not tr["ok"]:
         return {"combined_score": -1e9, "valid": False, "failures": {"training": tr["reason"]},
                 "training": tr}
