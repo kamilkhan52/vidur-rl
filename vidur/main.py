@@ -17,12 +17,15 @@ def main() -> None:
 
     simulator = Simulator(config)
     simulator.run()
-    simulator.write_output()
 
-    # Learning schedulers (RL_CACHE_AWARE, LEARNED) persist their network at the end.
+    # Learning schedulers (RL_CACHE_AWARE, LEARNED) persist their network at the end. Saved first, and outputs are
+    # written even if the save fails, so neither failure loses the other's result (either still exits non-zero).
     save = getattr(simulator._scheduler, "save_final_checkpoint", None)
-    if callable(save):
-        save()
+    try:
+        if callable(save):
+            save()
+    finally:
+        simulator.write_output()
 
     if simulator.stuck_requests:  # end state written to stuck_requests.json; never exit 0 with lost requests
         sys.exit(3)

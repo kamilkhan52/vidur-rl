@@ -1,3 +1,4 @@
+import dataclasses
 from abc import ABC, abstractmethod
 from math import floor
 
@@ -21,6 +22,19 @@ from vidur.scheduler.request_queue.request_queue_registry import RequestQueueReg
 from vidur.utils.memory_planner import MemoryPlanner
 
 logger = init_logger(__name__)
+
+
+def probe_cached_prefill_tokens(kv, request: Request) -> int:
+    """Router probe: tokens of the request's prompt cached in ``kv`` (a vLLM-v1 KVCacheManager). Leaves no state
+    behind (changelog GS-15): get_computed_blocks stores the request's hash list and bumps the hit statistics, which
+    used to leak one hash list per request on every replica probed but not chosen. The block pool is only read."""
+    had = request.id in kv.req_to_block_hashes
+    stats = dataclasses.replace(kv.prefix_cache_stats)
+    _, num_computed_tokens = kv.get_computed_blocks(request)
+    if not had:
+        kv.req_to_block_hashes.pop(request.id, None)
+    kv.prefix_cache_stats = stats
+    return num_computed_tokens
 
 
 class BaseReplicaScheduler(ABC):

@@ -725,8 +725,9 @@ class EvolvedGlobalSchedulerConfig(BaseGlobalSchedulerConfig):
     view_refresh_s: float = field(
         default=0.0,
         metadata={"help": "v4: the replica metrics a policy sees (waiting, running, kv_usage) are polled every this "
-                          "many seconds (0 = exact, the v3 behaviour). Router-owned counters and the prefix probe "
-                          "stay exact."},
+                          "many seconds on a fixed grid (snapshots at k * period; a decision at t sees the one at "
+                          "floor(t / period) * period). 0 = exact, the v3 behaviour. Router-owned counters and the "
+                          "prefix probe stay exact."},
     )
 
     @staticmethod
@@ -1022,7 +1023,8 @@ class ClusterConfig:
     )
     route_delay_s: float = field(
         default=0.0,
-        metadata={"help": "v4: router-to-replica hop latency in seconds (0 = instantaneous, the v3 behaviour)."},
+        metadata={"help": "v4: router-to-replica hop latency in seconds (0 = instantaneous, the v3 behaviour). The "
+                          "router decides at arrival t; the routed burst reaches its replicas together at t + delay."},
     )
 
 
