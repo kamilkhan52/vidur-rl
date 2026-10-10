@@ -1,4 +1,3 @@
-import atexit
 import heapq
 import json
 import zipfile
@@ -57,9 +56,13 @@ class Simulator:
         configure_queue_diagnostics(self._config)
 
         self._validate_request_capacity()
+        self._validate_block_size()
 
         self._init_event_queue()
-        atexit.register(self._write_output)
+        # Outputs are written by an explicit write_output() call (vidur.main), not at interpreter exit: an atexit
+        # writer that fails still lets the process exit 0, and a crash would leave partial outputs behind.
+        self._output_written = False
+        self.stuck_requests: List[dict] = []
 
     def run(self) -> None:
         logger.info(f"Starting simulation with cluster: {self._cluster}")
@@ -107,7 +110,8 @@ class Simulator:
                 replica_running += len(rs._running)
             
             pending_total = global_queue_count + replica_waiting + replica_running
-            
+            self.stuck_requests = self._collect_stuck_requests()
+
             logger.warning(
                 f"Simulation ended with pending requests in scheduler. "
                 f"Scheduler empty: {self._scheduler.is_empty()}, "
@@ -143,6 +147,37 @@ class Simulator:
                 f"holds at most {capacity} tokens; it could never be scheduled and would wedge its replica. "
                 f"Pass --trace_request_generator_config_max_tokens {capacity} (or smaller) to filter the trace."
             )
+
+    def _collect_stuck_requests(self) -> List[dict]:
+        out = [{"where": "global_queue", "request_id": r.id} for r in self._scheduler._request_queue]
+        for rid, rs in self._scheduler._replica_schedulers.items():
+            out += [{"where": "waiting", "replica": rid, "request_id": r.id} for r in rs._waiting_queue]
+            out += [{"where": "running", "replica": rid, "request_id": r.id} for r in rs._running]
+        return out
+
+    def _validate_block_size(self) -> None:
+        """Trace hash ids are only comparable with cache blocks of the same size (changelog KV-10): a trace hashed
+        at 32 tokens replayed on 16-token blocks would match prefixes wrongly and silently."""
+        sizes = {int(b) for b in getattr(self._request_generator, "_block_size", []) if b == b and b is not None}
+        cache_block = self._config.cluster_config.cache_config.block_size
+        if sizes and sizes != {cache_block}:
+            raise ValueError(f"Trace block_size {sorted(sizes)} does not match the KV cache block size {cache_block}.")
+
+    def write_output(self) -> None:
+        """Write metrics and end-state files once. Raises on failure (the caller exits non-zero)."""
+        if self._output_written:
+            return
+        self._output_written = True
+        self._write_output()
+        out_dir = self._config.metrics_config.output_dir
+        predictor = getattr(self._scheduler, "_execution_time_predictor", None)
+        info = getattr(predictor, "provenance", None)
+        if callable(info):
+            with open(f"{out_dir}/predictor_info.json", "w") as f:
+                json.dump(info(), f, indent=1, sort_keys=True)
+        if self.stuck_requests:
+            with open(f"{out_dir}/stuck_requests.json", "w") as f:
+                json.dump(self.stuck_requests, f)
 
     def _write_output(self) -> None:
         logger.info("Writing output")

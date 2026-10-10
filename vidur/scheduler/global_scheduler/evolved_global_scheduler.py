@@ -75,6 +75,24 @@ class RequestView:
     active_prefix_tokens: Tuple[int, ...] = ()
 
 
+@dataclass(frozen=True)
+class RequestOutcome:
+    """Feedback a real router sees for a request it routed, passed to an optional ``observe(outcome, ctx)``.
+
+    Sent twice per request: event "first_token" when its prefill completes (output length still hidden) and
+    event "end" when it finishes. Times are simulated seconds. For online learners (Lodestar-style) and RL.
+    """
+    event: str
+    replica: int
+    arrived_at: float
+    first_token_at: float
+    completed_at: Optional[float]
+    num_prefill_tokens: int
+    num_cached_tokens: int
+    num_decode_tokens: Optional[int]
+    session_id: Optional[int]
+
+
 class PolicyContext:
     def __init__(self, rng, num_replicas: int):
         self.rng = rng
@@ -118,6 +136,10 @@ class EvolvedGlobalScheduler(BaseGlobalScheduler):
         self._active: List[Dict[int, int]] = [dict() for _ in self._replica_ids]
         self._active_req: Dict[int, Tuple[int, Tuple[int, ...]]] = {}
         self._ctx = PolicyContext(self._random_number_generator, len(self._replica_ids))
+        # v4: polled replica metrics (waiting, running, kv_usage), refreshed every view_refresh_s (0 = exact)
+        self._view_refresh_s = getattr(gs_config, "view_refresh_s", 0.0)
+        self._polled: Optional[List[Tuple[int, int, float]]] = None
+        self._polled_at = float("-inf")
         self.policy_calls = 0
         self.policy_seconds = 0.0
 
@@ -172,19 +194,34 @@ class EvolvedGlobalScheduler(BaseGlobalScheduler):
             else:
                 counts.pop(h, None)
 
+    def _poll(self) -> List[Tuple[int, int, float]]:
+        out = []
+        for rid in self._replica_ids:
+            rs = self._replica_schedulers[rid]
+            kv = getattr(rs, "_kv_cache_manager", None)
+            out.append((len(rs._waiting_queue), len(getattr(rs, "_running", [])),
+                        kv.usage if kv is not None else 0.0))
+        return out
+
     def _replica_views(self) -> List[ReplicaView]:
+        if self._view_refresh_s > 0:
+            if self._ctx.now - self._polled_at >= self._view_refresh_s:
+                self._polled, self._polled_at = self._poll(), self._ctx.now
+            polled = self._polled
+        else:
+            polled = self._poll()
         views = []
         for i, rid in enumerate(self._replica_ids):
             rs = self._replica_schedulers[rid]
-            kv = getattr(rs, "_kv_cache_manager", None)
+            waiting, running, kv_usage = polled[i]
             views.append(
                 ReplicaView(
                     index=i,
                     outstanding_requests=self._outstanding[i],
                     pending_prefill_tokens=self._pending_prefill[i],
-                    waiting=len(rs._waiting_queue),
-                    running=len(getattr(rs, "_running", [])),
-                    kv_usage=(kv.usage if kv is not None else 0.0),
+                    waiting=waiting,
+                    running=running,
+                    kv_usage=kv_usage,
                     kv_capacity_tokens=getattr(rs, "max_request_total_tokens", 0),
                 )
             )
@@ -279,6 +316,20 @@ class EvolvedGlobalScheduler(BaseGlobalScheduler):
 
     # ------------------------------------------------------------- feedback
 
+    def _observe(self, request: Request, idx: int, event: str) -> None:
+        observe = getattr(self._policy, "observe", None)
+        if observe is None:
+            return
+        end = event == "end"
+        self._call(observe, RequestOutcome(
+            event=event, replica=idx, arrived_at=request.arrived_at,
+            first_token_at=request.prefill_completed_at,
+            completed_at=request.completed_at if end else None,
+            num_prefill_tokens=request.original_num_prefill_tokens,
+            num_cached_tokens=request.num_prefill_tokens_cached,
+            num_decode_tokens=request.original_num_decode_tokens if end else None,
+            session_id=request.session_id))
+
     def on_prefill_end(self, request: Request) -> None:
         # Prefill completes again after a preemption restart; count it once.
         # (The built-in LOP_UNCACHED decrements on every prefill end.)
@@ -288,10 +339,12 @@ class EvolvedGlobalScheduler(BaseGlobalScheduler):
             self._pending_prefill[idx] -= uncached
             self._prefilled.add(request.id)
             self._inflight_drop(request.id)
+            self._observe(request, idx, "first_token")
 
     def on_request_end(self, request: Request) -> None:
         info = self._assigned.pop(request.id, None)
         if info is not None:
+            self._observe(request, info[0], "end")
             self._outstanding[info[0]] -= 1
             if request.id not in self._prefilled:  # defensive: prefill end not seen
                 self._pending_prefill[info[0]] -= info[1]

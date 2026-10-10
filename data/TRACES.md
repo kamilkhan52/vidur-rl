@@ -11,3 +11,15 @@ Check with `cd data && shasum -a 256 -c TRACES.sha256`.
 
 Raw traces: Mooncake FAST'25 release (`raw_traces/*.jsonl`, Apache-2.0).
 To rebuild Tool: `.venv/bin/python scripts/convert_mooncake_traces.py --trace toolagent`.
+
+## v4 traces (simulator release v4, 2026-10-10)
+
+`processed_traces/*_v4.csv`, built by `.venv/bin/python scripts/convert_mooncake_traces.py --v4` (not committed: Tool is over 100 MB; rebuild and check against `TRACES.sha256`).
+- **Prompts unpadded:** `num_prefill_tokens` equals Mooncake's `input_length`, which removes the v3 pads of +287 / +512 / +302 tokens (Tool / Conv / Synth means). Total tokens drop 3.2 / 4.0 / 1.9 %.
+- **Hash ids:**
+  - The prompt's full 16-token blocks take the Mooncake block sub-ids.
+  - The partial last prompt block and the decode blocks get ids unique to the row.
+  - The list keeps (P + D) // 16 entries and is never truncated (changelog SC-1).
+- **Sessions:** carried over row by row from the v3 files, including Conv's upstream ids. Session inference is unchanged.
+- **Lint:** all three files pass `scripts/lint_trace.py`.
+- **Over 128K:** 10 Synth requests exceed Llama-3.1's 128K context; the harness drops them (`MAX_CONTEXT`).

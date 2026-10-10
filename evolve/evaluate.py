@@ -47,13 +47,23 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "scripts"))
 from tail_metrics import summarize_rows  # noqa: E402
 
+# v4 traces (2026-10-10): every trace converted by scripts/convert_mooncake_traces.py --v4 from the raw Mooncake
+# files: true prompt lengths (v3 padded prompts to whole 512-token blocks: +287 / +512 / +302 tokens on
+# Tool / Conv / Synth), sessions carried over row by row from the v3 files. Checksums: data/TRACES.sha256.
 TRACES = {
-    "Tool": REPO / "data/processed_traces/mooncake_toolagent_trace.csv",
-    # v1 conversation trace: the file every Alpine experiment used (git-tracked; identical on all
-    # machines). The untracked v2 differs in prompt padding and inferred sessions.
-    "Conv": REPO / "data/processed_traces/mooncake_conversation_trace.csv",
-    "Synth": REPO / "data/processed_traces/mooncake_synthetic_trace.csv",
+    "Tool": REPO / "data/processed_traces/mooncake_toolagent_trace_v4.csv",
+    "Conv": REPO / "data/processed_traces/mooncake_conversation_trace_v4.csv",
+    "Synth": REPO / "data/processed_traces/mooncake_synthetic_trace_v4.csv",
 }
+# EVOLVE_V3_DATA=1: v3 traces and no context cap, for byte-identity checks of behaviour-preserving changes against
+# the v3 golden set, and for v3-vs-v4 comparisons.
+V3_DATA = os.environ.get("EVOLVE_V3_DATA") == "1"
+if V3_DATA:
+    TRACES = {
+        "Tool": REPO / "data/processed_traces/mooncake_toolagent_trace.csv",
+        "Conv": REPO / "data/processed_traces/mooncake_conversation_trace.csv",
+        "Synth": REPO / "data/processed_traces/mooncake_synthetic_trace.csv",
+    }
 BUCKETED = {"Tool", "Conv"}  # Mooncake conv/tool timestamps are 3 s buckets
 # KV-cache tokens per replica, from Vidur's MemoryPlanner (A100 80 GB). Llama-2's attention is profiled only up to
 # 4,032 KV tokens (its context window), and the random-forest predictor is flat beyond that; 58-81 % of the prefill
@@ -62,6 +72,13 @@ KV_CAPACITY = {"7b": 122752, "70b": 525920, "l3_8b": 483328, "l3_70b": 525920}
 MODEL_NAME = {"7b": "meta-llama/Llama-2-7b-hf", "70b": "meta-llama/Llama-2-70b-hf", "l3_8b": "meta-llama/Meta-Llama-3-8B",
               "l3_70b": "meta-llama/Meta-Llama-3-70B"}
 TP = {"7b": 1, "70b": 4, "l3_8b": 1, "l3_70b": 4}
+# v4: the Meta-Llama-3 profiles stand in for Llama-3.1 (same architecture; 3.1 differs in RoPE scaling and its
+# 128K context). Requests longer than the model's context are dropped from the trace (10 Synth requests).
+MODEL_LABEL = {"7b": "Llama-2-7B", "70b": "Llama-2-70B", "l3_8b": "Llama-3.1-8B (Meta-Llama-3-8B profile)",
+               "l3_70b": "Llama-3.1-70B (Meta-Llama-3-70B profile)"}
+MAX_CONTEXT = {} if V3_DATA else {"l3_8b": 131072, "l3_70b": 131072}  # Llama-2 keeps v3 behaviour (supplementary)
+# KV capacity on other devices, from Vidur's MemoryPlanner; filled in as deployments are added.
+KV_CAPACITY_DEVICE: Dict[tuple, int] = {}
 SEED_FLAG = {
     "random": "random_global_scheduler_config_seed",
     "round_robin": "round_robin_global_scheduler_config_seed",
@@ -72,7 +89,8 @@ SEED_FLAG = {
     "learned": "learned_global_scheduler_config_seed",
 }
 DEFAULT_BASELINES = ("sticky_lor", "lor", "round_robin", "random", "lop_uncached")
-CACHE_DIR = Path(os.environ.get("EVOLVE_CACHE_DIR", REPO / "evolve" / ".cache"))
+# One cache directory per simulator release, so v3 and v4 numbers never mix (keys also carry code_version).
+CACHE_DIR = Path(os.environ.get("EVOLVE_CACHE_DIR", REPO / "evolve" / ".cache_v4"))
 
 
 @dataclass(frozen=True)
@@ -87,6 +105,7 @@ class Scenario:
     warmup_frac: float = 0.2  # requests arriving in the first 20 % of the window are not scored
     transform: str = ""  # stress workload applied to the window: see TRANSFORMS (EXP12 v3)
     jitter_s: float = -1.0  # >= 0 overrides the arrival jitter (protocol v2: Synth arrivals jittered too)
+    device: str = "a100"  # v4: A100 or H100 twins (profiles exist for both)
 
     @property
     def seed(self) -> int:
@@ -103,7 +122,8 @@ class Scenario:
         w = "full" if self.window_start < 0 else f"w{self.window_start}+{self.window_len}"
         x = f"-{self.transform}" if self.transform else ""
         j = f"-j{self.jitter_s:g}" if self.jitter_s >= 0 else ""
-        return f"{self.model}-{self.replicas}R-{self.trace}-s{self.scale}-{w}-p{self.perturbation}{x}{j}"
+        d = "" if self.device == "a100" else f"-{self.device}"
+        return f"{self.model}{d}-{self.replicas}R-{self.trace}-s{self.scale}-{w}-p{self.perturbation}{x}{j}"
 
 
 # Stage-1 search set (2026-09-29, from frontier v2): FULL traces in the band where
@@ -135,6 +155,10 @@ HELDOUT_V2 = (
 )
 BAR_V2 = DEFAULT_BASELINES + tuple(
     f"policy:{REPO / 'evolve' / 'policies' / 'systems' / n}.py" for n in ("mooncake_min_ttft", "dynamo_kv_cost"))
+# v4 bar (readiness plan §5): v2 bar + power-of-two and JSQ-on-KV floors. The equal-budget tuned Mooncake/Dynamo
+# constants join after evolve/analysis/tune_baselines.py has run on search3b (added before the first v4 search).
+BAR_V4 = BAR_V2 + tuple(f"policy:{REPO / 'evolve' / 'policies' / 'floor' / n}.py"
+                        for n in ("p2c_outstanding", "p2c_kv", "jsq_kv"))
 # Final test set (2026-10-07): the held-out set has been used to choose among policies, so final claims are
 # made on fresh draws evaluated once, for frozen finalists only. Same shape as HELDOUT_V2: Tool/Conv p6-p8,
 # Synth p4-p6, 16R likewise.
@@ -164,11 +188,13 @@ SEARCH_L3B = SEARCH_L3 + [Scenario("Synth", 8, sc, -1, 0, 7, model="l3_8b", jitt
 # Second fresh test set (2026-10-09), fixed before any round-3 candidate was looked at: test3 has been used once (for
 # the frozen round-2 finalists); a later winner needs draws nobody has seen. Same shape: Tool/Conv p9-p11, Synth
 # p8-p10 (p7 is in search3b), 16R likewise.
+# v4 (evolve/SELECTION.md draft, 2026-10-10): test3b grows to 5 draws per configuration (Tool/Conv p9-p13, Synth
+# p8-p12) before any policy has been run on it, to meet the >= 5 paired-seed rule.
 TEST_L3B = _on("l3_8b",
-    [Scenario(t, 8, sc, -1, 0, p) for t in ("Tool", "Conv") for sc in (1.0, 0.75) for p in (9, 10, 11)]
-    + [Scenario("Synth", 8, sc, -1, 0, p, jitter_s=SYNTH_JITTER_S) for sc in (1.0, 0.75) for p in (8, 9, 10)]
-    + [Scenario(t, 16, 0.5, -1, 0, p) for t in ("Tool", "Conv") for p in (9, 10, 11)]
-    + [Scenario("Synth", 16, 0.5, -1, 0, p, jitter_s=SYNTH_JITTER_S) for p in (8, 9, 10)])
+    [Scenario(t, 8, sc, -1, 0, p) for t in ("Tool", "Conv") for sc in (1.0, 0.75) for p in range(9, 14)]
+    + [Scenario("Synth", 8, sc, -1, 0, p, jitter_s=SYNTH_JITTER_S) for sc in (1.0, 0.75) for p in range(8, 13)]
+    + [Scenario(t, 16, 0.5, -1, 0, p) for t in ("Tool", "Conv") for p in range(9, 14)]
+    + [Scenario("Synth", 16, 0.5, -1, 0, p, jitter_s=SYNTH_JITTER_S) for p in range(8, 13)])
 # Model generalisation on Meta-Llama-3-70B TP4 (attention profiled to 262k). Calibrated on Tool/Conv p1 with LOR /
 # sticky / LOP: scale 1.5 overloads (P99 E2E 2,766-3,837 s), 2.0 is the knee (sticky 0.43x / 0.51x LOR on Tool /
 # Conv, 693 / 1,075 s), 3.0 moderate (135-209 s; LOP best TTFT), 4.0 light. Fresh draws p2, p3.
@@ -267,12 +293,12 @@ def _atomic_write(path: Path, write) -> None:
 
 def _window_csv(sc: Scenario) -> Path:
     src = TRACES[sc.trace]
-    key = hashlib.sha256(f"{file_sha(src)}|{sc.window_start}|{sc.window_len}|{KV_CAPACITY[sc.model]}".encode()).hexdigest()[:16]
+    key = hashlib.sha256(f"{file_sha(src)}|{sc.window_start}|{sc.window_len}|{max_request_tokens(sc)}".encode()).hexdigest()[:16]
     out = CACHE_DIR / "windows" / f"{sc.trace}_{sc.window_start}_{sc.window_len}_{key}.csv"
     if out.exists():
         return out
     df = pd.read_csv(src)
-    df = df[(df.num_prefill_tokens + df.num_decode_tokens) <= KV_CAPACITY[sc.model]].reset_index(drop=True)
+    df = df[(df.num_prefill_tokens + df.num_decode_tokens) <= max_request_tokens(sc)].reset_index(drop=True)
     if sc.window_start >= 0:
         df = df.iloc[sc.window_start: sc.window_start + sc.window_len].copy()
         if len(df) < sc.window_len:
@@ -308,6 +334,27 @@ _VERSION_EXCLUDE = {
 _VERSION: Dict[str, str] = {}
 
 
+_BUNDLE_SHA: Dict[str, str] = {}
+
+
+def bundle_fingerprint(bundle_key: str) -> str:
+    """'<bundle key>:<first 12 hex of the bundle file's sha256>'. Two runs with equal fingerprints used the same
+    prediction table byte for byte; forests retrained on another machine give the same key but a different sha."""
+    if bundle_key not in _BUNDLE_SHA:
+        p = REPO / "cache" / f"prediction_bundle_{bundle_key}.pkl"
+        _BUNDLE_SHA[bundle_key] = file_sha(p)[:12] if p.exists() else "missing"
+    return f"{bundle_key}:{_BUNDLE_SHA[bundle_key]}"
+
+
+def provenance() -> dict:
+    """Library and host versions recorded next to results (not hashed into code_version, so that caches from
+    machines with different library builds can still be pooled after the golden set shows them byte-identical)."""
+    import platform
+    import sklearn
+    return {"code_version": code_version(), "python": platform.python_version(), "numpy": np.__version__,
+            "pandas": pd.__version__, "sklearn": sklearn.__version__, "host": platform.node()}
+
+
 def code_version() -> str:
     """Content hash of the simulator + harness files that determine a run's outcome.
 
@@ -324,12 +371,16 @@ def code_version() -> str:
             )
             files = [f for f in files if f not in _VERSION_EXCLUDE]
             files += ["scripts/tail_metrics.py"]
+            # v4: the profiling data the predictor trains on (a replaced profile CSV must invalidate baselines).
+            files += sorted(
+                str((Path(d) / f).relative_to(REPO)).replace(os.sep, "/")
+                for d, _, names in os.walk(REPO / "data" / "profiling") for f in names if f.endswith(".csv"))
             h = hashlib.sha256()
             for f in files:
                 h.update(f.encode())
                 h.update(file_sha(REPO / f).encode())
             # The parts of this harness that shape a run (not the scenario lists or scoring).
-            for fn in (sim_command, run_one, _window_csv):
+            for fn in (sim_command, run_one, _window_csv, max_request_tokens):
                 h.update(inspect.getsource(fn).encode())
             _VERSION["v"] = "c" + h.hexdigest()[:11]
         except Exception:
@@ -337,12 +388,18 @@ def code_version() -> str:
     return _VERSION["v"]
 
 
+def max_request_tokens(sc: Scenario) -> int:
+    """Largest request kept in the trace: the replica's KV capacity, capped by the model's context window."""
+    cap = KV_CAPACITY[sc.model] if sc.device == "a100" else KV_CAPACITY_DEVICE[(sc.model, sc.device)]
+    return min(cap, MAX_CONTEXT.get(sc.model, cap))
+
+
 def sim_command(scheduler: str, policy: Optional[str], sc: Scenario, trace_csv: Path, out_dir: Path,
                 extra: Optional[List[str]] = None) -> List[str]:
     gtype = scheduler if scheduler in ("evolved", "learned") else ("evolved" if policy else scheduler)
     cmd = [
         sys.executable, "-m", "vidur.main",
-        "--replica_config_device", "a100",
+        "--replica_config_device", sc.device,
         "--replica_config_model_name", MODEL_NAME[sc.model],
         "--replica_config_tensor_parallel_size", str(TP[sc.model]),
         "--cluster_config_num_replicas", str(sc.replicas),
@@ -351,7 +408,7 @@ def sim_command(scheduler: str, policy: Optional[str], sc: Scenario, trace_csv: 
         "--request_generator_config_type", "trace",
         "--trace_request_generator_config_trace_file", str(trace_csv),
         "--trace_request_generator_config_time_scale_factor", str(sc.scale),
-        "--trace_request_generator_config_max_tokens", str(KV_CAPACITY[sc.model]),
+        "--trace_request_generator_config_max_tokens", str(max_request_tokens(sc)),
         "--trace_request_generator_config_seed", str(sc.seed),
         "--seed", str(sc.seed),
         f"--{SEED_FLAG[gtype]}", str(sc.seed),
@@ -375,8 +432,13 @@ def run_one(scheduler: str, sc: Scenario, policy: Optional[str] = None, timeout:
     """Simulate one scenario; return the tail summary or a failure record. Never raises."""
     trace_csv = window_csv(sc)
     n_expected = len(pd.read_csv(trace_csv, usecols=["arrived_at"]))
+    keep = os.environ.get("EVOLVE_KEEP_DIR")  # v4: keep per-request outputs (request_metrics.csv, token gaps)
     with tempfile.TemporaryDirectory(prefix="evolve_") as tmp:
-        out_dir = Path(tmp) / "out"
+        who = scheduler if not policy else f"{Path(policy).stem}_{file_sha(Path(policy))[:8]}"
+        out_dir = (Path(keep) / code_version() / sc.tag / who) if keep else Path(tmp) / "out"
+        if keep and out_dir.exists():
+            import shutil
+            shutil.rmtree(out_dir)
         cmd = (launcher or []) + sim_command(scheduler, policy, sc, trace_csv, out_dir, extra)
         t0 = time.time()
         try:
@@ -391,6 +453,8 @@ def run_one(scheduler: str, sc: Scenario, policy: Optional[str] = None, timeout:
         if not files:
             return {"ok": False, "reason": "no request_metrics.csv", "wall_s": wall}
         df = pd.read_csv(files[0])
+        info_files = list(out_dir.rglob("predictor_info.json"))
+        info = json.loads(info_files[0].read_text()) if info_files else {}
         gaps_file = files[0].parent / "token_gaps.npz"
         gaps = np.load(gaps_file) if gaps_file.exists() else None
         gap, gap_req = (gaps["gap"], gaps["request_id"]) if gaps is not None else (None, None)
@@ -410,6 +474,8 @@ def run_one(scheduler: str, sc: Scenario, policy: Optional[str] = None, timeout:
                   "p99_tbt": float(np.percentile(g, 99)), "p999_tbt": float(np.percentile(g, 99.9)),
                   "mean_tbt": float(g.mean()), "n_tbt": int(len(g))})
     s.update({"ok": True, "completed": completed, "scored": len(df), "wall_s": wall})
+    if info:
+        s.update({"bundle": bundle_fingerprint(info["bundle_key"]), "clamp_hits": info.get("clamp_hits", {})})
     return s
 
 
@@ -491,6 +557,9 @@ def score(candidate: Dict[Scenario, dict], base: dict, baselines=DEFAULT_BASELIN
     rows, per_s = [], []
     penalty = 0.0
     for sc, res in candidate.items():
+        bundles = {r["bundle"] for r in [res] + [base[(b, sc)] for b in baselines] if r.get("bundle")}
+        if len(bundles) > 1:
+            raise ValueError(f"{sc.tag}: runs used different prediction bundles {sorted(bundles)}")
         s = 0.0
         for m in (m for m in ("e2e", "ttft", "tpot", "tbt") if w.get(m)):
             best = min(base[(b, sc)][f"p99_{m}"] for b in baselines)

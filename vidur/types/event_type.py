@@ -13,3 +13,4 @@ class EventType(BaseIntEnum):
     GLOBAL_SCHEDULE = 7  # push requests event
     REPLICA_SCHEDULE = 8  # includes pull requests functionality
     REPLICA_STAGE_SCHEDULE = 9
+    ROUTE_DELIVERY = 10  # v4: a routed request reaches its replica after the router hop latency

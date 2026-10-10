@@ -5,7 +5,6 @@ the real simulator (about ten seconds each on a laptop). They need the predictor
 cache under ``cache/`` and the processed trace under ``data/processed_traces``.
 """
 
-import atexit
 import os
 import sys
 from pathlib import Path
@@ -128,11 +127,7 @@ def build_simulator(argv):
     finally:
         sys.argv = saved
     set_seeds(config.seed)
-    simulator = Simulator(config)
-    # The simulator registers its output writer with atexit; tests do not want
-    # dozens of writers firing at interpreter exit.
-    atexit.unregister(simulator._write_output)
-    return simulator
+    return Simulator(config)
 
 
 def run_simulator(argv):
