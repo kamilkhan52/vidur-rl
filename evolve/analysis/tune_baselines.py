@@ -127,7 +127,7 @@ def load_history(log: Path) -> dict:
                 raise
             continue
         good.append(line)
-        done[json.dumps(r["params"], sort_keys=True)] = r
+        done.setdefault(json.dumps(r["params"], sort_keys=True), r)  # a duplicate: the ES consumed the first
     text = "".join(l + "\n" for l in good)
     if log.read_text() != text:
         tmp = log.with_suffix(".tmp")
@@ -172,7 +172,9 @@ def main():
     if (run / "meta.json").exists():
         old = json.loads((run / "meta.json").read_text())
         if old != meta:
-            raise SystemExit(f"run dir was started with {old}, not {meta}")
+            diff = {k: (old.get(k), meta.get(k)) for k in sorted(set(old) | set(meta)) if old.get(k) != meta.get(k)}
+            raise SystemExit(f"{run} was started with other settings or code: {diff} (recorded, now). Resume it with "
+                             "the original settings and tuner/template files, or start a new --run-dir.")
     else:
         _write_atomic(run / "meta.json", json.dumps(meta, indent=2))
     done = load_history(log)
@@ -181,6 +183,7 @@ def main():
 
     lock = threading.Lock()
     gen = [-1]  # ES generation being evaluated (-1 = the defaults); set before each population is scored
+    fresh = [0]  # evaluations run (not replayed) by this process
 
     def score(params: dict) -> float:
         key = json.dumps(params, sort_keys=True)
@@ -188,6 +191,7 @@ def main():
             loaded.discard(key)
             if key in done:
                 return done[key]["fitness"]
+            fresh[0] += 1
         # Named by content, so a resumed run never reuses another candidate's file name.
         path = run / "candidates" / f"{a.family}_{hashlib.sha256(key.encode()).hexdigest()[:10]}.py"
         path.write_text(render(template, params))
@@ -213,7 +217,13 @@ def main():
     with cf.ThreadPoolExecutor(max_workers=a.parallel) as ex:
         def evaluate(pop):
             gen[0] += 1
-            return list(ex.map(lambda u: score(params_of(u)), pop))
+            before = fresh[0]
+            out = list(ex.map(lambda u: score(params_of(u)), pop))
+            # Records are written generation by generation, so once a generation needed a new evaluation every
+            # recorded one must have been revisited; otherwise the history is from another trajectory (seed, code).
+            if fresh[0] > before and loaded:
+                raise SystemExit(f"{len(loaded)} recorded evaluations are not on the replayed ES trajectory")
+            return out
 
         ask_tell(a.budget - 1, len(names), evaluate, seed=a.seed)
     if loaded:  # records the replayed trajectory never asked for: the history is not this run's

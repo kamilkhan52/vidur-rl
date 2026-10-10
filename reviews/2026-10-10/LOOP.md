@@ -10,7 +10,7 @@ cached baselines depend on `c16266a8ef49`).
 | B | harness, traces, driver/bar_eval --bar | approve with minors: 2 major, 5 minor | majors accepted (table values folded into code_version only when they differ from today's, so c16266a8ef49 stays valid; behavioural test); minors accepted except bundle mid-run swap (noted) | 8dab76b, 16ffa55 | approve with minors (BD_r2); unhashable-table minor fixed; deferred: bundle-fingerprint parts 3-4, warmup_frac, old-run-dir budget count, nits. **Done.** |
 | C | golden-set tool | changes requested: 2 major, 5 minor | all accepted; extended cells (preemption, route delay, view refresh, observe) as an opt-in set | 97e18c4 | approve with minors (C_r2); --force minor fixed 29ca349; nits noted. **Done.** |
 | D | floor/tunable baselines, ES tuner, head_to_head, campaign launcher | changes requested: 1 blocking, 4 major, 5 minor | all accepted except #10 (p2c n=1; editing changes the baseline key); tuner #4-6 fixed and synced to Alpine (068fd0b) | 068fd0b, 8dab76b, 7cb131c | round 2: 1 new major (tuner retry changed trajectory) fixed in 7cb131c and synced to Alpine; round 3 running (D_r3) |
-| E | sim_fork | changes requested: 5 major, 2 minor, 1 nit | all accepted; headroom agent warned (forced-decision policy memory confounds lookahead numbers) | bc0b369 | round 2 running (E_r2) |
+| E | sim_fork | changes requested: 5 major, 2 minor, 1 nit | all accepted; headroom agent warned (forced-decision policy memory confounds lookahead numbers) | bc0b369 | round 2: changes requested (2 major: unchanged-state shortcut wrong for SGLang/AIBrix; module-state check misses patterns); fixer resumed, also adds record-only forcing for headroom |
 | F | RL learner, rl_task, rl_offline, rl_stats, logging | approve with minors: 1 major, 6 minor, 2 nit | all accepted; train_seed=None behaviour kept (byte-identity), quirk documented | 7435890, 2ab8918 | approve with minors (F_r2); git-lock and mid-run learner-edit minors fixed; nits noted (rl_offline outputs not regenerated). **Done.** |
 
 Not yet reviewed: `evolve/rl_plan/` (headroom pilot; agent still running, uncommitted).
@@ -25,3 +25,7 @@ Not yet reviewed: `evolve/rl_plan/` (headroom pilot; agent still running, uncomm
   `commit_policy_state` in headroom.py with a test. Review G after the sim_fork fixer finishes (headroom keeps its own
   force code; unify with sim_fork's mechanism if possible), then rerun Tool and Conv at H=64.
 | G | rl_plan headroom pilot (uncommitted) | round 1 running (G_r1) | | | |
+- 2026-10-10 G round 1: changes requested (3 major: horizon too short to see window P99 effects; lex hinge-first score
+  hinge-driven on Tool; stale summary reuse; 5 minor). All accepted. Horizon and score are pilot-methodology choices
+  that also inform the MDP discussion (Q-list); the fixer implements a time horizon with arrivals continuing and an
+  H sweep, keeps lex as an option, and switches forcing to sim_fork (record-only mode) after E round 2 settles.

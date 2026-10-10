@@ -163,7 +163,7 @@ def test_resume_after_a_mid_run_failure_and_a_kill_follows_the_original_trajecto
         x = float(re.search(r"^PREFILL_SCALE = (.*)$", open(path).read(), re.M).group(1))
         first = x not in seen
         seen.add(x)
-        if first and len(seen) == 5:  # a transient failure (would succeed on retry), consumed by the ES
+        if first and len(seen) == 21:  # a transient failure (would succeed on retry), consumed by the ES
             return {"combined_score": -1e9, "valid": False, "failures": {"s": {"reason": "timeout"}}}
         return {"combined_score": -abs(x - 2.0), "valid": True, "code_version": ev.code_version()}
 
@@ -176,7 +176,7 @@ def test_resume_after_a_mid_run_failure_and_a_kill_follows_the_original_trajecto
         return [json.loads(l) for l in (d / "history.jsonl").read_text().splitlines()]
 
     full = run(tmp_path / "full")
-    for cut in (3, 12, 25):  # killed in the defaults' generation, mid-run, after finishing
+    for cut in (3, 12, 22, 25):  # killed early, mid-run, just after the failure, after finishing
         seen.clear()
         seen.update(float(r["params"]["PREFILL_SCALE"]) for r in full[:cut])  # recorded: a retry would succeed
         part = tmp_path / f"part{cut}"
@@ -189,3 +189,45 @@ def test_resume_after_a_mid_run_failure_and_a_kill_follows_the_original_trajecto
         assert key(resumed) == key(full)
         pick = lambda d: {k: v for k, v in json.loads((d / "best.json").read_text()).items() if k != "file"}
         assert pick(part) == pick(tmp_path / "full")
+
+
+def test_a_history_from_another_trajectory_is_refused_within_a_generation(tmp_path, monkeypatch):
+    import json
+    import sys
+    import pytest
+    from evolve import evaluate as ev
+    from evolve.analysis import tune_baselines as tb
+    calls = []
+
+    def fake_eval(path, scenarios, workers, baselines, objective):
+        calls.append(path)
+        x = float(re.search(r"^PREFILL_SCALE = (.*)$", open(path).read(), re.M).group(1))
+        return {"combined_score": -abs(x - 2.0), "valid": True, "code_version": ev.code_version()}
+
+    monkeypatch.setattr(ev, "evaluate_policy", fake_eval)
+    monkeypatch.setattr(ev, "ensure_baselines", lambda *a, **k: None)
+    for seed, d in ((0, "a"), (1, "b")):
+        monkeypatch.setattr(sys, "argv", ["tb", "--family", "dynamo", "--budget", "25", "--seed", str(seed),
+                                          "--run-dir", str(tmp_path / d)])
+        tb.main()
+    # seed-1 history under seed-0 settings (as if the history had been copied into the wrong run dir)
+    (tmp_path / "a" / "history.jsonl").write_text((tmp_path / "b" / "history.jsonl").read_text())
+    (tmp_path / "a" / "best.json").unlink()
+    n = len(calls)
+    monkeypatch.setattr(sys, "argv", ["tb", "--family", "dynamo", "--budget", "25", "--run-dir", str(tmp_path / "a")])
+    with pytest.raises(SystemExit, match="not on the replayed ES trajectory"):
+        tb.main()
+    assert len(calls) - n <= tb.lam_of(2)  # caught within the first generation that needed new evaluations
+
+
+def test_meta_mismatch_names_the_differing_keys(tmp_path, monkeypatch):
+    import json
+    import sys
+    import pytest
+    from evolve.analysis import tune_baselines as tb
+    run = tmp_path / "r"
+    run.mkdir()
+    (run / "meta.json").write_text(json.dumps({"family": "dynamo", "seed": 7}))
+    monkeypatch.setattr(sys, "argv", ["tb", "--family", "dynamo", "--budget", "5", "--run-dir", str(run)])
+    with pytest.raises(SystemExit, match=r"'seed': \(7, 0\).*start a new --run-dir"):
+        tb.main()
