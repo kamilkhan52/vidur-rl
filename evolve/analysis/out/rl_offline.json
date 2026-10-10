@@ -1,0 +1,2051 @@
+{
+ "generated": "2026-10-10 01:32",
+ "candidates": {
+  "rl_loto_r2/e413fe9e193c": {
+   "candidate": "rl_loto_r2/e413fe9e193c",
+   "buffer": "evolve/runs/rl_loto_r2/training/e413fe9e193c/net_ep11.pt.buffer.npz",
+   "fitness": -0.040590455556792304,
+   "T": 92915,
+   "N": 8,
+   "F": 59,
+   "algorithm": "bandit",
+   "episode_tags": [
+    "7b-8R-Tool-s1.0-w10000+4000-p4",
+    "7b-8R-Synth-s1.0-full-p4",
+    "7b-8R-Tool-s1.0-w2000+4000-p5-ramp",
+    "7b-8R-Synth-s1.0-full-p5-burst",
+    "7b-8R-Tool-s0.75-w16000+4000-p6",
+    "7b-8R-Synth-s0.75-full-p6",
+    "7b-8R-Tool-s0.75-w6000+4000-p6-mix-Synth",
+    "7b-8R-Synth-s0.75-full-p7-ramp",
+    "7b-8R-Tool-s0.75-full-p7-burst",
+    "7b-8R-Synth-s0.75-full-p8-mix-Tool",
+    "7b-8R-Tool-s0.75-full-p7",
+    "7b-8R-Synth-s0.75-full-p9"
+   ],
+   "dedup_removed": 1743,
+   "groups": {
+    "request / cluster / regime": [
+     0,
+     1,
+     2,
+     3,
+     4,
+     5,
+     6,
+     7,
+     8,
+     9,
+     10,
+     11,
+     12,
+     13,
+     14,
+     15
+    ],
+    "standing prefill backlog here": [
+     16,
+     17,
+     18,
+     19,
+     20,
+     21,
+     22
+    ],
+    "decode occupancy": [
+     23,
+     24,
+     25,
+     26
+    ],
+    "KV now and projected after this action": [
+     27,
+     28,
+     29,
+     30,
+     31,
+     32
+    ],
+    "cache state of this request here": [
+     33,
+     34,
+     35,
+     36,
+     37,
+     38,
+     39
+    ],
+    "post-routing backlog this action commits, and the wait it implies": [
+     40,
+     41,
+     42,
+     43,
+     44,
+     45,
+     46,
+     47
+    ],
+    "marginal cluster cost of this action": [
+     48,
+     49,
+     50
+    ],
+    "interference crossovers": [
+     51,
+     52,
+     53,
+     54,
+     55,
+     56,
+     57
+    ],
+    "the deterministic zero-mean externality price of this action": [
+     58
+    ]
+   },
+   "price_feature": 58,
+   "price_clipped_frac": 0.0,
+   "var_share_of_price": 0.23034897153553133,
+   "state_features": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15
+   ],
+   "fold_rows": [
+    23599,
+    23599,
+    22905,
+    21069
+   ],
+   "representation": {
+    "r": {
+     "0": {
+      "train_ev": 0.5054309816913272,
+      "val_ev": 0.46887385100364687,
+      "val_ev_mean": 0.44800742139604527,
+      "val_ev_min": 0.33487746633099025,
+      "val_ev_folds": [
+       0.5194,
+       0.5183,
+       0.3349,
+       0.4194
+      ]
+     },
+     "16": {
+      "train_ev": 0.6083843945452303,
+      "val_ev": 0.5136465900879663,
+      "val_ev_mean": -0.1686063118167239,
+      "val_ev_min": -2.307740631788067,
+      "val_ev_folds": [
+       0.606,
+       0.5698,
+       -2.3077,
+       0.4575
+      ]
+     },
+     "64": {
+      "train_ev": 0.640586816325918,
+      "val_ev": 0.529230343284687,
+      "val_ev_mean": 0.32151314993110963,
+      "val_ev_min": -0.37841545806886545,
+      "val_ev_folds": [
+       0.606,
+       0.5394,
+       -0.3784,
+       0.519
+      ]
+     },
+     "256": {
+      "train_ev": 0.6648089297155753,
+      "val_ev": 0.5257183304103259,
+      "val_ev_mean": 0.47196763909920697,
+      "val_ev_min": 0.24862002674556005,
+      "val_ev_folds": [
+       0.5878,
+       0.5416,
+       0.2486,
+       0.5098
+      ]
+     },
+     "1024": {
+      "train_ev": 0.6759026732687985,
+      "val_ev": 0.5285559612841384,
+      "val_ev_mean": 0.44920982255311964,
+      "val_ev_min": 0.1619709983825406,
+      "val_ev_folds": [
+       0.5778,
+       0.5271,
+       0.162,
+       0.53
+      ]
+     }
+    },
+    "r_out": {
+     "0": {
+      "train_ev": 0.5028510176920311,
+      "val_ev": 0.4451974555942626,
+      "val_ev_mean": 0.44073096187881433,
+      "val_ev_min": 0.312960306151558,
+      "val_ev_folds": [
+       0.5326,
+       0.5596,
+       0.313,
+       0.3578
+      ]
+     },
+     "16": {
+      "train_ev": 0.6066553802885728,
+      "val_ev": 0.5225671279769863,
+      "val_ev_mean": 0.4492776192464083,
+      "val_ev_min": 0.1343798932904544,
+      "val_ev_folds": [
+       0.6176,
+       0.6122,
+       0.1344,
+       0.4329
+      ]
+     },
+     "64": {
+      "train_ev": 0.6390697188285954,
+      "val_ev": 0.5235128191909336,
+      "val_ev_mean": 0.4763331727058958,
+      "val_ev_min": 0.23465782736635632,
+      "val_ev_folds": [
+       0.6236,
+       0.5906,
+       0.2347,
+       0.4564
+      ]
+     },
+     "256": {
+      "train_ev": 0.6665292216917289,
+      "val_ev": 0.5120094013936931,
+      "val_ev_mean": 0.4033558654329803,
+      "val_ev_min": -0.003367213690302906,
+      "val_ev_folds": [
+       0.5928,
+       0.5902,
+       -0.0034,
+       0.4338
+      ]
+     },
+     "1024": {
+      "train_ev": 0.6884010196851804,
+      "val_ev": 0.5140060361412668,
+      "val_ev_mean": 0.47071057744185973,
+      "val_ev_min": 0.2630705509010325,
+      "val_ev_folds": [
+       0.5918,
+       0.5728,
+       0.2631,
+       0.4552
+      ]
+     }
+    }
+   },
+   "representation_rowsplit_w64": {
+    "r": {
+     "train_ev": 0.6334317998536143,
+     "val_ev": 0.6142044526037168,
+     "val_ev_mean": 0.6111210809202902,
+     "val_ev_min": 0.5971077629438227,
+     "val_ev_folds": [
+      0.619,
+      0.6128,
+      0.6156,
+      0.5971
+     ]
+    },
+    "r_out": {
+     "train_ev": 0.6246808345573294,
+     "val_ev": 0.6070709512835644,
+     "val_ev_mean": 0.6065393961531579,
+     "val_ev_min": 0.5957390524749533,
+     "val_ev_folds": [
+      0.6163,
+      0.6099,
+      0.6042,
+      0.5957
+     ]
+    }
+   },
+   "best_width": 16,
+   "noise": {
+    "r": {
+     "noise_var": 0.1372111424843458,
+     "noise_var_raw_intercept": 0.1372111424843458,
+     "gamma1": 0.17576865664571964,
+     "var_y": 0.4504035639069647,
+     "ceiling_ev": 0.6953595542314845,
+     "ceiling_ev_upper_from_gamma1": 0.6097529621634468,
+     "delta1": 4.853503969931059,
+     "slope": 0.008349711056537156,
+     "n": 20000,
+     "k": 10
+    },
+    "r_out": {
+     "noise_var": 0.1365424223097116,
+     "noise_var_raw_intercept": 0.1365424223097116,
+     "gamma1": 0.1718347369073123,
+     "var_y": 0.450571259645392,
+     "ceiling_ev": 0.6969570974918085,
+     "ceiling_ev_upper_from_gamma1": 0.6186291663552854,
+     "delta1": 4.853503969931059,
+     "slope": 0.0076685358822634496,
+     "n": 20000,
+     "k": 10
+    }
+   },
+   "noise_within_episode": {
+    "r": {
+     "ceiling_ev_mean": 0.7162314080576001,
+     "n_episodes": 12
+    },
+    "r_out": {
+     "ceiling_ev_mean": 0.708837914909189,
+     "n_episodes": 12
+    }
+   },
+   "ablation": {
+    "target": "r_out",
+    "width": 16,
+    "base_val_ev": 0.5225671279769863,
+    "groups": {
+     "request / cluster / regime": {
+      "n_features": 16,
+      "val_ev": 0.4949334279976962,
+      "delta": -0.02763369997929016
+     },
+     "standing prefill backlog here": {
+      "n_features": 7,
+      "val_ev": 0.5063990662743771,
+      "delta": -0.016168061702609204
+     },
+     "decode occupancy": {
+      "n_features": 4,
+      "val_ev": 0.5091079608314855,
+      "delta": -0.013459167145500883
+     },
+     "KV now and projected after this action": {
+      "n_features": 6,
+      "val_ev": 0.5120555687297168,
+      "delta": -0.010511559247269542
+     },
+     "cache state of this request here": {
+      "n_features": 7,
+      "val_ev": 0.5129287244481155,
+      "delta": -0.009638403528870798
+     },
+     "post-routing backlog this action commits, and the wait it implies": {
+      "n_features": 8,
+      "val_ev": 0.49593582913450335,
+      "delta": -0.026631298842482998
+     },
+     "marginal cluster cost of this action": {
+      "n_features": 3,
+      "val_ev": 0.5216214534304491,
+      "delta": -0.0009456745465372673
+     },
+     "interference crossovers": {
+      "n_features": 7,
+      "val_ev": 0.5188910654074184,
+      "delta": -0.003676062569567984
+     },
+     "the deterministic zero-mean externality price of this action": {
+      "n_features": 1,
+      "val_ev": 0.49528567280639085,
+      "delta": -0.027281455170595492
+     }
+    }
+   },
+   "teacher_coverage": 1.0,
+   "beyond_rule": {
+    "target": "r_out",
+    "width": 16,
+    "state_only": 0.06844729083575235,
+    "state+is_teacher": 0.04372640851248666,
+    "all_features": 0.5225671279769863,
+    "all+is_teacher": 0.5183553701919856,
+    "executed_eq_teacher": 0.5145658754880884,
+    "mean_target_if_teacher_action": -0.14724551144582562,
+    "mean_target_if_other_action": -0.38566297717196607
+   },
+   "teacher_imitation": {
+    "listwise_val_acc": 0.8914292735088043,
+    "chance": 0.125,
+    "reward_model_argmax_eq_teacher": 0.4898066836480594
+   },
+   "data_curve": {
+    "target": "r_out",
+    "width": 16,
+    "points": {
+     "0.1": 0.4925976121135198,
+     "0.25": 0.4844628922489473,
+     "0.5": 0.5000024407363022,
+     "1.0": 0.5225671279769863
+    }
+   },
+   "seconds": 271.0,
+   "status": "ok"
+  },
+  "rl_loto_synth_r1/d2cb78118623": {
+   "candidate": "rl_loto_synth_r1/d2cb78118623",
+   "buffer": "evolve/runs/rl_loto_synth_r1/training/d2cb78118623/net_ep11.pt.buffer.npz",
+   "fitness": -0.1060875688712307,
+   "T": 81027,
+   "N": 8,
+   "F": 59,
+   "algorithm": "bandit",
+   "episode_tags": [
+    "7b-8R-Tool-s1.0-w2000+4000-p4",
+    "7b-8R-Conv-s1.0-w1000+4000-p4",
+    "7b-8R-Tool-s1.0-w10000+4000-p5-ramp",
+    "7b-8R-Conv-s1.0-w6000+4000-p5-burst",
+    "7b-8R-Tool-s0.75-w6000+4000-p6",
+    "7b-8R-Conv-s0.75-w3000+4000-p6",
+    "7b-8R-Tool-s0.75-w16000+4000-p6-mix-Conv",
+    "7b-8R-Conv-s0.75-w7000+4000-p7-ramp",
+    "7b-8R-Tool-s0.75-w2000+4000-p7-burst",
+    "7b-8R-Conv-s0.75-w6000+4000-p8-mix-Tool",
+    "7b-8R-Tool-s0.75-full-p7",
+    "7b-8R-Conv-s0.75-full-p9"
+   ],
+   "dedup_removed": 1320,
+   "groups": {
+    "request / cluster / regime": [
+     0,
+     1,
+     2,
+     3,
+     4,
+     5,
+     6,
+     7,
+     8,
+     9,
+     10,
+     11,
+     12,
+     13,
+     14,
+     15
+    ],
+    "standing prefill backlog here": [
+     16,
+     17,
+     18,
+     19,
+     20,
+     21,
+     22
+    ],
+    "decode occupancy": [
+     23,
+     24,
+     25,
+     26
+    ],
+    "KV now and projected after this action": [
+     27,
+     28,
+     29,
+     30,
+     31,
+     32
+    ],
+    "cache state of this request here": [
+     33,
+     34,
+     35,
+     36,
+     37,
+     38,
+     39
+    ],
+    "post-routing backlog this action commits, and the wait it implies": [
+     40,
+     41,
+     42,
+     43,
+     44,
+     45,
+     46,
+     47
+    ],
+    "marginal cluster cost of this action": [
+     48,
+     49,
+     50
+    ],
+    "interference crossovers": [
+     51,
+     52,
+     53,
+     54,
+     55,
+     56,
+     57
+    ],
+    "the deterministic zero-mean externality price of this action": [
+     58
+    ]
+   },
+   "price_feature": 58,
+   "price_clipped_frac": 0.0,
+   "var_share_of_price": 0.06999193994135317,
+   "state_features": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15
+   ],
+   "fold_rows": [
+    23599,
+    20020,
+    19211,
+    16877
+   ],
+   "representation": {
+    "r": {
+     "0": {
+      "train_ev": 0.9507939279497754,
+      "val_ev": 0.8938211956194684,
+      "val_ev_mean": 0.8933707590335105,
+      "val_ev_min": 0.8202300776367941,
+      "val_ev_folds": [
+       0.8202,
+       0.8297,
+       0.9656,
+       0.958
+      ]
+     },
+     "16": {
+      "train_ev": 0.9594555324642554,
+      "val_ev": 0.9091593776700331,
+      "val_ev_mean": 0.9048362413257558,
+      "val_ev_min": 0.8315241502288482,
+      "val_ev_folds": [
+       0.8315,
+       0.8534,
+       0.9695,
+       0.9649
+      ]
+     },
+     "64": {
+      "train_ev": 0.9605013244068366,
+      "val_ev": 0.9075698102163745,
+      "val_ev_mean": 0.9057095860533415,
+      "val_ev_min": 0.8369935666214019,
+      "val_ev_folds": [
+       0.837,
+       0.851,
+       0.9707,
+       0.9642
+      ]
+     },
+     "256": {
+      "train_ev": 0.9640008617250684,
+      "val_ev": 0.9091446992756217,
+      "val_ev_mean": 0.9066995664435311,
+      "val_ev_min": 0.8352706961660588,
+      "val_ev_folds": [
+       0.8353,
+       0.8544,
+       0.9732,
+       0.9639
+      ]
+     },
+     "1024": {
+      "train_ev": 0.9635919685366807,
+      "val_ev": 0.9096409320343763,
+      "val_ev_mean": 0.9052686602694708,
+      "val_ev_min": 0.8333716557084936,
+      "val_ev_folds": [
+       0.8334,
+       0.8564,
+       0.9684,
+       0.9629
+      ]
+     }
+    },
+    "r_out": {
+     "0": {
+      "train_ev": 0.9556648669521534,
+      "val_ev": 0.9040044487780572,
+      "val_ev_mean": 0.9049002068825316,
+      "val_ev_min": 0.8428430625329019,
+      "val_ev_folds": [
+       0.8428,
+       0.8463,
+       0.9687,
+       0.9617
+      ]
+     },
+     "16": {
+      "train_ev": 0.9634255827662466,
+      "val_ev": 0.9173818882082416,
+      "val_ev_mean": 0.9149046684068279,
+      "val_ev_min": 0.8541296382214698,
+      "val_ev_folds": [
+       0.8541,
+       0.8662,
+       0.9707,
+       0.9686
+      ]
+     },
+     "64": {
+      "train_ev": 0.9651690995168843,
+      "val_ev": 0.9180150058226957,
+      "val_ev_mean": 0.9170092255760729,
+      "val_ev_min": 0.8571932420841999,
+      "val_ev_folds": [
+       0.8572,
+       0.8685,
+       0.9748,
+       0.9675
+      ]
+     },
+     "256": {
+      "train_ev": 0.9671448045818474,
+      "val_ev": 0.918177393258065,
+      "val_ev_mean": 0.9174958325649473,
+      "val_ev_min": 0.8561224937814963,
+      "val_ev_folds": [
+       0.8561,
+       0.8695,
+       0.9775,
+       0.9669
+      ]
+     },
+     "1024": {
+      "train_ev": 0.9673073219733074,
+      "val_ev": 0.9187563006313519,
+      "val_ev_mean": 0.9155603003718968,
+      "val_ev_min": 0.8531086445233869,
+      "val_ev_folds": [
+       0.8531,
+       0.8712,
+       0.9716,
+       0.9663
+      ]
+     }
+    }
+   },
+   "representation_rowsplit_w64": {
+    "r": {
+     "train_ev": 0.965351753550677,
+     "val_ev": 0.9633362642776344,
+     "val_ev_mean": 0.9633249266911554,
+     "val_ev_min": 0.962869539161887,
+     "val_ev_folds": [
+      0.9632,
+      0.9638,
+      0.9635,
+      0.9629
+     ]
+    },
+    "r_out": {
+     "train_ev": 0.9681613526898787,
+     "val_ev": 0.9664375324884305,
+     "val_ev_mean": 0.9665219843483681,
+     "val_ev_min": 0.9661576381948045,
+     "val_ev_folds": [
+      0.9662,
+      0.9664,
+      0.9671,
+      0.9664
+     ]
+    }
+   },
+   "best_width": 16,
+   "noise": {
+    "r": {
+     "noise_var": 0.0589716052276992,
+     "noise_var_raw_intercept": 0.0589716052276992,
+     "gamma1": 0.11087043709840266,
+     "var_y": 2.4511918832450807,
+     "ceiling_ev": 0.9759416610218096,
+     "ceiling_ev_upper_from_gamma1": 0.9547687645931564,
+     "delta1": 5.12400325282804,
+     "slope": 0.010632323025614484,
+     "n": 20000,
+     "k": 10
+    },
+    "r_out": {
+     "noise_var": 0.058875955359521406,
+     "noise_var_raw_intercept": 0.058875955359521406,
+     "gamma1": 0.10733331031585824,
+     "var_y": 2.715546179732884,
+     "ceiling_ev": 0.9783189268520145,
+     "ceiling_ev_upper_from_gamma1": 0.9604745037602652,
+     "delta1": 5.12400325282804,
+     "slope": 0.010056545797274542,
+     "n": 20000,
+     "k": 10
+    }
+   },
+   "noise_within_episode": {
+    "r": {
+     "ceiling_ev_mean": 0.9258153644033646,
+     "n_episodes": 12
+    },
+    "r_out": {
+     "ceiling_ev_mean": 0.9352633445653676,
+     "n_episodes": 12
+    }
+   },
+   "ablation": {
+    "target": "r_out",
+    "width": 16,
+    "base_val_ev": 0.9173818882082416,
+    "groups": {
+     "request / cluster / regime": {
+      "n_features": 16,
+      "val_ev": 0.9156272419988138,
+      "delta": -0.0017546462094277793
+     },
+     "standing prefill backlog here": {
+      "n_features": 7,
+      "val_ev": 0.9145320557923124,
+      "delta": -0.0028498324159291766
+     },
+     "decode occupancy": {
+      "n_features": 4,
+      "val_ev": 0.9129872372530767,
+      "delta": -0.004394650955164892
+     },
+     "KV now and projected after this action": {
+      "n_features": 6,
+      "val_ev": 0.9113705811893344,
+      "delta": -0.006011307018907175
+     },
+     "cache state of this request here": {
+      "n_features": 7,
+      "val_ev": 0.9150163265730524,
+      "delta": -0.002365561635189195
+     },
+     "post-routing backlog this action commits, and the wait it implies": {
+      "n_features": 8,
+      "val_ev": 0.9161253795135036,
+      "delta": -0.0012565086947380344
+     },
+     "marginal cluster cost of this action": {
+      "n_features": 3,
+      "val_ev": 0.9153256262746503,
+      "delta": -0.002056261933591319
+     },
+     "interference crossovers": {
+      "n_features": 7,
+      "val_ev": 0.9179938039798623,
+      "delta": 0.0006119157716206747
+     },
+     "the deterministic zero-mean externality price of this action": {
+      "n_features": 1,
+      "val_ev": 0.9154200461449205,
+      "delta": -0.001961842063321173
+     }
+    }
+   },
+   "teacher_coverage": 1.0,
+   "beyond_rule": {
+    "target": "r_out",
+    "width": 16,
+    "state_only": 0.7300342113991786,
+    "state+is_teacher": 0.7512832336604796,
+    "all_features": 0.9173818882082416,
+    "all+is_teacher": 0.9178098156834726,
+    "executed_eq_teacher": 0.525098172055152,
+    "mean_target_if_teacher_action": -0.9872115867792869,
+    "mean_target_if_other_action": -2.179047832596188
+   },
+   "teacher_imitation": {
+    "listwise_val_acc": 0.9048662180717173,
+    "chance": 0.125,
+    "reward_model_argmax_eq_teacher": 0.49325685737359914
+   },
+   "data_curve": {
+    "target": "r_out",
+    "width": 16,
+    "points": {
+     "0.1": 0.9030679930234932,
+     "0.25": 0.9132829069492285,
+     "0.5": 0.915669765579866,
+     "1.0": 0.9173818882082416
+    }
+   },
+   "seconds": 242.8,
+   "status": "ok"
+  },
+  "rl_loto_r2/7494c46261e2": {
+   "candidate": "rl_loto_r2/7494c46261e2",
+   "buffer": "evolve/runs/rl_loto_r2/training/7494c46261e2/net_ep11.pt.buffer.npz",
+   "fitness": -0.05458784785592274,
+   "T": 91178,
+   "N": 8,
+   "F": 60,
+   "algorithm": "bandit",
+   "episode_tags": [
+    "7b-8R-Tool-s1.0-w10000+4000-p4",
+    "7b-8R-Synth-s1.0-full-p4",
+    "7b-8R-Tool-s1.0-w2000+4000-p5-ramp",
+    "7b-8R-Synth-s1.0-full-p5-burst",
+    "7b-8R-Tool-s0.75-w16000+4000-p6",
+    "7b-8R-Synth-s0.75-full-p6",
+    "7b-8R-Tool-s0.75-w6000+4000-p6-mix-Synth",
+    "7b-8R-Synth-s0.75-full-p7-ramp",
+    "7b-8R-Tool-s0.75-full-p7-burst",
+    "7b-8R-Synth-s0.75-full-p8-mix-Tool",
+    "7b-8R-Tool-s0.75-full-p7",
+    "7b-8R-Synth-s0.75-full-p9"
+   ],
+   "dedup_removed": 2,
+   "groups": {
+    "request / cluster / regime": [
+     0,
+     1,
+     2,
+     3,
+     4,
+     5,
+     6,
+     7,
+     8,
+     9,
+     10,
+     11,
+     12,
+     13,
+     14,
+     15
+    ],
+    "standing prefill backlog here": [
+     16,
+     17,
+     18,
+     19,
+     20,
+     21,
+     22
+    ],
+    "decode occupancy": [
+     23,
+     24,
+     25,
+     26
+    ],
+    "KV now and projected after this action": [
+     27,
+     28,
+     29,
+     30,
+     31,
+     32
+    ],
+    "cache state of this request here": [
+     33,
+     34,
+     35,
+     36,
+     37,
+     38,
+     39
+    ],
+    "post-routing backlog this action commits, and the wait it implies": [
+     40,
+     41,
+     42,
+     43,
+     44,
+     45,
+     46,
+     47
+    ],
+    "marginal cluster cost of this action, in the credit's own units": [
+     48,
+     49,
+     50,
+     51,
+     52
+    ],
+    "interference crossovers": [
+     53,
+     54,
+     55,
+     56,
+     57,
+     58,
+     59
+    ]
+   },
+   "state_features": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15
+   ],
+   "fold_rows": [
+    23599,
+    23599,
+    22907,
+    21071
+   ],
+   "representation": {
+    "r": {
+     "0": {
+      "train_ev": 0.6120326572787168,
+      "val_ev": 0.5682540148696903,
+      "val_ev_mean": 0.5726061087713636,
+      "val_ev_min": 0.5411069842375555,
+      "val_ev_folds": [
+       0.6128,
+       0.563,
+       0.5411,
+       0.5735
+      ]
+     },
+     "64": {
+      "train_ev": 0.7760801127985678,
+      "val_ev": 0.5807927799695618,
+      "val_ev_mean": 0.5878072390325025,
+      "val_ev_min": 0.5071475993430619,
+      "val_ev_folds": [
+       0.6825,
+       0.5329,
+       0.5071,
+       0.6287
+      ]
+     },
+     "256": {
+      "train_ev": 0.7970754226124959,
+      "val_ev": 0.5710218199017756,
+      "val_ev_mean": 0.5652774229881927,
+      "val_ev_min": 0.43521059481677027,
+      "val_ev_folds": [
+       0.6839,
+       0.5242,
+       0.4352,
+       0.6179
+      ]
+     }
+    }
+   },
+   "representation_rowsplit_w64": {
+    "r": {
+     "train_ev": 0.7709453065543148,
+     "val_ev": 0.7464946491838643,
+     "val_ev_mean": 0.7457980431035808,
+     "val_ev_min": 0.7419375597267764,
+     "val_ev_folds": [
+      0.7454,
+      0.7476,
+      0.7483,
+      0.7419
+     ]
+    }
+   },
+   "best_width": 64,
+   "noise": {
+    "r": {
+     "noise_var": 0.10046536306377818,
+     "noise_var_raw_intercept": 0.10046536306377818,
+     "gamma1": 0.14120013883603993,
+     "var_y": 0.46652856784164726,
+     "ceiling_ev": 0.7846533524654831,
+     "ceiling_ev_upper_from_gamma1": 0.6973387085612146,
+     "delta1": 5.286331027908318,
+     "slope": 0.008108741955262035,
+     "n": 20000,
+     "k": 10
+    }
+   },
+   "noise_within_episode": {
+    "r": {
+     "ceiling_ev_mean": 0.8250502462985551,
+     "n_episodes": 12
+    }
+   },
+   "seconds": 92.5,
+   "status": "ok (light)"
+  },
+  "rl_loto_r2/d54263b415df": {
+   "candidate": "rl_loto_r2/d54263b415df",
+   "buffer": "evolve/runs/rl_loto_r2/training/d54263b415df/net_ep11.pt.buffer.npz",
+   "fitness": -0.07598514505416173,
+   "T": 91178,
+   "N": 8,
+   "F": 62,
+   "algorithm": "bandit",
+   "episode_tags": [
+    "7b-8R-Tool-s1.0-w10000+4000-p4",
+    "7b-8R-Synth-s1.0-full-p4",
+    "7b-8R-Tool-s1.0-w2000+4000-p5-ramp",
+    "7b-8R-Synth-s1.0-full-p5-burst",
+    "7b-8R-Tool-s0.75-w16000+4000-p6",
+    "7b-8R-Synth-s0.75-full-p6",
+    "7b-8R-Tool-s0.75-w6000+4000-p6-mix-Synth",
+    "7b-8R-Synth-s0.75-full-p7-ramp",
+    "7b-8R-Tool-s0.75-full-p7-burst",
+    "7b-8R-Synth-s0.75-full-p8-mix-Tool",
+    "7b-8R-Tool-s0.75-full-p7",
+    "7b-8R-Synth-s0.75-full-p9"
+   ],
+   "dedup_removed": 5,
+   "groups": {
+    "ungrouped": [
+     0,
+     1,
+     2,
+     3,
+     4,
+     5,
+     6,
+     7,
+     8,
+     9,
+     10,
+     11,
+     12,
+     13,
+     14,
+     15,
+     16,
+     17,
+     18,
+     19,
+     20,
+     21,
+     22,
+     23,
+     24,
+     25,
+     26,
+     27,
+     28,
+     29,
+     30,
+     31,
+     32,
+     33,
+     34,
+     35,
+     36,
+     37,
+     38,
+     39,
+     40,
+     41,
+     42,
+     43,
+     44,
+     45,
+     46,
+     47,
+     48,
+     49,
+     50,
+     51,
+     52,
+     53,
+     54,
+     55,
+     56,
+     57,
+     58,
+     59,
+     60,
+     61
+    ]
+   },
+   "state_features": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15
+   ],
+   "fold_rows": [
+    23599,
+    23599,
+    22905,
+    21070
+   ],
+   "representation": {
+    "r": {
+     "0": {
+      "train_ev": 0.5851796983757063,
+      "val_ev": 0.49320667036883026,
+      "val_ev_mean": 0.26406969703817446,
+      "val_ev_min": -0.5040650258751544,
+      "val_ev_folds": [
+       0.5069,
+       0.4795,
+       -0.5041,
+       0.5739
+      ]
+     },
+     "64": {
+      "train_ev": 0.6978724779470961,
+      "val_ev": 0.5074501741053878,
+      "val_ev_mean": -0.3334314712185587,
+      "val_ev_min": -2.9255079470246756,
+      "val_ev_folds": [
+       0.5557,
+       0.4592,
+       -2.9255,
+       0.5769
+      ]
+     },
+     "256": {
+      "train_ev": 0.7206786864843314,
+      "val_ev": 0.5142128851793452,
+      "val_ev_mean": 0.46564103282072855,
+      "val_ev_min": 0.2861976983088722,
+      "val_ev_folds": [
+       0.531,
+       0.4974,
+       0.2862,
+       0.5479
+      ]
+     }
+    }
+   },
+   "representation_rowsplit_w64": {
+    "r": {
+     "train_ev": 0.6933999689332309,
+     "val_ev": 0.6723044496657529,
+     "val_ev_mean": 0.6745900483235239,
+     "val_ev_min": 0.6624282945854831,
+     "val_ev_folds": [
+      0.6762,
+      0.6684,
+      0.6624,
+      0.6913
+     ]
+    }
+   },
+   "best_width": 64,
+   "noise": {
+    "r": {
+     "noise_var": 0.16224105689249488,
+     "noise_var_raw_intercept": 0.16224105689249488,
+     "gamma1": 0.20252778641493216,
+     "var_y": 0.6688645168622044,
+     "ceiling_ev": 0.7574380867838458,
+     "ceiling_ev_upper_from_gamma1": 0.69720656230198,
+     "delta1": 5.0231554244283,
+     "slope": 0.009469164853175656,
+     "n": 20000,
+     "k": 10
+    }
+   },
+   "noise_within_episode": {
+    "r": {
+     "ceiling_ev_mean": 0.7073235810945375,
+     "n_episodes": 12
+    }
+   },
+   "seconds": 31.9,
+   "status": "ok (light)"
+  },
+  "rl_loto_r2/4e21fa27cecf": {
+   "candidate": "rl_loto_r2/4e21fa27cecf",
+   "buffer": "evolve/runs/rl_loto_r2/training/4e21fa27cecf/net_ep11.pt.buffer.npz",
+   "fitness": -0.13399694605108523,
+   "T": 93011,
+   "N": 8,
+   "F": 62,
+   "algorithm": "bandit",
+   "episode_tags": [
+    "7b-8R-Tool-s1.0-w10000+4000-p4",
+    "7b-8R-Synth-s1.0-full-p4",
+    "7b-8R-Tool-s1.0-w2000+4000-p5-ramp",
+    "7b-8R-Synth-s1.0-full-p5-burst",
+    "7b-8R-Tool-s0.75-w16000+4000-p6",
+    "7b-8R-Synth-s0.75-full-p6",
+    "7b-8R-Tool-s0.75-w6000+4000-p6-mix-Synth",
+    "7b-8R-Synth-s0.75-full-p7-ramp",
+    "7b-8R-Tool-s0.75-full-p7-burst",
+    "7b-8R-Synth-s0.75-full-p8-mix-Tool",
+    "7b-8R-Tool-s0.75-full-p7",
+    "7b-8R-Synth-s0.75-full-p9"
+   ],
+   "dedup_removed": 1840,
+   "groups": {
+    "request / cluster / regime": [
+     0,
+     1,
+     2,
+     3,
+     4,
+     5,
+     6,
+     7,
+     8,
+     9,
+     10,
+     11,
+     12,
+     13,
+     14,
+     15
+    ],
+    "standing prefill backlog here": [
+     16,
+     17,
+     18,
+     19,
+     20,
+     21,
+     22
+    ],
+    "decode occupancy": [
+     23,
+     24,
+     25,
+     26,
+     27
+    ],
+    "KV now and projected": [
+     28,
+     29,
+     30,
+     31,
+     32,
+     33
+    ],
+    "cache state of this request here": [
+     34,
+     35,
+     36,
+     37,
+     38,
+     39,
+     40
+    ],
+    "post-routing backlog, and the first-token wait it implies in SECONDS": [
+     41,
+     42,
+     43,
+     44,
+     45,
+     46,
+     47,
+     48
+    ],
+    "marginal cluster cost of this action": [
+     49,
+     50,
+     51,
+     52
+    ],
+    "MEASURED behaviour of this replica": [
+     53,
+     54,
+     55
+    ],
+    "interference crossovers": [
+     56,
+     57,
+     58,
+     59,
+     60,
+     61
+    ]
+   },
+   "state_features": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15
+   ],
+   "fold_rows": [
+    23599,
+    23598,
+    22905,
+    21069
+   ],
+   "representation": {
+    "r": {
+     "0": {
+      "train_ev": 0.5378597084990977,
+      "val_ev": 0.5222604565438355,
+      "val_ev_mean": 0.43109895040097074,
+      "val_ev_min": 0.07222318771332459,
+      "val_ev_folds": [
+       0.6077,
+       0.5651,
+       0.0722,
+       0.4794
+      ]
+     },
+     "64": {
+      "train_ev": 0.6543637182883111,
+      "val_ev": 0.5576222113482713,
+      "val_ev_mean": 0.4011271742766144,
+      "val_ev_min": -0.1309764969752667,
+      "val_ev_folds": [
+       0.613,
+       0.6202,
+       -0.131,
+       0.5022
+      ]
+     },
+     "256": {
+      "train_ev": 0.6954527511305283,
+      "val_ev": 0.5425300469964918,
+      "val_ev_mean": -0.5632624187840102,
+      "val_ev_min": -3.9456133846883956,
+      "val_ev_folds": [
+       0.5781,
+       0.6075,
+       -3.9456,
+       0.507
+      ]
+     }
+    }
+   },
+   "representation_rowsplit_w64": {
+    "r": {
+     "train_ev": 0.6432684453121185,
+     "val_ev": 0.6203894585296255,
+     "val_ev_mean": 0.6212463933911554,
+     "val_ev_min": 0.6186839048618212,
+     "val_ev_folds": [
+      0.6205,
+      0.6203,
+      0.6255,
+      0.6187
+     ]
+    }
+   },
+   "best_width": 64,
+   "noise": {
+    "r": {
+     "noise_var": 0.29108716048613104,
+     "noise_var_raw_intercept": 0.29108716048613104,
+     "gamma1": 0.36894851371866394,
+     "var_y": 0.98553096414637,
+     "ceiling_ev": 0.7046392542945012,
+     "ceiling_ev_upper_from_gamma1": 0.6256347825273726,
+     "delta1": 5.894921289557523,
+     "slope": 0.014435736846486752,
+     "n": 20000,
+     "k": 10
+    }
+   },
+   "noise_within_episode": {
+    "r": {
+     "ceiling_ev_mean": 0.7081540345006682,
+     "n_episodes": 12
+    }
+   },
+   "seconds": 35.5,
+   "status": "ok (light)"
+  },
+  "rl_loto_synth_r1/7f416e39bad8": {
+   "candidate": "rl_loto_synth_r1/7f416e39bad8",
+   "buffer": "evolve/runs/rl_loto_synth_r1/training/7f416e39bad8/net_ep11.pt.buffer.npz",
+   "fitness": -0.12341211499302726,
+   "T": 81166,
+   "N": 8,
+   "F": 59,
+   "algorithm": "bandit",
+   "episode_tags": [
+    "7b-8R-Tool-s1.0-w2000+4000-p4",
+    "7b-8R-Conv-s1.0-w1000+4000-p4",
+    "7b-8R-Tool-s1.0-w10000+4000-p5-ramp",
+    "7b-8R-Conv-s1.0-w6000+4000-p5-burst",
+    "7b-8R-Tool-s0.75-w6000+4000-p6",
+    "7b-8R-Conv-s0.75-w3000+4000-p6",
+    "7b-8R-Tool-s0.75-w16000+4000-p6-mix-Conv",
+    "7b-8R-Conv-s0.75-w7000+4000-p7-ramp",
+    "7b-8R-Tool-s0.75-w2000+4000-p7-burst",
+    "7b-8R-Conv-s0.75-w6000+4000-p8-mix-Tool",
+    "7b-8R-Tool-s0.75-full-p7",
+    "7b-8R-Conv-s0.75-full-p9"
+   ],
+   "dedup_removed": 1459,
+   "groups": {
+    "ungrouped": [
+     0,
+     1,
+     2,
+     3,
+     4,
+     5,
+     6,
+     7,
+     8,
+     9,
+     10,
+     11,
+     12,
+     13,
+     14,
+     15,
+     16,
+     17,
+     18,
+     19,
+     20,
+     21,
+     22,
+     23,
+     24,
+     25,
+     26,
+     27,
+     28,
+     29,
+     30,
+     31,
+     32,
+     33,
+     34,
+     35,
+     36,
+     37,
+     38,
+     39,
+     40,
+     41,
+     42,
+     43,
+     44,
+     45,
+     46,
+     47,
+     48,
+     49,
+     50,
+     51,
+     52,
+     53,
+     54,
+     55,
+     56,
+     57,
+     58
+    ]
+   },
+   "state_features": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16
+   ],
+   "fold_rows": [
+    23599,
+    20020,
+    19211,
+    16877
+   ],
+   "representation": {
+    "r": {
+     "0": {
+      "train_ev": 0.9540910948781303,
+      "val_ev": 0.9002320604616523,
+      "val_ev_mean": 0.8791413248409279,
+      "val_ev_min": 0.7507091761145342,
+      "val_ev_folds": [
+       0.7507,
+       0.8401,
+       0.9654,
+       0.9603
+      ]
+     },
+     "64": {
+      "train_ev": 0.9658143155941858,
+      "val_ev": 0.9189433497696532,
+      "val_ev_mean": 0.8938822292015693,
+      "val_ev_min": 0.7633122139360483,
+      "val_ev_folds": [
+       0.7633,
+       0.8675,
+       0.9743,
+       0.9703
+      ]
+     },
+     "256": {
+      "train_ev": 0.9686584866078326,
+      "val_ev": 0.9175314064979732,
+      "val_ev_mean": 0.8967723895991102,
+      "val_ev_min": 0.7790535299264164,
+      "val_ev_folds": [
+       0.7791,
+       0.8658,
+       0.973,
+       0.9693
+      ]
+     }
+    }
+   },
+   "representation_rowsplit_w64": {
+    "r": {
+     "train_ev": 0.9685556967393728,
+     "val_ev": 0.9670987312176352,
+     "val_ev_mean": 0.9670312714291676,
+     "val_ev_min": 0.9658789834671719,
+     "val_ev_folds": [
+      0.9674,
+      0.9659,
+      0.9668,
+      0.968
+     ]
+    }
+   },
+   "best_width": 64,
+   "noise": {
+    "r": {
+     "noise_var": 0.03632672462285344,
+     "noise_var_raw_intercept": 0.03632672462285344,
+     "gamma1": 0.09404432132673916,
+     "var_y": 2.3758634777472265,
+     "ceiling_ev": 0.9847100959448655,
+     "ceiling_ev_upper_from_gamma1": 0.9604167822740761,
+     "delta1": 5.463700348452038,
+     "slope": 0.010978753244280782,
+     "n": 20000,
+     "k": 10
+    }
+   },
+   "noise_within_episode": {
+    "r": {
+     "ceiling_ev_mean": 0.9289406655418938,
+     "n_episodes": 12
+    }
+   },
+   "seconds": 25.4,
+   "status": "ok (light)"
+  },
+  "rl_loto_synth_r1/71a49c45954f": {
+   "candidate": "rl_loto_synth_r1/71a49c45954f",
+   "buffer": "evolve/runs/rl_loto_synth_r1/training/71a49c45954f/net_ep11.pt.buffer.npz",
+   "fitness": -0.13870774924691848,
+   "T": 79707,
+   "N": 8,
+   "F": 55,
+   "algorithm": "bandit",
+   "episode_tags": [
+    "7b-8R-Tool-s1.0-w2000+4000-p4",
+    "7b-8R-Conv-s1.0-w1000+4000-p4",
+    "7b-8R-Tool-s1.0-w10000+4000-p5-ramp",
+    "7b-8R-Conv-s1.0-w6000+4000-p5-burst",
+    "7b-8R-Tool-s0.75-w6000+4000-p6",
+    "7b-8R-Conv-s0.75-w3000+4000-p6",
+    "7b-8R-Tool-s0.75-w16000+4000-p6-mix-Conv",
+    "7b-8R-Conv-s0.75-w7000+4000-p7-ramp",
+    "7b-8R-Tool-s0.75-w2000+4000-p7-burst",
+    "7b-8R-Conv-s0.75-w6000+4000-p8-mix-Tool",
+    "7b-8R-Tool-s0.75-full-p7",
+    "7b-8R-Conv-s0.75-full-p9"
+   ],
+   "dedup_removed": 1,
+   "groups": {
+    "ungrouped": [
+     0,
+     1,
+     2,
+     3,
+     4,
+     5,
+     6,
+     7,
+     8,
+     9,
+     10,
+     11,
+     12,
+     13,
+     14,
+     15,
+     16,
+     17,
+     18,
+     19,
+     20,
+     21,
+     22,
+     23,
+     24,
+     25,
+     26,
+     27,
+     28,
+     29,
+     30,
+     31,
+     32,
+     33,
+     34,
+     35,
+     36,
+     37,
+     38,
+     39,
+     40,
+     41,
+     42,
+     43,
+     44,
+     45,
+     46,
+     47,
+     48,
+     49,
+     50,
+     51,
+     52,
+     53,
+     54
+    ]
+   },
+   "state_features": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14
+   ],
+   "fold_rows": [
+    23599,
+    20019,
+    19211,
+    16877
+   ],
+   "representation": {
+    "r": {
+     "0": {
+      "train_ev": 0.6104394304996772,
+      "val_ev": 0.470842261323017,
+      "val_ev_mean": 0.5055112288474831,
+      "val_ev_min": 0.42916955155226955,
+      "val_ev_folds": [
+       0.4292,
+       0.464,
+       0.6512,
+       0.4777
+      ]
+     },
+     "64": {
+      "train_ev": 0.714194403328065,
+      "val_ev": 0.5356237056042663,
+      "val_ev_mean": 0.5636871567195048,
+      "val_ev_min": 0.5120264402832087,
+      "val_ev_folds": [
+       0.5378,
+       0.512,
+       0.6715,
+       0.5334
+      ]
+     },
+     "256": {
+      "train_ev": 0.7349051360738297,
+      "val_ev": 0.5138207321717547,
+      "val_ev_mean": 0.5440178983666591,
+      "val_ev_min": 0.49732620034529273,
+      "val_ev_folds": [
+       0.5142,
+       0.4973,
+       0.6511,
+       0.5135
+      ]
+     }
+    }
+   },
+   "representation_rowsplit_w64": {
+    "r": {
+     "train_ev": 0.7115949914900876,
+     "val_ev": 0.6944498240063101,
+     "val_ev_mean": 0.6948975709126036,
+     "val_ev_min": 0.6823209653072251,
+     "val_ev_folds": [
+      0.697,
+      0.6919,
+      0.6823,
+      0.7084
+     ]
+    }
+   },
+   "best_width": 64,
+   "noise": {
+    "r": {
+     "noise_var": 0.15190616213364744,
+     "noise_var_raw_intercept": 0.15190616213364744,
+     "gamma1": 0.18691080054225437,
+     "var_y": 0.6001301948988905,
+     "ceiling_ev": 0.746877988435092,
+     "ceiling_ev_upper_from_gamma1": 0.6885495811892202,
+     "delta1": 4.603046574670803,
+     "slope": 0.00875350945969082,
+     "n": 20000,
+     "k": 10
+    }
+   },
+   "noise_within_episode": {
+    "r": {
+     "ceiling_ev_mean": 0.7465424500425611,
+     "n_episodes": 12
+    }
+   },
+   "seconds": 26.5,
+   "status": "ok (light)"
+  },
+  "rl_loto_synth_r1/e413fe9e193c": {
+   "candidate": "rl_loto_synth_r1/e413fe9e193c",
+   "buffer": "evolve/runs/rl_loto_synth_r1/training/e413fe9e193c/net_ep11.pt.buffer.npz",
+   "fitness": -0.15340287988789197,
+   "T": 81069,
+   "N": 8,
+   "F": 59,
+   "algorithm": "bandit",
+   "episode_tags": [
+    "7b-8R-Tool-s1.0-w2000+4000-p4",
+    "7b-8R-Conv-s1.0-w1000+4000-p4",
+    "7b-8R-Tool-s1.0-w10000+4000-p5-ramp",
+    "7b-8R-Conv-s1.0-w6000+4000-p5-burst",
+    "7b-8R-Tool-s0.75-w6000+4000-p6",
+    "7b-8R-Conv-s0.75-w3000+4000-p6",
+    "7b-8R-Tool-s0.75-w16000+4000-p6-mix-Conv",
+    "7b-8R-Conv-s0.75-w7000+4000-p7-ramp",
+    "7b-8R-Tool-s0.75-w2000+4000-p7-burst",
+    "7b-8R-Conv-s0.75-w6000+4000-p8-mix-Tool",
+    "7b-8R-Tool-s0.75-full-p7",
+    "7b-8R-Conv-s0.75-full-p9"
+   ],
+   "dedup_removed": 1363,
+   "groups": {
+    "request / cluster / regime": [
+     0,
+     1,
+     2,
+     3,
+     4,
+     5,
+     6,
+     7,
+     8,
+     9,
+     10,
+     11,
+     12,
+     13,
+     14,
+     15
+    ],
+    "standing prefill backlog here": [
+     16,
+     17,
+     18,
+     19,
+     20,
+     21,
+     22
+    ],
+    "decode occupancy": [
+     23,
+     24,
+     25,
+     26
+    ],
+    "KV now and projected after this action": [
+     27,
+     28,
+     29,
+     30,
+     31,
+     32
+    ],
+    "cache state of this request here": [
+     33,
+     34,
+     35,
+     36,
+     37,
+     38,
+     39
+    ],
+    "post-routing backlog this action commits, and the wait it implies": [
+     40,
+     41,
+     42,
+     43,
+     44,
+     45,
+     46,
+     47
+    ],
+    "marginal cluster cost of this action": [
+     48,
+     49,
+     50
+    ],
+    "interference crossovers": [
+     51,
+     52,
+     53,
+     54,
+     55,
+     56,
+     57
+    ],
+    "the deterministic zero-mean externality price of this action": [
+     58
+    ]
+   },
+   "price_feature": 58,
+   "price_clipped_frac": 0.0,
+   "var_share_of_price": 0.24195343663969396,
+   "state_features": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15
+   ],
+   "fold_rows": [
+    23599,
+    20019,
+    19211,
+    16877
+   ],
+   "representation": {
+    "r": {
+     "0": {
+      "train_ev": 0.4879962603682221,
+      "val_ev": 0.47717101983577004,
+      "val_ev_mean": 0.4429526066654562,
+      "val_ev_min": 0.3171292167214611,
+      "val_ev_folds": [
+       0.4976,
+       0.5003,
+       0.3171,
+       0.4567
+      ]
+     },
+     "64": {
+      "train_ev": 0.6032374815646572,
+      "val_ev": 0.5180281979910974,
+      "val_ev_mean": 0.5086919891191171,
+      "val_ev_min": 0.43337239161404006,
+      "val_ev_folds": [
+       0.5653,
+       0.5475,
+       0.4334,
+       0.4886
+      ]
+     },
+     "256": {
+      "train_ev": 0.6370258780120366,
+      "val_ev": 0.5092123205513033,
+      "val_ev_mean": 0.5016693566345816,
+      "val_ev_min": 0.42981916121316677,
+      "val_ev_folds": [
+       0.5584,
+       0.5351,
+       0.4298,
+       0.4833
+      ]
+     }
+    },
+    "r_out": {
+     "0": {
+      "train_ev": 0.48271737089202443,
+      "val_ev": 0.4738174114264288,
+      "val_ev_mean": 0.4332966678817842,
+      "val_ev_min": 0.262687628106293,
+      "val_ev_folds": [
+       0.5229,
+       0.4888,
+       0.2627,
+       0.4588
+      ]
+     },
+     "64": {
+      "train_ev": 0.6084871513024607,
+      "val_ev": 0.511836298570423,
+      "val_ev_mean": 0.5012046280450164,
+      "val_ev_min": 0.39248429610576296,
+      "val_ev_folds": [
+       0.5887,
+       0.5295,
+       0.3925,
+       0.4941
+      ]
+     },
+     "256": {
+      "train_ev": 0.6392842453938294,
+      "val_ev": 0.5202767639194918,
+      "val_ev_mean": 0.4985070230119131,
+      "val_ev_min": 0.3761916354961775,
+      "val_ev_folds": [
+       0.5773,
+       0.5405,
+       0.3762,
+       0.5001
+      ]
+     }
+    }
+   },
+   "representation_rowsplit_w64": {
+    "r": {
+     "train_ev": 0.6016108158094378,
+     "val_ev": 0.5782223679572325,
+     "val_ev_mean": 0.5769070304968773,
+     "val_ev_min": 0.5658977091265764,
+     "val_ev_folds": [
+      0.5718,
+      0.5659,
+      0.5853,
+      0.5847
+     ]
+    },
+    "r_out": {
+     "train_ev": 0.6003538678234974,
+     "val_ev": 0.5736379280077561,
+     "val_ev_mean": 0.5724542029457327,
+     "val_ev_min": 0.5603767455322582,
+     "val_ev_folds": [
+      0.5678,
+      0.5604,
+      0.5822,
+      0.5795
+     ]
+    }
+   },
+   "best_width": 64,
+   "noise": {
+    "r": {
+     "noise_var": 0.1485473481181539,
+     "noise_var_raw_intercept": 0.1485473481181539,
+     "gamma1": 0.17464393300477019,
+     "var_y": 0.40816791338472574,
+     "ceiling_ev": 0.6360631415479785,
+     "ceiling_ev_upper_from_gamma1": 0.5721272366645918,
+     "delta1": 5.056425715962123,
+     "slope": 0.00645854597954748,
+     "n": 20000,
+     "k": 10
+    },
+    "r_out": {
+     "noise_var": 0.14783114123791116,
+     "noise_var_raw_intercept": 0.14783114123791116,
+     "gamma1": 0.16991405944202997,
+     "var_y": 0.4039326097581477,
+     "ceiling_ev": 0.6340202853975464,
+     "ceiling_ev_upper_from_gamma1": 0.5793504774378948,
+     "delta1": 5.056425715962123,
+     "slope": 0.005678302663855783,
+     "n": 20000,
+     "k": 10
+    }
+   },
+   "noise_within_episode": {
+    "r": {
+     "ceiling_ev_mean": 0.7193510730320706,
+     "n_episodes": 12
+    },
+    "r_out": {
+     "ceiling_ev_mean": 0.7174698746955837,
+     "n_episodes": 12
+    }
+   },
+   "seconds": 59.6,
+   "status": "ok (light)"
+  }
+ }
+}
