@@ -82,3 +82,13 @@ def test_v4_splits_are_disjoint():
         for b in names[i + 1:]:
             assert not draws[a] & draws[b], (a, b, sorted(draws[a] & draws[b]))
     assert {sc.model for n in names for sc in ev.STAGES[n]} == {"l3_8b"}
+
+
+def test_an_unhashable_table_value_fails_loudly(monkeypatch):
+    import numpy as np
+    import pytest
+    from evolve import evaluate as ev
+    monkeypatch.setattr(ev, "_VERSION", {})
+    monkeypatch.setitem(ev.MAX_CONTEXT, "l3_8b", np.int64(131072))
+    with pytest.raises(TypeError):
+        ev.code_version()

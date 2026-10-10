@@ -396,6 +396,7 @@ def code_version() -> str:
     commits (docs, finalists, RL code) must not invalidate the baseline cache.
     """
     if "v" not in _VERSION:
+        tables = table_digest()  # outside the try: an unhashable table value must fail loudly, not give "unknown"
         try:
             # Walk the tree rather than ask git: cluster copies need not be git checkouts.
             files = sorted(
@@ -420,8 +421,8 @@ def code_version() -> str:
             # they differ from the values code_version c16266a8ef49 was cut with, so that version (and the baselines
             # and long jobs keyed to it) stays valid. At the next version bump, fold table_digest() in
             # unconditionally and drop _TABLES_AT_C16266.
-            if table_digest() != _TABLES_AT_C16266[V3_DATA]:
-                h.update(table_digest().encode())
+            if tables != _TABLES_AT_C16266[V3_DATA]:
+                h.update(tables.encode())
             _VERSION["v"] = "c" + h.hexdigest()[:11]
         except Exception:
             _VERSION["v"] = "unknown"
