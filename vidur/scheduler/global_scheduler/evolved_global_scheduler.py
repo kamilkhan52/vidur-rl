@@ -136,6 +136,10 @@ class EvolvedGlobalScheduler(BaseGlobalScheduler):
         self._active: List[Dict[int, int]] = [dict() for _ in self._replica_ids]
         self._active_req: Dict[int, Tuple[int, Tuple[int, ...]]] = {}
         self._ctx = PolicyContext(self._random_number_generator, len(self._replica_ids))
+        # v4: polled replica metrics (waiting, running, kv_usage), refreshed every view_refresh_s (0 = exact)
+        self._view_refresh_s = getattr(gs_config, "view_refresh_s", 0.0)
+        self._polled: Optional[List[Tuple[int, int, float]]] = None
+        self._polled_at = float("-inf")
         self.policy_calls = 0
         self.policy_seconds = 0.0
 
@@ -190,19 +194,34 @@ class EvolvedGlobalScheduler(BaseGlobalScheduler):
             else:
                 counts.pop(h, None)
 
+    def _poll(self) -> List[Tuple[int, int, float]]:
+        out = []
+        for rid in self._replica_ids:
+            rs = self._replica_schedulers[rid]
+            kv = getattr(rs, "_kv_cache_manager", None)
+            out.append((len(rs._waiting_queue), len(getattr(rs, "_running", [])),
+                        kv.usage if kv is not None else 0.0))
+        return out
+
     def _replica_views(self) -> List[ReplicaView]:
+        if self._view_refresh_s > 0:
+            if self._ctx.now - self._polled_at >= self._view_refresh_s:
+                self._polled, self._polled_at = self._poll(), self._ctx.now
+            polled = self._polled
+        else:
+            polled = self._poll()
         views = []
         for i, rid in enumerate(self._replica_ids):
             rs = self._replica_schedulers[rid]
-            kv = getattr(rs, "_kv_cache_manager", None)
+            waiting, running, kv_usage = polled[i]
             views.append(
                 ReplicaView(
                     index=i,
                     outstanding_requests=self._outstanding[i],
                     pending_prefill_tokens=self._pending_prefill[i],
-                    waiting=len(rs._waiting_queue),
-                    running=len(getattr(rs, "_running", [])),
-                    kv_usage=(kv.usage if kv is not None else 0.0),
+                    waiting=waiting,
+                    running=running,
+                    kv_usage=kv_usage,
                     kv_capacity_tokens=getattr(rs, "max_request_total_tokens", 0),
                 )
             )

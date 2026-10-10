@@ -85,3 +85,39 @@ def test_observe_hook_reports_first_token_then_end(tiny_trace, tmp_path):
             assert o.completed_at is None and o.num_decode_tokens is None  # output length stays hidden
         else:
             assert o.completed_at >= o.first_token_at and o.num_decode_tokens > 0
+
+
+def _metrics(sim):
+    sim.write_output()
+    out = Path(sim._config.metrics_config.output_dir)
+    return pd.read_csv(next(out.rglob("request_metrics.csv"))).sort_values("Request Id").reset_index(drop=True)
+
+
+def test_route_delay_shifts_every_request(tiny_trace, tmp_path):
+    base = _metrics(run_simulator(base_args(tiny_trace, tmp_path / "a", write_metrics=True,
+                                            global_scheduler_config_type="round_robin")))
+    late = _metrics(run_simulator(base_args(tiny_trace, tmp_path / "b", write_metrics=True,
+                                            global_scheduler_config_type="round_robin",
+                                            cluster_config_route_delay_s="0.5")))
+    col = next(c for c in base.columns if "e2e" in c.lower() and "normalized" not in c.lower())
+    assert len(base) == len(late)
+    assert (late[col] >= base[col] + 0.5 - 1e-6).mean() > 0.9  # light load: each request pays the hop
+
+
+STALE_POLICY = '''
+SEEN = []
+
+def choose(request, replicas, ctx):
+    SEEN.append((ctx.now, tuple((r.waiting, r.running, r.kv_usage) for r in replicas)))
+    return min(range(len(replicas)), key=lambda i: (replicas[i].outstanding_requests, i))
+'''
+
+
+def test_view_refresh_freezes_polled_metrics(tiny_trace, tmp_path):
+    pol = tmp_path / "stale.py"
+    pol.write_text(STALE_POLICY)
+    sim = run_simulator(base_args(tiny_trace, tmp_path / "out", global_scheduler_config_type="evolved",
+                                  evolved_global_scheduler_config_policy_path=str(pol),
+                                  evolved_global_scheduler_config_view_refresh_s="1e9"))
+    seen = sim._scheduler._policy.SEEN
+    assert len({v for _, v in seen}) == 1  # polled once at the first decision, never refreshed
