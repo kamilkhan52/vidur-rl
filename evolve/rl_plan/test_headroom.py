@@ -669,7 +669,7 @@ def test_synthetic_operating_characteristic(cv):
     """Review G r6 finding 1 and r7: synthetic pilots through the real ``pilot_verdict`` under model B (pi_e's own
     draw random, arrival share rho = 0.1, jitter harm +0.022, TPOT/TBT drawn). The weight comes from the reviewer's
     synthetic open-loop rows (regime 0: chaos only -> fallback; regime 1: real per-decision hinge gains -> rule met,
-    cross-fitted gain > 0): neither gates the claim. G r7 rates (300 pilots): true null "no headroom" ~77 %, window
+    cross-fitted gain > 0): neither gates the claim. G r7 rates (300 pilots): true null "no headroom" ~70 % (G r8 re-run), window
     bound coverage ~98 %, pooled ~95 %; true -20 % on both tails "headroom" ~66 %; a trade never "no headroom"."""
     choices = {0: [hr.weight_sweep(_regime_rows(0, s), "full", 1.0)["choice"] for s in range(4)],
                1: [hr.weight_sweep(_regime_rows(1, s, gain_h=3.0), "full", 1.0)["choice"] for s in range(4)]}

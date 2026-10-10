@@ -24,7 +24,7 @@ Not yet reviewed: `evolve/rl_plan/` (headroom pilot; agent still running, uncomm
   (π_e's attended-context memory not updated on forced decisions); Conv run stopped. The agent added
   `commit_policy_state` in headroom.py with a test. Review G after the sim_fork fixer finishes (headroom keeps its own
   force code; unify with sim_fork's mechanism if possible), then rerun Tool and Conv at H=64.
-| G | rl_plan headroom pilot (uncommitted) | round 1 running (G_r1) | | | |
+| G | rl_plan headroom pilot | r1-r7 changes requested (method); r8 approve with minors. **Done.** | | | |
 - 2026-10-10 G round 1: changes requested (3 major: horizon too short to see window P99 effects; lex hinge-first score
   hinge-driven on Tool; stale summary reuse; 5 minor). All accepted. Horizon and score are pilot-methodology choices
   that also inform the MDP discussion (Q-list); the fixer implements a time horizon with arrivals continuing and an
@@ -51,3 +51,4 @@ Not yet reviewed: `evolve/rl_plan/` (headroom pilot; agent still running, uncomm
   33743020 submitted.
 - 2026-10-10 G round 7: runs may launch; 1 major post-processing fix (pairwise noise reference: coverage 88% -> 95%, true-null 'no headroom' 51% -> 77%, false 'headroom' 0 in ~2000 null pilots) + minors. Fixer resumed.
 - 2026-10-10 G round-7 fix e153a6c (pairwise noise reference). Headroom pilot launched on Alpine on v4.1: 4 chains x 8 links (10 CPUs, 4 h), windows Tool/Conv x start 0/2000, out evolve/rl_plan/out/v41_*; last jobs 33743599/607/615/623. Round 8 (strict) running on post-processing.
+- 2026-10-10 G round 8: approve with minors (stop rule met). Null-rate statements aligned to ~70 %. Optional pooled-null refinement and 'single negative window' caveat noted for the write-up. ALL CHUNKS DONE.

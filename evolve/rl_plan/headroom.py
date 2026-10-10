@@ -134,7 +134,7 @@ POWER. "headroom" needs every one of 4 windows ``positive`` on both tails, so on
 roughly 20 % or more on BOTH P99 E2E and P99 TTFT in EVERY window (G r7 synthetic, 20 noise runs: a true -20 % on both
 tails reads "headroom" in ~2/3 of pilots, -15 % in ~1/4). An "inconclusive" at a true 10-15 % gain is therefore
 expected and is NOT evidence against headroom; each window prints its ``detectable_pct``. Under a true null the claim
-is "no headroom" ~3/4 of the time and "inconclusive" otherwise; false "headroom" did not occur in ~2,000 synthetic
+is "no headroom" ~70 % of the time (G r8: 69-70 %, 950 pilots) and "inconclusive" otherwise; false "headroom" did not occur in ~2,000 synthetic
 null pilots, and a trade never reads "no headroom".
 
 Cost (CPU-s per planned decision = R rollouts; Mac at load ~6-7, upper bounds; Alpine is faster per core). Tool 8R
