@@ -64,6 +64,11 @@ if V3_DATA:
         "Conv": REPO / "data/processed_traces/mooncake_conversation_trace.csv",
         "Synth": REPO / "data/processed_traces/mooncake_synthetic_trace.csv",
     }
+    # run_one keeps outputs under EVOLVE_KEEP_DIR/<code_version>/<tag>/<who>; code_version and the tag are equal in
+    # both modes, so a v3-data run would rmtree the kept v4 outputs of the same cell. run_one is hashed into
+    # code_version, so the path is separated here instead: v3-data runs keep under EVOLVE_KEEP_DIR/v3data/.
+    if os.environ.get("EVOLVE_KEEP_DIR"):
+        os.environ["EVOLVE_KEEP_DIR"] = str(Path(os.environ["EVOLVE_KEEP_DIR"]) / "v3data")
 BUCKETED = {"Tool", "Conv"}  # Mooncake conv/tool timestamps are 3 s buckets
 # KV-cache tokens per replica, from Vidur's MemoryPlanner (A100 80 GB). Llama-2's attention is profiled only up to
 # 4,032 KV tokens (its context window), and the random-forest predictor is flat beyond that; 58-81 % of the prefill
@@ -76,7 +81,7 @@ TP = {"7b": 1, "70b": 4, "l3_8b": 1, "l3_70b": 4}
 # 128K context). Requests longer than the model's context are dropped from the trace (10 Synth requests).
 MODEL_LABEL = {"7b": "Llama-2-7B", "70b": "Llama-2-70B", "l3_8b": "Llama-3.1-8B (Meta-Llama-3-8B profile)",
                "l3_70b": "Llama-3.1-70B (Meta-Llama-3-70B profile)"}
-MAX_CONTEXT = {} if V3_DATA else {"l3_8b": 131072, "l3_70b": 131072}  # Llama-2 keeps v3 behaviour (supplementary)
+MAX_CONTEXT = {} if V3_DATA else {"l3_8b": 131072, "l3_70b": 131072}  # Llama-2: no context cap (as in v3); v4 traces
 # KV capacity on other devices, from Vidur's MemoryPlanner; filled in as deployments are added.
 KV_CAPACITY_DEVICE: Dict[tuple, int] = {}
 SEED_FLAG = {
@@ -89,7 +94,8 @@ SEED_FLAG = {
     "learned": "learned_global_scheduler_config_seed",
 }
 DEFAULT_BASELINES = ("sticky_lor", "lor", "round_robin", "random", "lop_uncached")
-# One cache directory per simulator release, so v3 and v4 numbers never mix (keys also carry code_version).
+# One cache directory per simulator release. v3 and v4 numbers never mix because the keys carry code_version and the
+# trace sha (EVOLVE_V3_DATA runs share this directory and are kept apart by the trace sha only).
 CACHE_DIR = Path(os.environ.get("EVOLVE_CACHE_DIR", REPO / "evolve" / ".cache_v4"))
 
 
@@ -264,7 +270,7 @@ def _transformed_csv(sc: Scenario) -> Path:
         df["arrived_at"] = _warp(t, lambda x: np.where((x % 150.0) < 45.0, 3.0, 0.7 / 0.9))
     elif sc.transform.startswith("mix-"):
         other = sc.transform[4:]
-        o0 = pd.read_csv(_window_csv(Scenario(other, sc.replicas, sc.scale, -1, 0, 0, sc.model)))
+        o0 = pd.read_csv(_window_csv(Scenario(other, sc.replicas, sc.scale, -1, 0, 0, sc.model, device=sc.device)))
         o0["arrived_at"] = (o0["arrived_at"] - o0["arrived_at"].min()) * 2.0
         period = o0["arrived_at"].max() + 1.0
         span = t.max() - t.min()
@@ -358,7 +364,29 @@ def provenance() -> dict:
     import platform
     import sklearn
     return {"code_version": code_version(), "python": platform.python_version(), "numpy": np.__version__,
-            "pandas": pd.__version__, "sklearn": sklearn.__version__, "host": platform.node()}
+            "pandas": pd.__version__, "sklearn": sklearn.__version__, "host": platform.node(),
+            "v3_data": V3_DATA, "traces": {t: file_sha(p)[:16] if p.exists() else "missing" for t, p in TRACES.items()},
+            "tables": table_digest()}
+
+
+def table_digest() -> str:
+    """Canonical digest of the module-level tables and helpers that shape a run but are not hashed as source:
+    capacities, context caps, model names, TP degrees, seed flags, which traces are bucketed, the transforms, and
+    the scenario seed/jitter rules. Machine independent (no paths)."""
+    tables = {
+        "KV_CAPACITY": KV_CAPACITY, "KV_CAPACITY_DEVICE": {repr(k): v for k, v in KV_CAPACITY_DEVICE.items()},
+        "MAX_CONTEXT": MAX_CONTEXT, "MODEL_NAME": MODEL_NAME, "TP": TP, "SEED_FLAG": SEED_FLAG,
+        "BUCKETED": sorted(BUCKETED), "TRANSFORMS": list(TRANSFORMS),
+        "source": [inspect.getsource(f) for f in (Scenario.seed.fget, Scenario.jitter.fget, window_csv,
+                                                  _transformed_csv, _warp)],
+    }
+    return hashlib.sha256(json.dumps(tables, sort_keys=True).encode()).hexdigest()[:16]
+
+
+# table_digest() for code_version c16266a8ef49, per EVOLVE_V3_DATA mode (MAX_CONTEXT differs between them). The table
+# values are those the version was cut with; the transform source includes the 2026-10-10 fix that keeps `device` in
+# mix- transforms, which changes no A100 run (off-A100 windows could not be built before it).
+_TABLES_AT_C16266 = {False: "6d3f26ccb7e3c8a9", True: "692c66d3f1b80f93"}
 
 
 def code_version() -> str:
@@ -368,6 +396,7 @@ def code_version() -> str:
     commits (docs, finalists, RL code) must not invalidate the baseline cache.
     """
     if "v" not in _VERSION:
+        tables = table_digest()  # outside the try: an unhashable table value must fail loudly, not give "unknown"
         try:
             # Walk the tree rather than ask git: cluster copies need not be git checkouts.
             files = sorted(
@@ -388,6 +417,12 @@ def code_version() -> str:
             # The parts of this harness that shape a run (not the scenario lists or scoring).
             for fn in (sim_command, run_one, _window_csv, max_request_tokens):
                 h.update(inspect.getsource(fn).encode())
+            # The values of the module tables those functions read (review B_r1, 2026-10-10). Folded in only when
+            # they differ from the values code_version c16266a8ef49 was cut with, so that version (and the baselines
+            # and long jobs keyed to it) stays valid. At the next version bump, fold table_digest() in
+            # unconditionally and drop _TABLES_AT_C16266.
+            if tables != _TABLES_AT_C16266[V3_DATA]:
+                h.update(tables.encode())
             _VERSION["v"] = "c" + h.hexdigest()[:11]
         except Exception:
             _VERSION["v"] = "unknown"

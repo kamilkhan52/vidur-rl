@@ -1,5 +1,7 @@
 """Equal-budget tuning control (readiness plan §5 item 4): an evolution strategy over the cost constants of our
-Mooncake and Dynamo re-implementations, scored exactly like an evolve candidate (same stage, bar and objective).
+Mooncake and Dynamo re-implementations, scored like an evolve candidate (same stage and objective) against BAR_V4, the
+bar before tuning exists. The evolved search uses bar v4t (BAR_V4 + these tuned rules), so the two fitness values are
+compared only through bar_eval on one bar, never directly.
 
 If a tuned production rule matches the evolved router, the LLM search added nothing. The budget is counted in
 candidate evaluations, and must equal one evolve run's candidate count (e.g. 125 on search3b).
@@ -61,11 +63,15 @@ def reflect(u: np.ndarray) -> np.ndarray:
     return np.where(u > 1.0, 2.0 - u, u)
 
 
+def lam_of(dim: int) -> int:
+    return max(4, 4 + int(3 * math.log(dim)))
+
+
 def ask_tell(budget: int, dim: int, evaluate, seed: int = 0, lam: int = 0):
     """Diagonal (mu/mu_w, lambda)-ES in [0, 1]^dim. evaluate(list of unit vectors) -> list of fitness (higher is
     better). Returns the history of (u, fitness)."""
     rng = np.random.default_rng(seed)
-    lam = lam or max(4, 4 + int(3 * math.log(dim)))
+    lam = lam or lam_of(dim)
     mu = lam // 2
     w = np.log(mu + 0.5) - np.log(np.arange(1, mu + 1))
     w /= w.sum()
@@ -89,7 +95,7 @@ def install(family: str, run: Path) -> Path:
     """Write run/best.json's constants into evolve/policies/tuned/<template>_best.py, with provenance in a header."""
     template_path, space = FAMILIES[family]
     best = json.loads((run / "best.json").read_text())
-    n = sum(1 for _ in (run / "history.jsonl").open())
+    n = len(load_history(run / "history.jsonl"))
     if best["code_version"] != ev.code_version():
         raise SystemExit(f"best.json was scored under code_version {best['code_version']}, not {ev.code_version()}")
     header = (f"# Frozen by evolve.analysis.tune_baselines --install from {run.name}/best.json: fitness {best['fitness']:+.4f} "
@@ -101,21 +107,39 @@ def install(family: str, run: Path) -> Path:
 
 
 def load_history(log: Path) -> dict:
-    """Completed evaluations by params key. Invalid records are dropped so they are retried: a failure is usually a
-    job time-limit or out-of-memory kill, not the candidate. A truncated last line (killed mid-write) is ignored."""
+    """Every recorded evaluation, by params key, failed ones included, so a resumed ES replays exactly what an
+    uninterrupted run would have done. A job's time-limit kill takes the tuner down with its simulations, so it
+    leaves no record; a failed record is a real failure (sim timeout, one simulation OOM-killed) that the
+    uninterrupted run saw too, and retrying it could change every later generation (review D_r3).
+
+    A truncated last line (killed mid-write) is removed and a missing final newline is added, so later appends stay
+    parseable."""
     done = {}
-    if log.exists():
-        lines = log.read_text().splitlines()
-        for i, line in enumerate(lines):
-            try:
-                r = json.loads(line)
-            except json.JSONDecodeError:
-                if i == len(lines) - 1:
-                    continue
+    if not log.exists():
+        return done
+    lines = log.read_text().splitlines()
+    good = []
+    for i, line in enumerate(lines):
+        try:
+            r = json.loads(line)
+        except json.JSONDecodeError:
+            if i != len(lines) - 1:
                 raise
-            if r.get("valid"):
-                done[json.dumps(r["params"], sort_keys=True)] = r
+            continue
+        good.append(line)
+        done.setdefault(json.dumps(r["params"], sort_keys=True), r)  # a duplicate: the ES consumed the first
+    text = "".join(l + "\n" for l in good)
+    if log.read_text() != text:
+        tmp = log.with_suffix(".tmp")
+        tmp.write_text(text)
+        tmp.replace(log)
     return done
+
+
+def _write_atomic(path: Path, text: str) -> None:
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(text)
+    tmp.replace(path)
 
 
 def main():
@@ -140,31 +164,41 @@ def main():
     run = Path(a.run_dir)
     (run / "candidates").mkdir(parents=True, exist_ok=True)
     log = run / "history.jsonl"
+    bar = [b if not b.startswith("policy:") else f"{Path(b[7:]).name}:{ev.file_sha(Path(b[7:]))[:12]}"
+           for b in ev.BAR_V4]
     meta = {"family": a.family, "stage": a.stage, "objective": a.objective, "seed": a.seed, "budget": a.budget,
-            "code_version": ev.code_version()}
+            "code_version": ev.code_version(), "bar": bar, "template_sha": ev.file_sha(template_path)[:16],
+            "tuner_sha": ev.file_sha(Path(__file__))[:16]}
     if (run / "meta.json").exists():
         old = json.loads((run / "meta.json").read_text())
         if old != meta:
-            raise SystemExit(f"run dir was started with {old}, not {meta}")
+            diff = {k: (old.get(k), meta.get(k)) for k in sorted(set(old) | set(meta)) if old.get(k) != meta.get(k)}
+            raise SystemExit(f"{run} was started with other settings or code: {diff} (recorded, now). Resume it with "
+                             "the original settings and tuner/template files, or start a new --run-dir.")
     else:
-        (run / "meta.json").write_text(json.dumps(meta, indent=2))
+        _write_atomic(run / "meta.json", json.dumps(meta, indent=2))
     done = load_history(log)
+    loaded = set(done)
     scenarios = ev.STAGES[a.stage]
 
     lock = threading.Lock()
+    gen = [-1]  # ES generation being evaluated (-1 = the defaults); set before each population is scored
+    fresh = [0]  # evaluations run (not replayed) by this process
 
     def score(params: dict) -> float:
         key = json.dumps(params, sort_keys=True)
         with lock:
+            loaded.discard(key)
             if key in done:
                 return done[key]["fitness"]
+            fresh[0] += 1
         # Named by content, so a resumed run never reuses another candidate's file name.
         path = run / "candidates" / f"{a.family}_{hashlib.sha256(key.encode()).hexdigest()[:10]}.py"
         path.write_text(render(template, params))
         res = ev.evaluate_policy(str(path), scenarios, workers=a.workers, baselines=ev.BAR_V4,
                                  objective=a.objective)
         rec = {"params": params, "fitness": res["combined_score"], "valid": res.get("valid", False),
-               "file": str(path), "code_version": res.get("code_version") or meta["code_version"]}
+               "file": str(path), "code_version": res.get("code_version") or meta["code_version"], "gen": gen[0]}
         if not rec["valid"]:
             rec["failures"] = {k: v.get("reason") for k, v in res.get("failures", {}).items()}
         with lock:
@@ -181,9 +215,24 @@ def main():
     score(defaults)
     ev.ensure_baselines(scenarios, ev.BAR_V4, a.workers)  # once, before candidates run in parallel
     with cf.ThreadPoolExecutor(max_workers=a.parallel) as ex:
-        ask_tell(a.budget - 1, len(names), lambda pop: list(ex.map(lambda u: score(params_of(u)), pop)), seed=a.seed)
-    best = max(done.values(), key=lambda r: r["fitness"])  # valid evaluations only
-    (run / "best.json").write_text(json.dumps(best, indent=2))
+        def evaluate(pop):
+            gen[0] += 1
+            before = fresh[0]
+            out = list(ex.map(lambda u: score(params_of(u)), pop))
+            # Records are written generation by generation, so once a generation needed a new evaluation every
+            # recorded one must have been revisited; otherwise the history is from another trajectory (seed, code).
+            if fresh[0] > before and loaded:
+                raise SystemExit(f"{len(loaded)} recorded evaluations are not on the replayed ES trajectory")
+            return out
+
+        ask_tell(a.budget - 1, len(names), evaluate, seed=a.seed)
+    if loaded:  # records the replayed trajectory never asked for: the history is not this run's
+        raise SystemExit(f"{len(loaded)} recorded evaluations are not on the replayed ES trajectory")
+    valid = [r for r in done.values() if r.get("valid")]
+    if not valid:
+        raise SystemExit("no valid evaluation")
+    best = max(valid, key=lambda r: r["fitness"])
+    _write_atomic(run / "best.json", json.dumps(best, indent=2))
     print(f"best {best['params']} fitness {best['fitness']:+.4f} ({len(done)} evaluations)")
 
 

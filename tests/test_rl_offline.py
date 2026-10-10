@@ -81,3 +81,49 @@ def test_episode_labels_from_logged_ranges_survive_wrap():
     assert lab.tolist() == [1, 1, 0, 0, 1]
     assert ro.episode_labels_from_ranges([0, None], [4, 3], 5, 5) is None
     assert ro.episode_labels_from_ranges([2], [2], 5, 100).tolist() == [-1, -1, 0, 0, -1]  # unlogged rows -> -1
+
+
+def test_gamma_lower_bound_key_and_old_name():
+    rng = np.random.default_rng(2)
+    X = rng.uniform(-1, 1, (3000, 2))
+    y = np.sin(3 * X[:, 0]) + rng.normal(0, 0.3, 3000)
+    g = ro.gamma_test(X, y, k=10)
+    assert "ceiling_ev_upper_from_gamma1" not in g
+    assert g["ceiling_ev_lower_from_gamma1"] <= g["ceiling_ev"]  # gamma(1) over-estimates the noise
+    assert ro.ceiling_lower(g) == g["ceiling_ev_lower_from_gamma1"]
+    assert ro.ceiling_lower({"ceiling_ev_upper_from_gamma1": 0.6}) == 0.6  # files written before the rename
+
+
+def test_analyse_data_end_to_end_on_a_synthetic_buffer(tmp_path, monkeypatch):
+    """Full (non-light) analysis on a tiny fake bandit buffer: both argmax targets, n-curve, width selection, md."""
+    monkeypatch.setattr(ro, "WIDTHS", [0, 16])
+    monkeypatch.setattr(ro, "FRACTIONS", [0.5, 1.0])
+    rng = np.random.default_rng(3)
+    n_ep, per, N, F = 3, 600, 3, 4
+    T = n_ep * per
+    x = rng.normal(size=(T, N, F)).astype(np.float32)
+    x[:, :, 0] = x[:, :1, 0]  # a state feature (same on every replica)
+    x[:, :, 3] = np.clip(x[:, :, 3], -2.9, 2.9)  # the price feature
+    ta = x[:, :, 1].argmax(1)
+    a = np.where(rng.random(T) < 0.5, ta, rng.integers(0, N, T))
+    xa = x[np.arange(T), a]
+    r = (xa[:, 1] - 0.5 * xa[:, 2] + 0.3 * xa[:, 0] - xa[:, 3] + rng.normal(0, 0.3, T)).astype(np.float32)
+    buf = tmp_path / "net_ep2.pt.buffer.npz"
+    np.savez(buf, x=x, a=a, r=r, ta=ta, g=np.zeros(T, np.float32))
+    design = tmp_path / "design.py"
+    design.write_text(SRC)
+    eps = [{"episode": f"e{k}", "learner": {"buffer_size_end": (k + 1) * per, "buffer_loaded_from_previous_episode":
+                                            k * per}} for k in range(n_ep)]
+    out = ro.analyse_data({"candidate": "fake/x", "buffer": str(buf), "fitness": None}, None, buf, eps, str(design),
+                          log=lambda *_: None)
+    assert out["status"] == "ok", out.get("status")
+    ti = out["teacher_imitation"]
+    assert set(ti["reward_model_argmax_eq_teacher_by_target"]) == {"r", "r_out"}
+    assert ti["reward_model_argmax_eq_teacher"] == ti["reward_model_argmax_eq_teacher_by_target"]["r_out"]
+    assert out["noise_within_episode"]["r_out"]["rows_per_episode_mean"] == per
+    assert list(out["noise_n_curve"]["points"]) == [str(per)]  # the 10k/20k/40k points exceed T
+    assert out["width_selection"]["val_ev_spread"] >= 0 and out["best_width"] in (0, 16)
+    assert "ceiling_ev_lower_from_gamma1" in out["noise"]["r"]
+    assert "note" in out["data_curve"]
+    md = ro.to_markdown({"generated": "now", "candidates": {"fake/x": out}})
+    assert "what the learner maximised" in md and "Pooled ceiling vs rows used" in md and "adding episodes" in md

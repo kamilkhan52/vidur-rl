@@ -519,7 +519,9 @@ def logging_summary(d):
         try:
             m = json.loads(man.read_text())
             out["manifest"] = {k: m.get(k) for k in ("code_version", "design_sha256", "train_seed", "options",
-                                                      "prediction_bundle", "teacher_sha256", "torch", "numpy", "host")}
+                                                      "prediction_bundle", "teacher_sha256", "torch", "numpy", "host",
+                                                      "learner_sha256", "git_commit", "git_dirty",
+                                                      "git_learner_dirty")}
         except Exception as e:
             out["manifest"] = {"error": str(e)}
     any_file = out["manifest"] is not None
@@ -1302,7 +1304,9 @@ def write_train_dirs_md(s, path):
         sm, lg = c.get("summary") or {}, c.get("logging") or {}
         L += [f"## {key}", "", f"algorithm {sm.get('algorithm')}, hidden {sm.get('hidden')}, features "
               f"{sm.get('n_features')}, train_seed {c.get('train_seed')}, code_version "
-              f"{get(lg, 'manifest', 'code_version')}, bundle {get(lg, 'manifest', 'prediction_bundle')}", "",
+              f"{get(lg, 'manifest', 'code_version')}, bundle {get(lg, 'manifest', 'prediction_bundle')}, learner "
+              f"sha256 {(get(lg, 'manifest', 'learner_sha256') or '?')[:12]}, git {(get(lg, 'manifest', 'git_commit') or '?')[:10]}"
+              f"{' (dirty)' if get(lg, 'manifest', 'git_dirty') else ''}", "",
               "| ep | tag | decisions | steps | eps frac | teacher frac | agree | dec p50/p99 us | TD sd first/last "
               "| gap/TD sd | grad p95 max | clip | drift | age | probe agree | churn | held-out P99 TTFT |",
               "|---" * 17 + "|"]

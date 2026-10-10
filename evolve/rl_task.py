@@ -21,6 +21,7 @@ Training compute is part of the cost and is reported (train_wall_s).
 """
 
 import json
+import os
 import tempfile
 from pathlib import Path
 from typing import List, Optional
@@ -157,6 +158,42 @@ def _sha256(p: Path) -> str:
     return hashlib.sha256(Path(p).read_bytes()).hexdigest()
 
 
+LEARNER = REPO / "vidur" / "scheduler" / "global_scheduler" / "learned_global_scheduler.py"
+
+
+def _git(*args) -> Optional[str]:
+    import subprocess
+
+    try:
+        # GIT_OPTIONAL_LOCKS=0: `git status` must not refresh .git/index from parallel driver threads (review F_r2).
+        r = subprocess.run(["git", "-C", str(REPO), *args], capture_output=True, text=True, timeout=30,
+                           env={**os.environ, "GIT_OPTIONAL_LOCKS": "0"})
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return r.stdout if r.returncode == 0 else None
+
+
+def learner_provenance() -> dict:
+    """Which learner produced an RL run. The learner file is excluded from code_version (evaluate._VERSION_EXCLUDE),
+    so code_version alone cannot tell two learners apart: record its sha256 (and this harness file's), plus the git
+    commit and dirty flags when the repo is a git checkout (None otherwise). Computed at call time."""
+    def sha(p):
+        try:
+            return _sha256(p)
+        except OSError:
+            return None
+
+    head = _git("rev-parse", "HEAD")
+    status = _git("status", "--porcelain", "--untracked-files=no") if head is not None else None
+    rel = str(LEARNER.relative_to(REPO))
+    learner_status = _git("status", "--porcelain", "--", rel) if head is not None else None
+    return {"learner_file": rel, "learner_sha256": sha(LEARNER),
+            "rl_task_sha256": sha(Path(__file__).resolve()),
+            "git_commit": head.strip() if head else None,
+            "git_dirty": bool(status.strip()) if status is not None else None,  # tracked files modified
+            "git_learner_dirty": bool(learner_status.strip()) if learner_status is not None else None}
+
+
 def run_design(design: str, work_dir: Path, overrides: dict) -> Path:
     """Copy of ``design`` with CONFIG run options appended (RL_LOGGING_SPEC: train_seed, log, ...). The options go
     through the design's CONFIG (resolve_config validates them), so no simulator flag or vidur/config change is
@@ -193,6 +230,7 @@ def write_manifest(work_dir: Path, design: str, run_file: Path, episodes, teache
 
     prov = ev.provenance()
     m = {"created": datetime.datetime.now().isoformat(timespec="seconds"), "code_version": ev.code_version(),
+         **learner_provenance(),
          "design": str(design), "design_sha256": _sha256(Path(design)),
          "run_design": str(run_file), "run_design_sha256": _sha256(run_file),
          "config": _resolved_config(run_file),
@@ -274,7 +312,9 @@ def train(design: str, work_dir: Path, episodes=None, launcher=None, timeout=360
           ) -> dict:
     """Run the training episodes in sequence; return per-episode tails and learner diagnostics.
 
-    RL_LOGGING_SPEC options (all off by default; off = exactly the v3 behaviour and outputs):
+    RL_LOGGING_SPEC options (all off by default; off = exactly the behaviour and outputs of the learner before the
+    logging change, i.e. the v4 learner of af87600; not v3: v4 stores each decision once, v3 bandits stored a decision
+    twice when its request finished before the next routing decision):
       train_seed      seed of the learner (network initialisation, exploration, batch sampling) separate from the
                       scenario seed; passed through the design CONFIG (see run_design).
       log             learner logs per episode: <ckpt>.updates.npz, <ckpt>.trace.npz, stats["logging"]; also
@@ -287,6 +327,7 @@ def train(design: str, work_dir: Path, episodes=None, launcher=None, timeout=360
     """
     episodes = episodes or TRAIN_EPISODES
     work_dir.mkdir(parents=True, exist_ok=True)
+    learner = learner_provenance()  # returned with the result (archive rows), whatever the options
     options = {}
     if train_seed is not None:
         options["train_seed"] = int(train_seed)
@@ -303,7 +344,7 @@ def train(design: str, work_dir: Path, episodes=None, launcher=None, timeout=360
                        extra=learned_args("training", ckpt_in=prev, ckpt_out=ck))
         if not r.get("ok"):
             return {"ok": False, "reason": f"training episode {k} ({sc.tag}): {r.get('reason')}",
-                    "stderr": r.get("stderr", ""), "episodes": log_rows}
+                    "stderr": r.get("stderr", ""), "episodes": log_rows, "learner_provenance": learner}
         if prev is not None and not keep_buffers:  # the replay buffer now lives beside the newest checkpoint only
             Path(str(prev) + ".buffer.npz").unlink(missing_ok=True)
             Path(str(prev) + ".buffer.meta.npz").unlink(missing_ok=True)
@@ -325,8 +366,13 @@ def train(design: str, work_dir: Path, episodes=None, launcher=None, timeout=360
             Path(str(ck) + ".probe.json").write_text(json.dumps(pm, indent=1))
         log_rows.append(row)
         prev = ck
+    end_sha = learner_provenance()["learner_sha256"]
+    if end_sha != learner["learner_sha256"]:  # each episode re-imports the learner: an edit mid-run mixes learners
+        learner = dict(learner, learner_sha256_end=end_sha, learner_changed_during_run=True)
+        print(f"WARNING: {learner['learner_file']} changed during training ({learner['learner_sha256'][:12]} -> "
+              f"{end_sha[:12]})", flush=True)
     return {"ok": True, "checkpoint": str(prev), "episodes": log_rows,
-            "train_wall_s": sum(e["wall_s"] for e in log_rows)}
+            "train_wall_s": sum(e["wall_s"] for e in log_rows), "learner_provenance": learner}
 
 
 def train_seeds(design: str, work_dir: Path, seeds=(0, 1, 2, 3, 4), **kw) -> dict:
