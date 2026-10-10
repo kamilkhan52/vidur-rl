@@ -20,6 +20,32 @@ def _random_case(rng, n=4):
     return req, reps
 
 
+class _Rng(random.Random):
+    """Counts tie-breaks (the policies call rng.choice only to break a tie)."""
+
+    def __init__(self, seed):
+        super().__init__(seed)
+        self.ties = 0
+
+    def choice(self, seq):
+        self.ties += 1
+        return super().choice(seq)
+
+
+def _burst_cases(rng, n=8, bursts=1500, size=4):
+    """Bursts of ``size`` requests at one ``now`` (same-burst prefix index in use), quantised loads and cache hits so
+    exact ties are frequent, and requests drawn from a few shared prefix families so same-burst matches occur."""
+    families = [tuple(range(100 * f, 100 * f + 6)) for f in range(3)]
+    for b in range(bursts):
+        reps = [ReplicaView(i, rng.randint(0, 3), 16 * rng.randint(0, 2), 0, 0, rng.choice([0.0, 0.25]), 128)
+                for i in range(n)]
+        for k in range(size):
+            hashes = rng.choice(families)[:rng.randint(1, 6)]
+            p = 16 * len(hashes) + rng.choice([0, 0, 8])
+            hit = lambda: tuple(min(p, rng.choice([0, 0, 16, 32])) for _ in range(n))  # noqa: E731
+            yield float(b), RequestView(float(b), p, None, hit(), -1, k, size, hashes, 16, hit(), hit()), reps
+
+
 def test_defaults_reproduce_the_untuned_policies(tmp_path):
     for fam, base in (("dynamo", "dynamo_kv_cost.py"), ("mooncake", "mooncake_min_ttft.py")):
         template, space = FAMILIES[fam]
@@ -27,10 +53,27 @@ def test_defaults_reproduce_the_untuned_policies(tmp_path):
         p.write_text(render(template.read_text(), {k: v[3] for k, v in space.items()}))
         tuned, ref = load_policy(str(p)), load_policy(str(SYSTEMS / base))
         rng = random.Random(1)
-        for seed in range(200):
+        for seed in range(200):  # independent single decisions
             req, reps = _random_case(rng)
             c1, c2 = PolicyContext(random.Random(seed), 4), PolicyContext(random.Random(seed), 4)
             assert tuned.choose(req, reps, c1) == ref.choose(req, reps, c2)
+        # one shared context per policy across bursts: exercises the tie-break and the same-burst prefix index
+        match, burst_hits = ref._match, [0]
+
+        def counting_match(index, hashes):
+            n = match(index, hashes)
+            burst_hits[0] += n > 0
+            return n
+
+        ref._match = counting_match
+        c1, c2 = PolicyContext(_Rng(0), 8), PolicyContext(_Rng(0), 8)
+        n = 0
+        for now, req, reps in _burst_cases(random.Random(2)):
+            c1.now = c2.now = now
+            assert tuned.choose(req, reps, c1) == ref.choose(req, reps, c2), (fam, n)
+            n += 1
+        assert n == 6000 and c1.rng.ties == c2.rng.ties
+        assert c2.rng.ties > 300 and burst_hits[0] > 1000, (fam, c2.rng.ties, burst_hits[0])
 
 
 def test_unit_mapping_round_trips():

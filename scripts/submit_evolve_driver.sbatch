@@ -1,7 +1,9 @@
 #!/bin/bash
 # Evolved-router search (EXP11) on one node: the driver proposes policies and runs every
 # simulation as a local subprocess (up to --workers at a time). Resumable: rerun with the
-# same RUN_DIR and the archive continues (seeds and baselines are not recomputed).
+# same RUN_DIR and the archive continues (seeds and baselines are not recomputed). ITERATIONS is the run's
+# TOTAL across resubmissions (the driver counts what the archive holds); other settings must match run.json.
+# Without BAR the driver scores protocol v2 against the v2 bar and warns; v4 runs pass BAR=v4t.
 #   sbatch scripts/submit_evolve_driver.sbatch                      # DeepSeek via OpenRouter
 #   PROPOSER=claude-code sbatch ...   (only where the claude CLI is logged in; not Alpine)
 #   TASK=rl PROPOSER=relay RELAY_DIR=... sbatch ...   EXP12: evolve RL designs; proposals are

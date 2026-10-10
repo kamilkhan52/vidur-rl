@@ -36,9 +36,14 @@ def main():
     ap.add_argument("--stage", default="heldout", choices=sorted(ev.STAGES))
     ap.add_argument("--workers", type=int, default=10)
     ap.add_argument("--out", default=None)
-    ap.add_argument("--objective", default="balanced", choices=sorted(ev.OBJECTIVES))
-    ap.add_argument("--bar", default="v2", choices=sorted(ev.BARS))
+    ap.add_argument("--objective", default=None, choices=sorted(ev.OBJECTIVES), help="default balanced (v4: tail4)")
+    ap.add_argument("--bar", default=None, choices=sorted(ev.BARS), help="default v2 (v4 protocol: v4t)")
     a = ap.parse_args()
+    for flag, default in (("bar", "v2"), ("objective", "balanced")):  # defaults kept so old commands reproduce
+        if getattr(a, flag) is None:
+            setattr(a, flag, default)
+            print(f"WARNING: --{flag} not given, using {default!r} (the v4 protocol, evolve/SELECTION.md, scores "
+                  f"against --bar v4t --objective tail4)", flush=True)
     global BAR
     BAR = list(ev.BARS[a.bar])
     scen = ev.STAGES[a.stage]

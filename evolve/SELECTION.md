@@ -28,14 +28,18 @@ Notes:
 
 ## 2. Baseline bar
 
-- **Bar before the first v4 search** (search fitness is computed against it): `BAR_V2`, i.e.
+- **Bar before the first v4 search** (search fitness is computed against it): bar `v4t` (`evaluate.BARS["v4t"]`:
+  `BAR_V4` plus the two tuned members), i.e.
   - LOR, sticky-LOR, round robin, random, LOP-uncached;
   - our Mooncake and Dynamo re-implementations;
   - power-of-two choices and JSQ variants, on outstanding requests and on KV usage;
   - Mooncake and Dynamo constants tuned by an **equal-budget** BO/ES control, the falsifier.
     - Tuning uses search3b only.
-    - Its budget equals one evolve run's simulation count.
+    - Its budget equals one evolve run's candidate count (125 vs 60 iterations x 2 proposals + 3 seeds = 123).
     - The tuned constants are frozen with our finalists.
+    - The tuner scores its candidates against `BAR_V4` (the tuned members do not exist yet), while the evolve runs
+      score against `v4t`, so a tuner fitness and an evolve archive fitness are never compared directly. Tuned
+      control and evolved finalists are compared only through `bar_eval` (and `head_to_head`) on the same bar.
 - **Added after the freeze** (test-time bar members, reported as added after the freeze): Lodestar and Astrolabe;
   Llumnix, OLP and global Mooncake if time allows. New baselines never re-select our finalists.
 - Every comparison is reported **two ways**:
