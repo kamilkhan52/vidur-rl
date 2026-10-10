@@ -204,6 +204,9 @@ def test_id_counters_are_per_handle(tmp_path):
     from vidur.entities import Batch, BatchStage, ExecutionTime
 
     lazy = (Batch, BatchStage, ExecutionTime)  # get a counter only on first use, during the run
+    # conftest.reset_id_counters (used by earlier tests in the same process) sets these class counters; a handle
+    # must leave whatever the process had untouched.
+    before = {c: c.__dict__.get("_id", sf.MISSING) for c in lazy}
     a = _build(tmp_path / "A")
     assert all(a.counters.get(c, sf.MISSING) is sf.MISSING for c in lazy)
     d = a.fork()  # forked before the first batch
@@ -214,7 +217,7 @@ def test_id_counters_are_per_handle(tmp_path):
     assert all(b.counters.get(c, sf.MISSING) is sf.MISSING for c in lazy)
     assert b.run_to_decision(5) and d.run_to_decision(5)
     assert {c: b.counters[c] for c in lazy} == at5 == {c: d.counters[c] for c in lazy}
-    assert all("_id" not in c.__dict__ for c in lazy)  # nothing leaks into the process outside a handle
+    assert {c: c.__dict__.get("_id", sf.MISSING) for c in lazy} == before  # nothing leaks outside a handle
 
     # The predictor is shared; its clamp counts are per handle.
     pred = a._predictor()
