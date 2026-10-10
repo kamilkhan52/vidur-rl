@@ -49,3 +49,4 @@ Not yet reviewed: `evolve/rl_plan/` (headroom pilot; agent still running, uncomm
   were oracle-informed); static candidate screen in evaluate_policy (all 306 existing policies pass). **Done.**
   Mac BAR_V4 baselines recomputing (search3b, heldout3); Alpine tuning chains t41_* 33743012-19 and golden_v41
   33743020 submitted.
+- 2026-10-10 G round 7: runs may launch; 1 major post-processing fix (pairwise noise reference: coverage 88% -> 95%, true-null 'no headroom' 51% -> 77%, false 'headroom' 0 in ~2000 null pilots) + minors. Fixer resumed.
