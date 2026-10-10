@@ -43,3 +43,9 @@ Not yet reviewed: `evolve/rl_plan/` (headroom pilot; agent still running, uncomm
 - 2026-10-10 G round 5: mechanics approved; rule-level changes requested (trade counted as negative; weight rule can pick a never-deviating weight; TPOT guard knife edge; null without effect size). Cross-fit real-vs-chaos statistic adopted. Fixer resumed.
 - 2026-10-10 v4.1 built on branch (3cbf477 merge, 62b5ea5 leak fix, 27adc34 code_version fold -> cbeb5161f046 / v3 cead88d7d5d3, a2595a4, f9c1917 manifests): golden v3/v4 30/30 and v4ext 5/5 byte-identical; v4.1ext 8 cells reproduce; 240 tests pass. Legacy RL_CACHE_AWARE StateTracker feeds true decode length into RL state (oracle leak; legacy path only) - flagged. Review V41_r1 running before merge.
 - 2026-10-10 G round 6: run code approved; verdict code matches docstring; 2 major post-processing rule fixes (no-headroom unreachable; effect bounds not data-based) + minors. Fixer resumed.
+- 2026-10-10 v4.1 review (V41_r1): ready to merge, minors only. Merged as 4098ec5 (code_version cbeb5161f046, v3-data
+  cead88d7d5d3). Minors fixed in 6324d69: sim_fork observe pass-through; legacy rl_cache_aware refuses without
+  VIDUR_ALLOW_ORACLE_RL=1 (oracle decode-length features incl. replica*_pending_decode_*; historical results from it
+  were oracle-informed); static candidate screen in evaluate_policy (all 306 existing policies pass). **Done.**
+  Mac BAR_V4 baselines recomputing (search3b, heldout3); Alpine tuning chains t41_* 33743012-19 and golden_v41
+  33743020 submitted.
