@@ -27,8 +27,12 @@ kv_usage) are those of a periodic poller: snapshots on the fixed grid k*R, the l
 tick at or before the decision. The other fields stay exact.
 
 Information a real router could not have is deliberately withheld: the output
-length of a request, future arrivals, and all simulator objects. Cached-prefix
-lengths are computed with a side-effect-free probe of each replica's prefix cache.
+length of a request, future arrivals, and all simulator objects. Block hashes are
+those of the prompt's full blocks only (``prompt_block_hashes``, v4.1): the trace's
+list also covers the output, so its length would reveal the output length. This
+holds for ``prefix_hashes`` and for the router-side ledgers behind
+``inflight_prefix_tokens`` / ``active_prefix_tokens``. Cached-prefix lengths are
+computed with a side-effect-free probe of each replica's prefix cache.
 """
 
 import importlib.util
@@ -42,6 +46,7 @@ from vidur.entities import Request
 from vidur.entities.replica import Replica
 from vidur.kv_cache.utils import BlockHashType
 from vidur.scheduler.global_scheduler.base_global_scheduler import BaseGlobalScheduler
+from vidur.scheduler.global_scheduler.prompt_hashes import prompt_block_hashes
 from vidur.types.replica_id import ReplicaId
 
 
@@ -69,8 +74,9 @@ class RequestView:
     session_last_replica: int  # replica index this session was last routed to, -1 if new
     position_in_burst: int
     burst_size: int
-    # The request's prefix block hashes and the block size in tokens, so a router can keep its own
-    # route-time prefix index (as SGLang, AIBrix and Mooncake do) instead of seeing only the cache.
+    # The hashes of the prompt's full blocks (num_prefill_tokens // block_tokens of them; never the output
+    # positions) and the block size in tokens, so a router can keep its own route-time prefix index (as SGLang,
+    # AIBrix and Mooncake do) instead of seeing only the cache.
     prefix_hashes: Tuple[int, ...] = ()
     block_tokens: int = 0
     # Per replica: leading prefix tokens covered by requests routed there and not yet prefilled
@@ -135,10 +141,10 @@ class EvolvedGlobalScheduler(BaseGlobalScheduler):
         self._assigned: Dict[int, Tuple[int, int]] = {}
         self._session_last: Dict[int, int] = {}
         self._prefilled: set = set()
-        # per replica: multiset of prefix block hashes of requests routed there, not yet prefilled
+        # per replica: multiset of prompt block hashes of requests routed there, not yet prefilled
         self._inflight: List[Dict[int, int]] = [dict() for _ in self._replica_ids]
         self._inflight_req: Dict[int, Tuple[int, Tuple[int, ...]]] = {}
-        # per replica: multiset of prefix block hashes of requests routed there, not yet finished
+        # per replica: multiset of prompt block hashes of requests routed there, not yet finished
         self._active: List[Dict[int, int]] = [dict() for _ in self._replica_ids]
         self._active_req: Dict[int, Tuple[int, Tuple[int, ...]]] = {}
         self._ctx = PolicyContext(self._random_number_generator, len(self._replica_ids))
@@ -160,9 +166,9 @@ class EvolvedGlobalScheduler(BaseGlobalScheduler):
     # ------------------------------------------------------------ observation
 
     def _cached_prefix_tokens(self, request: Request) -> Tuple[int, ...]:
-        """Side-effect-free prefix-cache probe on every replica (mirrors get_computed_blocks)."""
+        """Side-effect-free prefix-cache probe on every replica (mirrors get_computed_blocks, prompt blocks only)."""
         out = []
-        hashes = request.block_hash_ids
+        hashes = prompt_block_hashes(request, self._block_tokens())
         for rid in self._replica_ids:
             kv = getattr(self._replica_schedulers[rid], "_kv_cache_manager", None)
             if kv is None or not kv.enable_caching or not hashes:
@@ -185,7 +191,7 @@ class EvolvedGlobalScheduler(BaseGlobalScheduler):
         return 0
 
     def _inflight_prefix_tokens(self, request: Request, block_tokens: int, table=None) -> Tuple[int, ...]:
-        hashes = request.block_hash_ids or ()
+        hashes = prompt_block_hashes(request, block_tokens)
         out = []
         for counts in (self._inflight if table is None else table):
             n = 0
@@ -273,6 +279,7 @@ class EvolvedGlobalScheduler(BaseGlobalScheduler):
             return []
         self._ctx.now = burst[0].arrived_at
         cached = [self._cached_prefix_tokens(r) for r in burst]
+        block_tokens = self._block_tokens()
         req_views = [
             RequestView(
                 arrived_at=r.arrived_at,
@@ -284,10 +291,10 @@ class EvolvedGlobalScheduler(BaseGlobalScheduler):
                 else -1,
                 position_in_burst=k,
                 burst_size=len(burst),
-                prefix_hashes=tuple(r.block_hash_ids or ()),
-                block_tokens=self._block_tokens(),
-                inflight_prefix_tokens=self._inflight_prefix_tokens(r, self._block_tokens()),
-                active_prefix_tokens=self._inflight_prefix_tokens(r, self._block_tokens(), self._active),
+                prefix_hashes=prompt_block_hashes(r, block_tokens),
+                block_tokens=block_tokens,
+                inflight_prefix_tokens=self._inflight_prefix_tokens(r, block_tokens),
+                active_prefix_tokens=self._inflight_prefix_tokens(r, block_tokens, self._active),
             )
             for k, r in enumerate(burst)
         ]
@@ -340,7 +347,7 @@ class EvolvedGlobalScheduler(BaseGlobalScheduler):
         self._outstanding[idx] += 1
         self._pending_prefill[idx] += uncached
         self._assigned[request.id] = (idx, uncached)
-        hashes = tuple(request.block_hash_ids or ())
+        hashes = prompt_block_hashes(request, self._block_tokens())
         if hashes:
             counts = self._inflight[idx]
             for h in hashes:

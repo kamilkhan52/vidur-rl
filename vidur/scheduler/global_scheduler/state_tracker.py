@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional, Set
 import numpy as np
 
 from vidur.entities import Request
+from vidur.scheduler.global_scheduler.prompt_hashes import prompt_block_hashes
 from vidur.scheduler.replica_scheduler.base_replica_scheduler import (
     BaseReplicaScheduler,
 )
@@ -376,11 +377,8 @@ class StateTracker:
             List of cache hit ratios per replica
         """
         cache_hits = []
-        request_blocks = (
-            set(request.block_hash_ids)
-            if request.block_hash_ids is not None
-            else set()
-        )
+        # Prompt blocks only (v4.1): the full block_hash_ids list also covers the output positions.
+        request_blocks = set(prompt_block_hashes(request))
 
         for replica_id in sorted(self._replica_schedulers.keys()):
             try:
@@ -466,7 +464,7 @@ class StateTracker:
         # Track in-flight block hashes for shadow cache
         block_hashes: Set[int] = set()
         if request.block_hash_ids is not None:
-            block_hashes = set(request.block_hash_ids)
+            block_hashes = set(prompt_block_hashes(request))  # prompt blocks only (v4.1)
             self._in_flight_blocks[replica_id].update(block_hashes)
 
         # Store info needed for proper decrement on completion
