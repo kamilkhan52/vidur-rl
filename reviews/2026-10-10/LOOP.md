@@ -39,3 +39,4 @@ Not yet reviewed: `evolve/rl_plan/` (headroom pilot; agent still running, uncomm
   v4.1 (bundled with the approved A fixes): router-visible hashes cut to prompt blocks, table digest folded into
   code_version. Alpine v4 tuning/bars/gen70 jobs cancelled; v4 baselines superseded on merge. v4.1 build running on
   branch v4.1-sim-fixes; then a review round on the v4.1 delta, recompute baselines, restart tuning.
+- 2026-10-10 G round 4: mechanics and statistics code correct; method changes requested (noise floor identically 0 because π_e tie-breaks occur only before warm-up; w=25m trades tail for mean; verdict pooling; block bootstrap; control code in log key). Fixer resumed; all must land before launch.
