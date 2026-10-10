@@ -76,6 +76,13 @@ class RLCacheAwareGlobalScheduler(BaseGlobalScheduler):
         replicas: Dict[ReplicaId, Replica],
     ):
         super().__init__(config, replicas)
+        # Its StateTracker features include true output lengths (req_decode_*, lookahead*_decode_*,
+        # replica*_pending_decode_*): an oracle no real router has (review V41_r1, 2026-10-10). Refuse unless the
+        # caller acknowledges it; results from this scheduler are not deployable-router results.
+        if os.environ.get("VIDUR_ALLOW_ORACLE_RL") != "1":
+            raise RuntimeError(
+                "rl_cache_aware uses true output lengths in its state (oracle features). Set VIDUR_ALLOW_ORACLE_RL=1 "
+                "to run it anyway; never report its results as a deployable router. Use the 'learned' scheduler.")
 
         rl_config = config.cluster_config.global_scheduler_config
         self._rl_config = rl_config

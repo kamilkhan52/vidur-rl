@@ -70,7 +70,7 @@ Stored as a compact array file `net_ep<k>.pt.updates.npz` (one row per interval)
 ## Implementation status (2026-10-10)
 
 **How options reach the learner (deviation from the `[v]` notes above).** `vidur/main.py`, `vidur/config/config.py`
-and the four hashed harness functions are untouched, so `code_version` stays `c16266a8ef49`. New learner options are
+and the four hashed harness functions are untouched, so this change left `code_version` unchanged (then `c16266a8ef49`; v4.1 is `cbeb5161f046`). New learner options are
 CONFIG keys validated by `resolve_config` (`learned_global_scheduler.py` is in `_VERSION_EXCLUDE`): `train_seed`
 (None), `log` (False), `log_interval` (200 updates per row), `log_trace_frac` (1.0). `rl_task.train(..., train_seed=,
 log=)` passes them by writing `<work_dir>/design_run.py` = the design + one appended `CONFIG = dict(CONFIG, ...)`

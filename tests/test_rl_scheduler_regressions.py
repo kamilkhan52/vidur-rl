@@ -8,6 +8,8 @@
 5. ``set_seeds`` did not seed torch.
 """
 
+import os
+os.environ["VIDUR_ALLOW_ORACLE_RL"] = "1"  # legacy oracle scheduler under test (see rl_cache_aware guard)
 import csv
 
 import numpy as np

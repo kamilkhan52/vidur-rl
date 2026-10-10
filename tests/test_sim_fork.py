@@ -661,3 +661,20 @@ def test_os_fork_inside_run_callback_keeps_global_rng(tmp_path):
     c = seen["child"]
     assert c["raw"] == seen["parent"] == c["restored"]  # restored automatically (register_at_fork) and by the helper
     assert c["cancel"] == [True, False]
+
+
+def test_pending_override_passes_observe_calls_through(tmp_path):
+    # v4.1: the scheduler calls observe() with observe=True; a pending override must pass it through untouched.
+    pol = str(ev.REPO / "evolve/golden/policies/feedback.py")
+    argv = ev.sim_command("evolved", pol, SC, ev.window_csv(SC), tmp_path / "F", ["--no-metrics_config_store_plots"])
+    h = build_simulator(argv[3:])
+    for _ in range(8):
+        assert _advance(h)
+    gs = h.sim._scheduler
+    n = gs.observe_calls
+    rec = {}
+    override_next_decision(h, None, record=rec)
+    assert _advance(h)
+    assert gs.observe_calls > n  # observe() ran while the override was pending
+    assert rec["executed"] == rec["policy_choice"]
+    _finish(h, out=False)

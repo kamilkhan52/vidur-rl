@@ -802,11 +802,11 @@ def _ctx_extras(ctx) -> dict:
     return {k: v for k, v in vars(ctx).items() if k not in _CTX_FIELDS}
 
 
-def _forcing_call(self, fn, *args):
+def _forcing_call(self, fn, *args, **kw):
     pol = self._policy
     is_route = fn is getattr(pol, "route", None)
-    if not is_route and fn is not getattr(pol, "choose", None):  # observe(): pass through
-        return type(self)._call(self, fn, *args)
+    if not is_route and fn is not getattr(pol, "choose", None):  # observe(): pass through (v4.1 passes observe=True)
+        return type(self)._call(self, fn, *args, **kw)
     forced, mode, record, route_first_only, build_fp = self.__dict__.pop(_FORCE_ATTR)
     del self.__dict__["_call"]
     before = copy.deepcopy(self._ctx.state)

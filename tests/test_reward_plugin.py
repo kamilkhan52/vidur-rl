@@ -1,5 +1,7 @@
 """The reward_plugin_path hook (EXP10's injection point) must override the built-in reward."""
 
+import os
+os.environ["VIDUR_ALLOW_ORACLE_RL"] = "1"  # legacy oracle scheduler under test (see rl_cache_aware guard)
 import csv
 
 from conftest import base_args, run_simulator

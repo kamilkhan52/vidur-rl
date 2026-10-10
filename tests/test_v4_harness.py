@@ -103,3 +103,16 @@ def test_an_unhashable_table_value_fails_loudly(monkeypatch):
     monkeypatch.setitem(ev.MAX_CONTEXT, "l3_8b", np.int64(131072))
     with pytest.raises(TypeError):
         ev.code_version()
+
+
+def test_policy_screen_refuses_reaching_around_the_interface(tmp_path):
+    from evolve import evaluate as ev
+    ok = "import math\nfrom collections import deque\ndef choose(request, replicas, ctx):\n    return 0\n"
+    assert ev.screen_policy(ok) == []
+    for src in ("import gc\n", "import sys\n", "from vidur.entities import Request\n", "import os.path\n",
+                "x = ().__class__.__mro__\n", "f = getattr\n", "eval('1')\n", "from . import x\n"):
+        assert ev.screen_policy(src), src
+    p = tmp_path / "bad.py"
+    p.write_text("import gc\ndef choose(request, replicas, ctx):\n    return 0\n")
+    res = ev.evaluate_policy(str(p), scenarios=[], workers=1)
+    assert not res["valid"] and "policy screen" in res["failures"]["screen"]["reason"]

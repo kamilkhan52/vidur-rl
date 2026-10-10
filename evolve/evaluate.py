@@ -609,9 +609,45 @@ def score(candidate: Dict[Scenario, dict], base: dict, baselines=DEFAULT_BASELIN
             "worst_scenario_log_ratio": max(per_s), "mean_e2e_penalty": penalty, "details": rows}
 
 
+# Candidate policies run inside the simulator process, so the policy interface (RequestView, ReplicaView,
+# PolicyContext) is only a boundary if the code cannot reach around it, e.g. to Request objects that carry output
+# lengths (review V41_r1, 2026-10-10). screen_policy() is a static check applied before any candidate is simulated.
+SCREEN_IMPORTS = {"math", "random", "statistics", "collections", "heapq", "bisect", "itertools", "functools",
+                  "dataclasses", "typing", "operator", "enum"}
+SCREEN_NAMES = {"gc", "sys", "os", "inspect", "builtins", "importlib", "ctypes", "threading", "subprocess",
+                "globals", "vars", "locals", "eval", "exec", "compile", "__import__", "open", "breakpoint",
+                "getattr", "setattr", "delattr"}
+
+
+def screen_policy(src: str) -> List[str]:
+    """Reasons a candidate's source reaches outside the policy interface (empty = passes)."""
+    import ast
+
+    try:
+        tree = ast.parse(src)
+    except SyntaxError as e:
+        return [f"syntax error: {e}"]
+    bad = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            bad += [f"import {a.name}" for a in node.names if a.name.split(".")[0] not in SCREEN_IMPORTS]
+        elif isinstance(node, ast.ImportFrom):
+            if (node.module or "").split(".")[0] not in SCREEN_IMPORTS or node.level:
+                bad.append(f"from {node.module} import ...")
+        elif isinstance(node, ast.Name) and node.id in SCREEN_NAMES:
+            bad.append(f"name {node.id}")
+        elif isinstance(node, ast.Attribute) and node.attr.startswith("__") and node.attr.endswith("__"):
+            bad.append(f"attribute {node.attr}")
+    return sorted(set(bad))
+
+
 def evaluate_policy(policy: str, scenarios=None, workers=4, launcher=None, timeout=3600,
                     baselines=DEFAULT_BASELINES, objective: str = "balanced") -> dict:
     scenarios = scenarios or STAGE1
+    bad = screen_policy(Path(policy).read_text())
+    if bad:
+        reason = "policy screen: " + ", ".join(bad[:8])
+        return {"combined_score": -1e9, "valid": False, "failures": {"screen": {"ok": False, "reason": reason}}}
     base = ensure_baselines(scenarios, baselines, workers, launcher, timeout)
     results = run_many([("evolved", sc, policy) for sc in scenarios], workers, launcher, timeout)
     failures = {sc.tag: r for sc, r in zip(scenarios, results) if not r.get("ok")}

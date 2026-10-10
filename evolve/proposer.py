@@ -54,7 +54,7 @@ Views are frozen dataclasses:
 With choose(), views are refreshed after every assignment; with route() they are a snapshot
 taken before the burst (track your own in-burst assignments).
 Output lengths are NOT available (a real router does not know them).
-Allowed imports: math, heapq, collections, itertools, functools, statistics, bisect.
+Allowed imports: math, heapq, collections, itertools, functools, statistics, bisect. Code that uses getattr/setattr, eval/exec, globals()/vars(), or dunder attributes is rejected unscored.
 No file, clock, network, os/sys access, no global/nonlocal, no dunder attributes,
 no getattr/eval/exec. Keep per-call work small (O(replicas) per request is fine).
 
