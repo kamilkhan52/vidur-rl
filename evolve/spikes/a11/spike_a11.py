@@ -11,6 +11,8 @@ import tempfile
 import time
 from pathlib import Path
 
+os.environ.setdefault("MPLBACKEND", "Agg")  # in-process simulators save plots only; no GUI backend
+
 import numpy as np
 import pandas as pd
 
