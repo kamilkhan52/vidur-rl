@@ -21,6 +21,7 @@ Training compute is part of the cost and is reported (train_wall_s).
 """
 
 import json
+import os
 import tempfile
 from pathlib import Path
 from typing import List, Optional
@@ -164,7 +165,9 @@ def _git(*args) -> Optional[str]:
     import subprocess
 
     try:
-        r = subprocess.run(["git", "-C", str(REPO), *args], capture_output=True, text=True, timeout=30)
+        # GIT_OPTIONAL_LOCKS=0: `git status` must not refresh .git/index from parallel driver threads (review F_r2).
+        r = subprocess.run(["git", "-C", str(REPO), *args], capture_output=True, text=True, timeout=30,
+                           env={**os.environ, "GIT_OPTIONAL_LOCKS": "0"})
     except (OSError, subprocess.SubprocessError):
         return None
     return r.stdout if r.returncode == 0 else None
@@ -363,6 +366,11 @@ def train(design: str, work_dir: Path, episodes=None, launcher=None, timeout=360
             Path(str(ck) + ".probe.json").write_text(json.dumps(pm, indent=1))
         log_rows.append(row)
         prev = ck
+    end_sha = learner_provenance()["learner_sha256"]
+    if end_sha != learner["learner_sha256"]:  # each episode re-imports the learner: an edit mid-run mixes learners
+        learner = dict(learner, learner_sha256_end=end_sha, learner_changed_during_run=True)
+        print(f"WARNING: {learner['learner_file']} changed during training ({learner['learner_sha256'][:12]} -> "
+              f"{end_sha[:12]})", flush=True)
     return {"ok": True, "checkpoint": str(prev), "episodes": log_rows,
             "train_wall_s": sum(e["wall_s"] for e in log_rows), "learner_provenance": learner}
 
