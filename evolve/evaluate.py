@@ -155,6 +155,10 @@ HELDOUT_V2 = (
 )
 BAR_V2 = DEFAULT_BASELINES + tuple(
     f"policy:{REPO / 'evolve' / 'policies' / 'systems' / n}.py" for n in ("mooncake_min_ttft", "dynamo_kv_cost"))
+# v4 bar (readiness plan §5): v2 bar + power-of-two and JSQ-on-KV floors. The equal-budget tuned Mooncake/Dynamo
+# constants join after evolve/analysis/tune_baselines.py has run on search3b (added before the first v4 search).
+BAR_V4 = BAR_V2 + tuple(f"policy:{REPO / 'evolve' / 'policies' / 'floor' / n}.py"
+                        for n in ("p2c_outstanding", "p2c_kv", "jsq_kv"))
 # Final test set (2026-10-07): the held-out set has been used to choose among policies, so final claims are
 # made on fresh draws evaluated once, for frozen finalists only. Same shape as HELDOUT_V2: Tool/Conv p6-p8,
 # Synth p4-p6, 16R likewise.
@@ -184,11 +188,13 @@ SEARCH_L3B = SEARCH_L3 + [Scenario("Synth", 8, sc, -1, 0, 7, model="l3_8b", jitt
 # Second fresh test set (2026-10-09), fixed before any round-3 candidate was looked at: test3 has been used once (for
 # the frozen round-2 finalists); a later winner needs draws nobody has seen. Same shape: Tool/Conv p9-p11, Synth
 # p8-p10 (p7 is in search3b), 16R likewise.
+# v4 (evolve/SELECTION.md draft, 2026-10-10): test3b grows to 5 draws per configuration (Tool/Conv p9-p13, Synth
+# p8-p12) before any policy has been run on it, to meet the >= 5 paired-seed rule.
 TEST_L3B = _on("l3_8b",
-    [Scenario(t, 8, sc, -1, 0, p) for t in ("Tool", "Conv") for sc in (1.0, 0.75) for p in (9, 10, 11)]
-    + [Scenario("Synth", 8, sc, -1, 0, p, jitter_s=SYNTH_JITTER_S) for sc in (1.0, 0.75) for p in (8, 9, 10)]
-    + [Scenario(t, 16, 0.5, -1, 0, p) for t in ("Tool", "Conv") for p in (9, 10, 11)]
-    + [Scenario("Synth", 16, 0.5, -1, 0, p, jitter_s=SYNTH_JITTER_S) for p in (8, 9, 10)])
+    [Scenario(t, 8, sc, -1, 0, p) for t in ("Tool", "Conv") for sc in (1.0, 0.75) for p in range(9, 14)]
+    + [Scenario("Synth", 8, sc, -1, 0, p, jitter_s=SYNTH_JITTER_S) for sc in (1.0, 0.75) for p in range(8, 13)]
+    + [Scenario(t, 16, 0.5, -1, 0, p) for t in ("Tool", "Conv") for p in range(9, 14)]
+    + [Scenario("Synth", 16, 0.5, -1, 0, p, jitter_s=SYNTH_JITTER_S) for p in range(8, 13)])
 # Model generalisation on Meta-Llama-3-70B TP4 (attention profiled to 262k). Calibrated on Tool/Conv p1 with LOR /
 # sticky / LOP: scale 1.5 overloads (P99 E2E 2,766-3,837 s), 2.0 is the knee (sticky 0.43x / 0.51x LOR on Tool /
 # Conv, 693 / 1,075 s), 3.0 moderate (135-209 s; LOP best TTFT), 4.0 light. Fresh draws p2, p3.
