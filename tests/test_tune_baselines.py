@@ -1,4 +1,5 @@
 import random
+import re
 from pathlib import Path
 
 import numpy as np
@@ -60,3 +61,44 @@ def test_install_writes_the_frozen_policy(tmp_path, monkeypatch):
     assert out.name == "dynamo_kv_cost_tuned_best.py"
     assert "PREFILL_SCALE = 2.5" in out.read_text()
     load_policy(str(out))
+
+
+def test_history_retries_invalid_and_ignores_a_truncated_last_line(tmp_path):
+    import json
+    from evolve.analysis.tune_baselines import load_history
+    log = tmp_path / "history.jsonl"
+    ok = {"params": {"A": 1.0}, "fitness": 0.1, "valid": True}
+    bad = {"params": {"A": 2.0}, "fitness": -1e9, "valid": False}
+    log.write_text(json.dumps(ok) + "\n" + json.dumps(bad) + "\n" + '{"params": {"A": 3')
+    done = load_history(log)
+    assert list(done) == [json.dumps({"A": 1.0}, sort_keys=True)]
+
+
+def test_resume_replays_without_new_evaluations(tmp_path, monkeypatch):
+    import sys
+    from evolve import evaluate as ev
+    from evolve.analysis import tune_baselines as tb
+    calls = []
+
+    def fake_eval(path, scenarios, workers, baselines, objective):
+        src = open(path).read()
+        calls.append(path)
+        x = float(re.search(r"^PREFILL_SCALE = (.*)$", src, re.M).group(1))
+        return {"combined_score": -abs(x - 2.0), "valid": True, "code_version": ev.code_version()}
+
+    monkeypatch.setattr(ev, "evaluate_policy", fake_eval)
+    monkeypatch.setattr(ev, "ensure_baselines", lambda *a, **k: None)
+    argv = ["tb", "--family", "dynamo", "--budget", "13", "--parallel", "2", "--run-dir", str(tmp_path / "r")]
+    monkeypatch.setattr(sys, "argv", argv)
+    tb.main()
+    first = (tmp_path / "r" / "best.json").read_text()
+    n = len(calls)
+    assert n == 13 and len(set(calls)) == 13
+    tb.main()
+    assert len(calls) == n and (tmp_path / "r" / "best.json").read_text() == first
+    monkeypatch.setattr(sys, "argv", argv[:-2] + ["--seed", "1"] + argv[-2:])
+    try:
+        tb.main()
+        raise AssertionError("resume with another seed must be refused")
+    except SystemExit:
+        pass

@@ -17,6 +17,7 @@ After both runs, freeze the winners into the bar (this creates bar "v4t" in evol
 """
 import argparse
 import concurrent.futures as cf
+import hashlib
 import json
 import math
 import re
@@ -91,12 +92,30 @@ def install(family: str, run: Path) -> Path:
     n = sum(1 for _ in (run / "history.jsonl").open())
     if best["code_version"] != ev.code_version():
         raise SystemExit(f"best.json was scored under code_version {best['code_version']}, not {ev.code_version()}")
-    header = (f"# Frozen by evolve.analysis.tune_baselines --install from {run}/best.json: fitness {best['fitness']:+.4f} "
+    header = (f"# Frozen by evolve.analysis.tune_baselines --install from {run.name}/best.json: fitness {best['fitness']:+.4f} "
               f"after {n} evaluations,\n# code_version {best['code_version']}, params {best['params']}.\n")
     out = ev.TUNED / f"{template_path.stem}_best.py"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(header + render(template_path.read_text(), best["params"]))
     return out
+
+
+def load_history(log: Path) -> dict:
+    """Completed evaluations by params key. Invalid records are dropped so they are retried: a failure is usually a
+    job time-limit or out-of-memory kill, not the candidate. A truncated last line (killed mid-write) is ignored."""
+    done = {}
+    if log.exists():
+        lines = log.read_text().splitlines()
+        for i, line in enumerate(lines):
+            try:
+                r = json.loads(line)
+            except json.JSONDecodeError:
+                if i == len(lines) - 1:
+                    continue
+                raise
+            if r.get("valid"):
+                done[json.dumps(r["params"], sort_keys=True)] = r
+    return done
 
 
 def main():
@@ -121,29 +140,33 @@ def main():
     run = Path(a.run_dir)
     (run / "candidates").mkdir(parents=True, exist_ok=True)
     log = run / "history.jsonl"
-    done = {}
-    if log.exists():  # resume
-        for line in log.read_text().splitlines():
-            r = json.loads(line)
-            done[json.dumps(r["params"], sort_keys=True)] = r
+    meta = {"family": a.family, "stage": a.stage, "objective": a.objective, "seed": a.seed, "budget": a.budget,
+            "code_version": ev.code_version()}
+    if (run / "meta.json").exists():
+        old = json.loads((run / "meta.json").read_text())
+        if old != meta:
+            raise SystemExit(f"run dir was started with {old}, not {meta}")
+    else:
+        (run / "meta.json").write_text(json.dumps(meta, indent=2))
+    done = load_history(log)
     scenarios = ev.STAGES[a.stage]
 
     lock = threading.Lock()
-    counter = [len(done)]
 
     def score(params: dict) -> float:
         key = json.dumps(params, sort_keys=True)
         with lock:
             if key in done:
                 return done[key]["fitness"]
-            n = counter[0]
-            counter[0] += 1
-        path = run / "candidates" / f"{a.family}_{n:04d}.py"
+        # Named by content, so a resumed run never reuses another candidate's file name.
+        path = run / "candidates" / f"{a.family}_{hashlib.sha256(key.encode()).hexdigest()[:10]}.py"
         path.write_text(render(template, params))
         res = ev.evaluate_policy(str(path), scenarios, workers=a.workers, baselines=ev.BAR_V4,
                                  objective=a.objective)
         rec = {"params": params, "fitness": res["combined_score"], "valid": res.get("valid", False),
-               "file": str(path), "code_version": res.get("code_version")}
+               "file": str(path), "code_version": res.get("code_version") or meta["code_version"]}
+        if not rec["valid"]:
+            rec["failures"] = {k: v.get("reason") for k, v in res.get("failures", {}).items()}
         with lock:
             done[key] = rec
             with log.open("a") as f:
@@ -159,7 +182,7 @@ def main():
     ev.ensure_baselines(scenarios, ev.BAR_V4, a.workers)  # once, before candidates run in parallel
     with cf.ThreadPoolExecutor(max_workers=a.parallel) as ex:
         ask_tell(a.budget - 1, len(names), lambda pop: list(ex.map(lambda u: score(params_of(u)), pop)), seed=a.seed)
-    best = max(done.values(), key=lambda r: r["fitness"])
+    best = max(done.values(), key=lambda r: r["fitness"])  # valid evaluations only
     (run / "best.json").write_text(json.dumps(best, indent=2))
     print(f"best {best['params']} fitness {best['fitness']:+.4f} ({len(done)} evaluations)")
 
