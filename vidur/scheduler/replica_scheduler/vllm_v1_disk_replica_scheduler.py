@@ -8,6 +8,7 @@ from vidur.kv_cache.replica_kv_cache_manager import ReplicaKVCacheManager
 from vidur.logger import init_logger
 from vidur.scheduler.replica_scheduler.base_replica_scheduler import (
     BaseReplicaScheduler,
+    probe_cached_prefill_tokens,
 )
 from vidur.scheduler.replica_scheduler.replica_scheduler_output import (
     ReplicaSchedulerOutput,
@@ -59,8 +60,9 @@ class VLLMV1DiskReplicaScheduler(BaseReplicaScheduler):
         return self._kv_cache_manager.usage * 100
 
     def get_cached_prefill_length(self, request: Request) -> int:
-        _, num_computed_tokens = self._kv_cache_manager.get_computed_blocks(request)
-        return num_computed_tokens
+        """Router probe: tokens of the request's prompt cached on this replica (GPU tier), side-effect-free
+        (GS-15, as in VLLMV1ReplicaScheduler)."""
+        return probe_cached_prefill_tokens(self._kv_cache_manager, request)
 
     def add_request(self, request: Request):
         request.assign_replica(self._replica_id)

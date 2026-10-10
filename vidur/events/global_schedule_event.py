@@ -32,11 +32,12 @@ class GlobalScheduleEvent(BaseEvent):
             )
 
         delay = scheduler._config.cluster_config.route_delay_s
-        if delay > 0:  # v4: router hop latency; requests reach their replicas later
+        if delay > 0:  # v4: router hop latency; the routed burst reaches its replicas together, delay later
+            if not self._request_mapping:
+                return []
             from vidur.events.route_delivery_event import RouteDeliveryEvent
 
-            return [RouteDeliveryEvent(self.time + delay, replica_id, request)
-                    for replica_id, request in self._request_mapping]
+            return [RouteDeliveryEvent(self.time + delay, self._request_mapping)]
 
         for replica_id, request in self._request_mapping:
             self._replica_set.add(replica_id)

@@ -1,5 +1,6 @@
 import heapq
 import json
+import os
 import zipfile
 from typing import List
 
@@ -57,6 +58,10 @@ class Simulator:
 
         self._validate_request_capacity()
         self._validate_block_size()
+
+        # v4.1: a scheduler that snapshots replica state on a fixed clock grid (evolved view_refresh_s > 0) is told
+        # the time of every event before it is handled (see _set_time). False on the default path.
+        self._clock_hook = bool(getattr(self._scheduler, "needs_clock", False))
 
         self._init_event_queue()
         # Outputs are written by an explicit write_output() call (vidur.main), not at interpreter exit: an atexit
@@ -149,10 +154,14 @@ class Simulator:
             )
 
     def _collect_stuck_requests(self) -> List[dict]:
-        out = [{"where": "global_queue", "request_id": r.id} for r in self._scheduler._request_queue]
+        """Requests still pending at the end of a run, as JSON-ready dicts (replica ids as ints)."""
+        def as_list(q):  # FCFS/EDF request queues are not iterable; they expose to_list()
+            return q.to_list() if hasattr(q, "to_list") else list(q)
+
+        out = [{"where": "global_queue", "request_id": int(r.id)} for r in as_list(self._scheduler._request_queue)]
         for rid, rs in self._scheduler._replica_schedulers.items():
-            out += [{"where": "waiting", "replica": rid, "request_id": r.id} for r in rs._waiting_queue]
-            out += [{"where": "running", "replica": rid, "request_id": r.id} for r in rs._running]
+            for where, q in (("waiting", rs._waiting_queue), ("running", getattr(rs, "_running", []))):
+                out += [{"where": where, "replica": int(rid.id), "request_id": int(r.id)} for r in as_list(q)]
         return out
 
     def _validate_block_size(self) -> None:
@@ -167,17 +176,28 @@ class Simulator:
         """Write metrics and end-state files once. Raises on failure (the caller exits non-zero)."""
         if self._output_written:
             return
-        self._output_written = True
         self._write_output()
         out_dir = self._config.metrics_config.output_dir
         predictor = getattr(self._scheduler, "_execution_time_predictor", None)
         info = getattr(predictor, "provenance", None)
         if callable(info):
-            with open(f"{out_dir}/predictor_info.json", "w") as f:
-                json.dump(info(), f, indent=1, sort_keys=True)
+            self._write_json_atomic(f"{out_dir}/predictor_info.json", info(), indent=1, sort_keys=True)
         if self.stuck_requests:
-            with open(f"{out_dir}/stuck_requests.json", "w") as f:
-                json.dump(self.stuck_requests, f)
+            self._write_json_atomic(f"{out_dir}/stuck_requests.json", self.stuck_requests)
+        self._output_written = True  # only after every file is in place: a failed write can be retried
+
+    @staticmethod
+    def _write_json_atomic(path: str, obj, **kw) -> None:
+        """Serialise fully, then write a temp file and rename it, so a failure never leaves a truncated file."""
+        text = json.dumps(obj, **kw)
+        tmp = f"{path}.tmp{os.getpid()}"
+        try:
+            with open(tmp, "w") as f:
+                f.write(text)
+            os.replace(tmp, path)
+        finally:
+            if os.path.exists(tmp):
+                os.remove(tmp)
 
     def _write_output(self) -> None:
         logger.info("Writing output")
@@ -208,6 +228,10 @@ class Simulator:
             )
 
     def _set_time(self, time: float) -> None:
+        # Called before every popped event is handled (also by evolve.sim_fork's stepper), so the scheduler sees the
+        # state left by all earlier events, i.e. the state at any instant in [previous event time, time].
+        if self._clock_hook:
+            self._scheduler.on_clock(time)
         self._time = time
         if self._time > self._time_limit:
             logger.info(

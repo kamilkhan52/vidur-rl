@@ -1,4 +1,3 @@
-import dataclasses
 from collections import deque
 from typing import Deque, Dict, List, Optional, Tuple
 
@@ -7,6 +6,7 @@ from vidur.kv_cache.replica_kv_cache_manager import ReplicaKVCacheManager
 from vidur.metrics.queue_diagnostics import get_queue_diagnostics_writer
 from vidur.scheduler.replica_scheduler.base_replica_scheduler import (
     BaseReplicaScheduler,
+    probe_cached_prefill_tokens,
 )
 from vidur.scheduler.replica_scheduler.replica_scheduler_output import (
     ReplicaSchedulerOutput,
@@ -51,17 +51,8 @@ class VLLMV1ReplicaScheduler(BaseReplicaScheduler):
         return self._kv_cache_manager.usage * 100
 
     def get_cached_prefill_length(self, request: Request) -> int:
-        """Router probe: tokens of the request's prompt cached on this replica. Leaves no state behind
-        (changelog GS-15): get_computed_blocks stores the request's hash list and bumps the hit statistics, which
-        used to leak one hash list per request on every replica probed but not chosen."""
-        kv = self._kv_cache_manager
-        had = request.id in kv.req_to_block_hashes
-        stats = dataclasses.replace(kv.prefix_cache_stats)
-        _, num_computed_tokens = kv.get_computed_blocks(request)
-        if not had:
-            kv.req_to_block_hashes.pop(request.id, None)
-        kv.prefix_cache_stats = stats
-        return num_computed_tokens
+        """Router probe: tokens of the request's prompt cached on this replica, side-effect-free (GS-15)."""
+        return probe_cached_prefill_tokens(self._kv_cache_manager, request)
 
     @property
     def max_request_total_tokens(self) -> int:

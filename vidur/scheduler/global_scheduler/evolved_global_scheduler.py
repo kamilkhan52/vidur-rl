@@ -17,16 +17,26 @@ Policy contract (a Python module at ``policy_path``) — define ONE of:
 
 Views are read-only snapshots (frozen dataclasses). Replica indices refer to the
 order of ``replicas`` (0 .. N-1). ``ctx`` provides ``rng`` (the scheduler's seeded
-``random.Random``; the only allowed randomness), ``now`` (simulated time),
+``random.Random``; the only allowed randomness), ``now`` (simulated time: the
+burst's arrival time in route/choose, the observed event's time in observe),
 ``num_replicas`` and ``state`` (a dict the policy may use to keep memory across
 calls within one simulation).
 
+With ``view_refresh_s`` = R > 0 the replica metrics in the views (waiting, running,
+kv_usage) are those of a periodic poller: snapshots on the fixed grid k*R, the last
+tick at or before the decision. The other fields stay exact.
+
 Information a real router could not have is deliberately withheld: the output
-length of a request, future arrivals, and all simulator objects. Cached-prefix
-lengths are computed with a side-effect-free probe of each replica's prefix cache.
+length of a request, future arrivals, and all simulator objects. Block hashes are
+those of the prompt's full blocks only (``prompt_block_hashes``, v4.1): the trace's
+list also covers the output, so its length would reveal the output length. This
+holds for ``prefix_hashes`` and for the router-side ledgers behind
+``inflight_prefix_tokens`` / ``active_prefix_tokens``. Cached-prefix lengths are
+computed with a side-effect-free probe of each replica's prefix cache.
 """
 
 import importlib.util
+import math
 import time
 from dataclasses import dataclass, replace
 from typing import Any, Dict, List, Optional, Tuple
@@ -36,6 +46,7 @@ from vidur.entities import Request
 from vidur.entities.replica import Replica
 from vidur.kv_cache.utils import BlockHashType
 from vidur.scheduler.global_scheduler.base_global_scheduler import BaseGlobalScheduler
+from vidur.scheduler.global_scheduler.prompt_hashes import prompt_block_hashes
 from vidur.types.replica_id import ReplicaId
 
 
@@ -63,8 +74,9 @@ class RequestView:
     session_last_replica: int  # replica index this session was last routed to, -1 if new
     position_in_burst: int
     burst_size: int
-    # The request's prefix block hashes and the block size in tokens, so a router can keep its own
-    # route-time prefix index (as SGLang, AIBrix and Mooncake do) instead of seeing only the cache.
+    # The hashes of the prompt's full blocks (num_prefill_tokens // block_tokens of them; never the output
+    # positions) and the block size in tokens, so a router can keep its own route-time prefix index (as SGLang,
+    # AIBrix and Mooncake do) instead of seeing only the cache.
     prefix_hashes: Tuple[int, ...] = ()
     block_tokens: int = 0
     # Per replica: leading prefix tokens covered by requests routed there and not yet prefilled
@@ -129,26 +141,34 @@ class EvolvedGlobalScheduler(BaseGlobalScheduler):
         self._assigned: Dict[int, Tuple[int, int]] = {}
         self._session_last: Dict[int, int] = {}
         self._prefilled: set = set()
-        # per replica: multiset of prefix block hashes of requests routed there, not yet prefilled
+        # per replica: multiset of prompt block hashes of requests routed there, not yet prefilled
         self._inflight: List[Dict[int, int]] = [dict() for _ in self._replica_ids]
         self._inflight_req: Dict[int, Tuple[int, Tuple[int, ...]]] = {}
-        # per replica: multiset of prefix block hashes of requests routed there, not yet finished
+        # per replica: multiset of prompt block hashes of requests routed there, not yet finished
         self._active: List[Dict[int, int]] = [dict() for _ in self._replica_ids]
         self._active_req: Dict[int, Tuple[int, Tuple[int, ...]]] = {}
         self._ctx = PolicyContext(self._random_number_generator, len(self._replica_ids))
-        # v4: polled replica metrics (waiting, running, kv_usage), refreshed every view_refresh_s (0 = exact)
-        self._view_refresh_s = getattr(gs_config, "view_refresh_s", 0.0)
+        # v4.1: polled replica metrics (waiting, running, kv_usage) as a periodic poller sees them. With
+        # view_refresh_s = R > 0 the replicas are snapshotted on the fixed grid k*R (independent of when decisions
+        # happen) and a decision at t sees the snapshot of tick floor(t/R)*R, i.e. data that is (t mod R) old.
+        # R = 0: exact state at the decision (the v3 behaviour). Router-owned counters and the prefix probe are
+        # always exact (the router keeps them itself).
+        self._view_refresh_s = max(0.0, float(getattr(gs_config, "view_refresh_s", 0.0) or 0.0))
+        self.needs_clock = self._view_refresh_s > 0  # Simulator calls on_clock(t) before every event
         self._polled: Optional[List[Tuple[int, int, float]]] = None
-        self._polled_at = float("-inf")
+        self._polled_tick = -1  # grid index k of the snapshot in _polled
+        # Routing calls only (per-decision cost); observe() calls are counted separately.
         self.policy_calls = 0
         self.policy_seconds = 0.0
+        self.observe_calls = 0
+        self.observe_seconds = 0.0
 
     # ------------------------------------------------------------ observation
 
     def _cached_prefix_tokens(self, request: Request) -> Tuple[int, ...]:
-        """Side-effect-free prefix-cache probe on every replica (mirrors get_computed_blocks)."""
+        """Side-effect-free prefix-cache probe on every replica (mirrors get_computed_blocks, prompt blocks only)."""
         out = []
-        hashes = request.block_hash_ids
+        hashes = prompt_block_hashes(request, self._block_tokens())
         for rid in self._replica_ids:
             kv = getattr(self._replica_schedulers[rid], "_kv_cache_manager", None)
             if kv is None or not kv.enable_caching or not hashes:
@@ -171,7 +191,7 @@ class EvolvedGlobalScheduler(BaseGlobalScheduler):
         return 0
 
     def _inflight_prefix_tokens(self, request: Request, block_tokens: int, table=None) -> Tuple[int, ...]:
-        hashes = request.block_hash_ids or ()
+        hashes = prompt_block_hashes(request, block_tokens)
         out = []
         for counts in (self._inflight if table is None else table):
             n = 0
@@ -203,10 +223,32 @@ class EvolvedGlobalScheduler(BaseGlobalScheduler):
                         kv.usage if kv is not None else 0.0))
         return out
 
+    def _tick_index(self, t: float) -> int:
+        """Largest k with k*R <= t (guarding against float rounding in t/R)."""
+        r = self._view_refresh_s
+        k = math.floor(t / r)
+        if k * r > t:
+            k -= 1
+        elif (k + 1) * r <= t:
+            k += 1
+        return k
+
+    def on_clock(self, t: float) -> None:
+        """Called by the Simulator before the event at time ``t`` is handled (only when view_refresh_s > 0).
+
+        The replica state now is the state left by all events before ``t``; nothing changes in between, so it is
+        also the state at every grid tick in (previous event time, t]. When ``t`` reaches a tick past the stored
+        snapshot, the snapshot is retaken and labelled with the last tick <= t. A tick that falls exactly on an
+        event time is polled before that event (and before any routing at that instant).
+        """
+        k = self._tick_index(t)
+        if k > self._polled_tick:
+            self._polled, self._polled_tick = self._poll(), k
+
     def _replica_views(self) -> List[ReplicaView]:
         if self._view_refresh_s > 0:
-            if self._ctx.now - self._polled_at >= self._view_refresh_s:
-                self._polled, self._polled_at = self._poll(), self._ctx.now
+            if self._polled is None:  # no event seen yet (a policy called outside a simulation run)
+                self.on_clock(self._ctx.now)
             polled = self._polled
         else:
             polled = self._poll()
@@ -237,6 +279,7 @@ class EvolvedGlobalScheduler(BaseGlobalScheduler):
             return []
         self._ctx.now = burst[0].arrived_at
         cached = [self._cached_prefix_tokens(r) for r in burst]
+        block_tokens = self._block_tokens()
         req_views = [
             RequestView(
                 arrived_at=r.arrived_at,
@@ -248,10 +291,10 @@ class EvolvedGlobalScheduler(BaseGlobalScheduler):
                 else -1,
                 position_in_burst=k,
                 burst_size=len(burst),
-                prefix_hashes=tuple(r.block_hash_ids or ()),
-                block_tokens=self._block_tokens(),
-                inflight_prefix_tokens=self._inflight_prefix_tokens(r, self._block_tokens()),
-                active_prefix_tokens=self._inflight_prefix_tokens(r, self._block_tokens(), self._active),
+                prefix_hashes=prompt_block_hashes(r, block_tokens),
+                block_tokens=block_tokens,
+                inflight_prefix_tokens=self._inflight_prefix_tokens(r, block_tokens),
+                active_prefix_tokens=self._inflight_prefix_tokens(r, block_tokens, self._active),
             )
             for k, r in enumerate(burst)
         ]
@@ -275,7 +318,7 @@ class EvolvedGlobalScheduler(BaseGlobalScheduler):
                 mapping.append(self._assign(r, self._check(c), cached[k]))
         return mapping
 
-    def _call(self, fn, *args):
+    def _call(self, fn, *args, observe: bool = False):
         t0 = time.perf_counter()
         try:
             result = fn(*args, self._ctx)
@@ -284,8 +327,12 @@ class EvolvedGlobalScheduler(BaseGlobalScheduler):
         except Exception as e:  # surface policy bugs loudly, never silently default
             raise PolicyError(f"policy raised {type(e).__name__}: {e}") from e
         finally:
-            self.policy_calls += 1
-            self.policy_seconds += time.perf_counter() - t0
+            if observe:
+                self.observe_calls += 1
+                self.observe_seconds += time.perf_counter() - t0
+            else:
+                self.policy_calls += 1
+                self.policy_seconds += time.perf_counter() - t0
         return result
 
     def _check(self, choice) -> int:
@@ -300,7 +347,7 @@ class EvolvedGlobalScheduler(BaseGlobalScheduler):
         self._outstanding[idx] += 1
         self._pending_prefill[idx] += uncached
         self._assigned[request.id] = (idx, uncached)
-        hashes = tuple(request.block_hash_ids or ())
+        hashes = prompt_block_hashes(request, self._block_tokens())
         if hashes:
             counts = self._inflight[idx]
             for h in hashes:
@@ -317,18 +364,26 @@ class EvolvedGlobalScheduler(BaseGlobalScheduler):
     # ------------------------------------------------------------- feedback
 
     def _observe(self, request: Request, idx: int, event: str) -> None:
+        """During observe, ctx.now is the time of the observed event (the prefill or request end); it is restored
+        to the last routing time afterwards."""
         observe = getattr(self._policy, "observe", None)
         if observe is None:
             return
         end = event == "end"
-        self._call(observe, RequestOutcome(
+        outcome = RequestOutcome(
             event=event, replica=idx, arrived_at=request.arrived_at,
             first_token_at=request.prefill_completed_at,
             completed_at=request.completed_at if end else None,
             num_prefill_tokens=request.original_num_prefill_tokens,
             num_cached_tokens=request.num_prefill_tokens_cached,
             num_decode_tokens=request.original_num_decode_tokens if end else None,
-            session_id=request.session_id))
+            session_id=request.session_id)
+        saved_now = self._ctx.now
+        self._ctx.now = outcome.completed_at if end else outcome.first_token_at
+        try:
+            self._call(observe, outcome, observe=True)
+        finally:
+            self._ctx.now = saved_now
 
     def on_prefill_end(self, request: Request) -> None:
         # Prefill completes again after a preemption restart; count it once.

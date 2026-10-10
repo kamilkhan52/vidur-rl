@@ -72,6 +72,17 @@ def test_code_version_follows_table_values(monkeypatch, edit):
     assert _fresh_version() == v0
 
 
+def test_code_version_always_folds_the_table_digest(monkeypatch):
+    """v4.1: the table digest is part of code_version whatever its value. (v4 skipped it when it equalled the
+    values c16266a8ef49 was cut with; then that digest gave the same version as an empty one.)"""
+    assert not hasattr(ev, "_TABLES_AT_C16266")
+    versions = []
+    for digest in ("6d3f26ccb7e3c8a9", "692c66d3f1b80f93", ""):  # v4's exempt values (v4 and v3 data), and none
+        monkeypatch.setattr(ev, "table_digest", lambda d=digest: d)
+        versions.append(_fresh_version())
+    assert "unknown" not in versions and len(set(versions)) == 3
+
+
 def test_v4_splits_are_disjoint():
     """No (trace, draw) pair is shared by two of the v4 splits that exist (search, held-out and test sets)."""
     names = [n for n in ("search3b", "heldout3", "test3", "test3b", "test3c", "test4") if n in ev.STAGES]

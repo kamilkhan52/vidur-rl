@@ -383,12 +383,6 @@ def table_digest() -> str:
     return hashlib.sha256(json.dumps(tables, sort_keys=True).encode()).hexdigest()[:16]
 
 
-# table_digest() for code_version c16266a8ef49, per EVOLVE_V3_DATA mode (MAX_CONTEXT differs between them). The table
-# values are those the version was cut with; the transform source includes the 2026-10-10 fix that keeps `device` in
-# mix- transforms, which changes no A100 run (off-A100 windows could not be built before it).
-_TABLES_AT_C16266 = {False: "6d3f26ccb7e3c8a9", True: "692c66d3f1b80f93"}
-
-
 def code_version() -> str:
     """Content hash of the simulator + harness files that determine a run's outcome.
 
@@ -417,12 +411,9 @@ def code_version() -> str:
             # The parts of this harness that shape a run (not the scenario lists or scoring).
             for fn in (sim_command, run_one, _window_csv, max_request_tokens):
                 h.update(inspect.getsource(fn).encode())
-            # The values of the module tables those functions read (review B_r1, 2026-10-10). Folded in only when
-            # they differ from the values code_version c16266a8ef49 was cut with, so that version (and the baselines
-            # and long jobs keyed to it) stays valid. At the next version bump, fold table_digest() in
-            # unconditionally and drop _TABLES_AT_C16266.
-            if tables != _TABLES_AT_C16266[V3_DATA]:
-                h.update(tables.encode())
+            # The values of the module tables those functions read (review B_r1, 2026-10-10), always (v4.1; v4's
+            # c16266a8ef49 folded them in only when they differed from the values it was cut with).
+            h.update(tables.encode())
             _VERSION["v"] = "c" + h.hexdigest()[:11]
         except Exception:
             _VERSION["v"] = "unknown"

@@ -42,8 +42,14 @@ class SklearnExecutionTimePredictor(BaseExecutionTimePredictor):
             cache_config=cache_config,
         )
         os.makedirs(self._config.cache_dir, exist_ok=True)
-        # Lookups outside the profiled table, clamped to its edge (per table); reported in predictor_info.json.
+        # Lookups beyond the prediction grid (up to prediction_max_* settings), clamped to its edge, per table;
+        # reported in predictor_info.json. Not a count of out-of-profile predictions: the grid extends past the
+        # profiled data (e.g. Llama-2-7b attention is profiled to kv_cache_size 4032), and points between the
+        # profiled maximum and the grid edge are forest extrapolations that are not counted here.
         self.clamp_hits: Dict[str, int] = {}
+        # Where the prediction table came from: {"source": "bundle" | "computed", "bundle_sha": sha256[:16] of the
+        # bundle file read or written, or None when nothing was written}. Set by _predict_from_models.
+        self.bundle_source: Dict[str, Any] = {}
 
         # These overheads are only for GQA models
         self._attention_prefill_batching_overhead_fraction = (
@@ -833,26 +839,35 @@ class SklearnExecutionTimePredictor(BaseExecutionTimePredictor):
         return hashlib.sha256(";".join(items).encode("utf-8")).hexdigest()[:16]
 
     def provenance(self) -> Dict[str, Any]:
-        """Which prediction table this run used, and how often lookups fell outside it (clamped to its edge)."""
-        return {"bundle_key": self._bundle_key(), "clamp_hits": dict(self.clamp_hits)}
+        """Which prediction table this run used (key of its inputs; whether it was loaded from the bundle or
+        recomputed, and the sha of the bundle file read or written), and how often lookups fell beyond the
+        prediction grid (clamped to its edge)."""
+        return {"bundle_key": self._bundle_key(), "clamp_hits": dict(self.clamp_hits),
+                "bundle_source": dict(self.bundle_source)}
 
     def _predict_from_models(self) -> Dict[str, Any]:
         mode = self._config.cache_mode
         bundle = f"{self._config.cache_dir}/prediction_bundle_{self._bundle_key()}.pkl"
         if mode != ExecutionTimePredictorCacheMode.IGNORE_CACHE and os.path.exists(bundle):
             with open(bundle, "rb") as f:
-                return pickle.load(f)
+                data = f.read()
+            self.bundle_source = {"source": "bundle", "bundle_sha": hashlib.sha256(data).hexdigest()[:16]}
+            return pickle.loads(data)
 
         predictions = self._predict_for_compute_models()
         predictions.update(self._predict_for_cpu_overhead_models())
         predictions.update(self._predict_for_attention_layer_models())
 
+        sha = None
         if mode not in (ExecutionTimePredictorCacheMode.IGNORE_CACHE,
                         ExecutionTimePredictorCacheMode.REQUIRE_CACHE):
+            data = pickle.dumps(predictions, protocol=pickle.HIGHEST_PROTOCOL)
+            sha = hashlib.sha256(data).hexdigest()[:16]
             tmp = f"{bundle}.tmp{os.getpid()}"
             with open(tmp, "wb") as f:
-                pickle.dump(predictions, f, protocol=pickle.HIGHEST_PROTOCOL)
+                f.write(data)
             os.replace(tmp, bundle)
+        self.bundle_source = {"source": "computed", "bundle_sha": sha}
         return predictions
 
     def _get_attention_layer_pre_proj_execution_time(
