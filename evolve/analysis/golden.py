@@ -419,6 +419,12 @@ def main(argv=None) -> int:
         if out.exists() and not a.force:
             print(f"{out} exists: pass --force to overwrite it, or --out another path")
             return 2
+        if out.exists():  # a reference built from other code (e.g. the pre-v4 v3 manifest) is never replaced
+            old_cv = json.loads(out.read_text()).get("environment", {}).get("code_version")
+            if old_cv != ev.code_version():
+                print(f"{out} was built from code_version {old_cv}, not {ev.code_version()}: refusing to overwrite "
+                      "a reference from other code even with --force; use --out")
+                return 2
     else:
         ref = json.loads(Path(a.manifest).read_text())
         set_name, pending = ref.get("set", "default"), ref.get("include_pending", False)

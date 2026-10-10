@@ -173,7 +173,7 @@ def _stub_build(monkeypatch, tmp_path, ok=True):
                 for sc, n in cells]
 
     monkeypatch.setattr(golden, "OUT_DIR", tmp_path)
-    monkeypatch.setattr(golden, "environment", lambda cells: {"bundles": {}})
+    monkeypatch.setattr(golden, "environment", lambda cells: {"bundles": {}, "code_version": ev.code_version()})
     monkeypatch.setattr(golden, "run_all", run_all)
     monkeypatch.delenv("EVOLVE_KEEP_DIR", raising=False)
     return calls
@@ -186,6 +186,11 @@ def test_build_names_by_data_and_refuses_to_overwrite(tmp_path, monkeypatch):
     assert golden.main(["build"]) == 0 and (tmp_path / f"v3_{host}.json").exists()
     assert golden.main(["build"]) == 2 and calls == [30]  # refused before running anything
     assert golden.main(["build", "--force"]) == 0 and calls == [30, 30]
+    ref = tmp_path / f"v3_{host}.json"  # a reference from other code is never overwritten, even with --force
+    m = json.loads(ref.read_text())
+    m["environment"]["code_version"] = "c6fceae7bfa8"
+    ref.write_text(json.dumps(m))
+    assert golden.main(["build", "--force"]) == 2 and calls == [30, 30]
     monkeypatch.setattr(ev, "V3_DATA", False)
     assert golden.main(["build"]) == 0 and (tmp_path / f"v4_{host}.json").exists()
     assert golden.main(["build", "--set", "extended"]) == 0
