@@ -178,22 +178,36 @@ def test_nested_horizons_equal_single_rollouts(plain, tmp_path):
         for a, b in zip(multi, single):
             ta, tb = dict(a["h"][j]), dict(b["h"][0])
             ta.pop("cpu_s"), tb.pop("cpu_s")
+            cont = ta.pop("cont", None)
             assert ta == tb, x.label
+            if x.mode != "full":  # the same requests, scored at the end of the full run
+                assert cont["n"] == ta["n"] and cont["n_unfinished"] == 0
     assert multi[0]["h"][3]["n"] > multi[0]["h"][1]["n"]  # full covers more arrivals than 10 s
 
 
 def test_open_loop_selection_and_resume(plain, tmp_path):
     _, s = plain
     plan = _plan(s)
-    hz = [hr.Horizon.parse("H=8"), hr.Horizon.parse("T=10+drain")]
+    hz = [hr.Horizon.parse(x) for x in ("H=8", "T=10+drain", "T=1000+drain")]  # the last reaches the window end
     ref = hr.Horizon.parse("full")
     log = tmp_path / "o.jsonl"
     st = hr.open_loop(SC, hz, ref, plan, s["cut"], log, workers=2, every=20, max_points=2)
-    assert st["_run"]["points"] == 2 and set(st) == {"H8", "T10s+drain", "full", "_run"}
-    assert st["full"]["top1_agree"] == 1.0 and st["full"]["ref_gain_mean"] >= max(st[x]["ref_gain_mean"]
-                                                                                   for x in ("H8", "T10s+drain"))
-    for x in ("H8", "T10s+drain"):
-        assert 0 <= st[x]["pair_sign_agree"] <= 1 and st[x]["standalone_cpu_s_per_decision"] > 0
+    labels = ("H8", "T10s+drain", "T1000s+drain")
+    assert st["_run"]["points"] == 2 and set(st) == set(labels) | {"full", "paired_informative", "_run"}
+    for x in labels[:2]:
+        inf = st[x]["informative"]
+        assert inf["points"] == 2 and st[x]["reached_end"]["points"] == 0
+        assert 0 <= inf["pair_sign_agree"]["mean"] <= 1 and inf["cpu_s"]["mean"] > 0
+        assert inf["ref_gain"]["lo"] <= inf["ref_gain"]["mean"] <= inf["ref_gain"]["hi"]
+        assert inf["regret"]["mean"] >= 0 and "spearman_vs_cont" in inf
+    end = st["T1000s+drain"]  # identical to full by construction: all in reached_end, perfect agreement
+    assert end["informative"]["points"] == 0 and end["reached_end"]["points"] == 2
+    assert end["reached_end"]["top1"]["mean"] == 1.0 and end["reached_end"]["regret"]["mean"] == 0.0
+    assert end["reached_end"]["ref_gain"]["mean"] == pytest.approx(st["full"]["one_step_gain"]["mean"])
+    assert st["full"]["one_step_gain"]["n"] == 2 and st["full"]["noise_points"] >= 1
+    assert st["paired_informative"]["H8 - T10s+drain"]["regret"]["n"] == 2
+    rows = [json.loads(x) for x in log.read_text().splitlines()[1:]]
+    assert all(r["noise"] is None or r["noise"]["perturbed"] is not None for r in rows)
     n_lines = len(log.read_text().splitlines())
     st2 = hr.open_loop(SC, hz, ref, plan, s["cut"], log, workers=2, every=20, max_points=2)  # resume: no new rows
     assert len(log.read_text().splitlines()) == n_lines
@@ -268,9 +282,30 @@ def test_resampled_lengths_hide_true_lengths(tmp_path):
     new_future = np.asarray(g._num_decode_tokens[i:])
     assert not np.array_equal(new_future, true_future)
     assert np.all(np.asarray(g._num_prefill_tokens[i:]) + new_future <= cap)
+    # block-hash lists fit the new lengths (Request asserts it for arrivals; the KV cache needs every full block)
+    for r in infl:
+        assert len(r._block_hash_ids) == r.total_tokens // r._block_size
+    for j in range(i, g.num_requests):
+        assert len(g._block_hash_ids[j]) == (g._num_prefill_tokens[j] + new_future[j - i]) // g._block_size[j]
     # the parent's requests and trace are untouched
     assert [r.original_num_decode_tokens for r in hr._inflight(h)] != [r.original_num_decode_tokens for r in infl]
     assert np.array_equal(h.sim._request_generator._num_decode_tokens[i:], true_future)
+    # end to end: resampled rollouts run to completion under every horizon kind
+    plan = hr.Plan("tail", 90.0, 60.0, 250.0)
+    hz = [hr.Horizon.parse(x) for x in ("H=8", "T=10+drain", "T=10", "full")]
+    res = hr.evaluate_candidates(h, [None, 1], hz, plan, workers=2, sample=(7, pool, cap))
+    assert all(r["h"][3]["n_unfinished"] == 0 and "cont" in r["h"][1] for r in res)
+    true = hr.evaluate_candidates(h, [None], hz, plan, workers=1)
+    assert true[0]["h"][3]["sum"] != res[0]["h"][3]["sum"]  # the lengths did change the rollout
+
+
+def test_one_token_change():
+    assert hr._one_token_change(10, 3, 16, 1000) == 1  # 13 -> 14 tokens, same block
+    assert hr._one_token_change(10, 5, 16, 1000) == -1  # 15 -> 16 would add a block
+    assert hr._one_token_change(10, 1, 16, 1000) == 1
+    assert hr._one_token_change(13, 1, 16, 16) == 1 and hr._one_token_change(15, 1, 16, 16) == 0
+    assert hr.fit_hashes([1, 2, 3], 40, 16, 5) == [1, 2]
+    assert hr.fit_hashes([1, 2], 70, 16, 5) == [1, 2, -5000003, -5000004]
 
 
 def _no_children():
@@ -318,5 +353,47 @@ def test_summary_reuse_refuses_other_setups(tmp_path):
     # lookahead rows are keyed by every parameter
     base = {"horizon": "T1x", "score": "tail", "future": "true", "max_decisions": None, "weight": 1.0}
     assert hr._row_key(base) != hr._row_key(dict(base, max_decisions=5)) != hr._row_key(dict(base, weight=2.0))
-    assert hr._row_key(dict(base, code_sha=hr.CODE_SHA)) != hr._row_key(dict(base, code_sha={"headroom": "x"}))
-    assert set(hr.CODE_SHA) == {"headroom", "sim_fork"}
+    assert hr._row_key(dict(base, decision_sha="a")) != hr._row_key(dict(base, decision_sha="b"))
+    assert hr.decision_sha() == hr.decision_sha() and hr.decision_sha().endswith(hr.SIM_FORK_SHA)
+    assert hr.decision_sha().split(":")[0] != hr.post_sha()
+
+
+def test_placebo_and_noise_runs(plain, tmp_path):
+    d, s = plain
+    hr.placebo_run(SC, 0.0, 0, s["cut"], tmp_path / "P0")  # rate 0: the forcing path is neutral
+    _same_outputs(d, tmp_path / "P0")
+    info = hr.placebo_run(SC, 0.5, 1, s["cut"], tmp_path / "P1")
+    assert 0.3 < info["deviation_frac"] < 0.7 and hr.score_output(tmp_path / "P1", SC)["ok"]
+    info = hr.noise_run(SC, 3, s["cut"], tmp_path / "T")  # default: tie-break RNG reseeded
+    assert hr.score_output(tmp_path / "T", SC)["ok"] and info["perturbed"].startswith("ctx.rng seed")
+    info = hr.noise_run(SC, 3, s["cut"], tmp_path / "N", kind="token")
+    g = build_simulator(hr.argv_for(SC, tmp_path / "G")).sim._request_generator
+    assert hr.score_output(tmp_path / "N", SC)["ok"] and g._arrived_at[info["perturbed"]] < s["cut"]
+    assert not filecmp.cmp(_csv(d), _csv(tmp_path / "N"), shallow=False)  # one token early changes the run
+
+
+def _vs(e2e, ttft, tpot=0.0, tbt=0.0):
+    return {"log_p99_e2e": e2e, "log_p99_ttft": ttft, "log_p99_tpot": tpot, "log_p99_tbt": tbt}
+
+
+def test_window_verdict_rule():
+    rng = np.random.default_rng(0)
+    base = {f"placebo{i}": {"params": {"mode": "placebo", "rate": 0.2}, "vs_pi_e": _vs(*rng.normal(0, 0.02, 4))}
+            for i in range(20)}
+    base |= {f"noise{i}": {"params": {"mode": "noise"}, "vs_pi_e": _vs(*rng.normal(0, 0.02, 4))} for i in range(20)}
+    head = {"params": {"mode": "closed", "horizon": "full", "plan_every": 1, "max_decisions": None,
+                       "future": "true"}, "deviation_frac": 0.2}
+    assert hr.window_verdict(base)["label"] == "missing"
+    assert hr.window_verdict(base | {"L": dict(head, vs_pi_e=_vs(-0.2, -0.2))})["label"] == "positive"
+    assert hr.window_verdict(base | {"L": dict(head, vs_pi_e=_vs(-0.2, -0.2, tbt=0.3))})["label"] != "positive"
+    assert hr.window_verdict(base | {"L": dict(head, vs_pi_e=_vs(0.2, -0.2))})["label"] == "negative"
+    assert hr.window_verdict(base | {"L": dict(head, vs_pi_e=_vs(0.0, 0.0))})["label"] == "null"
+    assert hr.window_verdict(base | {"L": dict(head, vs_pi_e=_vs(-0.2, 0.0))})["label"] == "inconclusive"
+    few = {k: v for k, v in base.items() if k != "noise0"}
+    assert hr.window_verdict(few | {"L": dict(head, vs_pi_e=_vs(-0.2, -0.2))})["label"] == "missing"
+
+
+def test_boot_ci():
+    ci = hr.boot_ci([1.0, 2.0, 3.0, float("nan"), 4.0])
+    assert ci["n"] == 4 and ci["mean"] == 2.5 and 1.0 <= ci["lo"] < 2.5 < ci["hi"] <= 4.0
+    assert hr.boot_ci([])["mean"] is None

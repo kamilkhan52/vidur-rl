@@ -1,105 +1,124 @@
-"""Closed-loop headroom pilot (RL design discussion, 2026-10-10; reviews G r1, r2).
+"""Closed-loop headroom pilot (RL design discussion, 2026-10-10; reviews G r1-r3).
 
 Question: with the true future (hindsight), does picking at every routing decision the candidate replica whose
 rollout scores best, with pi_e (the evolved rule l3_48a067a7df63) as the rollout policy, improve the window's P99
-tails over pi_e alone? The method must be able to answer either way, so the rollout objective has to see what forms
-window tails (sustained load after the decision, and the tails of the routed request and of later arrivals).
+tails over pi_e alone? With the ``full`` horizon this is exact hindsight one-step policy improvement over pi_e under
+the proxy score below (no truncation): a null bounds the gain of one-step lookahead ON THAT SCORE, not "the
+headroom" of every planner.
 
-Loop (``--mode closed``, default). At each decision after the warm-up, every candidate replica is tried in an
-``os.fork`` child: the child forces the arriving request onto that replica (``sim_fork.override_next_decision``),
-routes everything after it with pi_e and scores the affected set. The parent takes the best-scoring candidate (ties
-and gains <= ``min_gain`` keep pi_e's choice), executes it through the same forcing mechanism and continues. Only the
-first request of a burst is planned (with jittered arrivals, p >= 1, bursts are single requests; ``route()``
-policies with bursts are refused). Early decisions' affected sets include requests that arrived before the warm-up
-cut, which the window metrics do not score.
+Modes (``--mode``):
+- ``closed`` (headline: ``--horizon full``, the default): at each decision after the warm-up every candidate replica
+  is tried in an ``os.fork`` child (forced with ``sim_fork.override_next_decision``, then pi_e routes the rest of the
+  window, arrivals continuing, to completion) and the affected set is scored; the parent executes the best candidate
+  (ties and gains <= ``min_gain`` keep pi_e's choice) through the same forcing path and continues. Only the first
+  request of a burst is planned (bursts are single requests with jittered arrivals). Early decisions' affected sets
+  include requests from before the warm-up cut, which the window metrics do not score.
+- ``openloop``: pi_e runs alone; at every ``--every``-th decision after the cut all candidates are rolled out under
+  each ``--horizon`` and under ``--reference`` (``full``); judges the cheaper proxy horizons against ``full`` and gives
+  ``full``'s own one-step gain distribution (below).
+- ``placebo``: ``--seeds`` closed loops that deviate from pi_e uniformly at random at the lookahead run's deviation
+  rate (``--rate``, default: the closed ``full`` row's), no rollouts.
+- ``noise``: ``--seeds`` pi_e runs with a perturbation that should not matter (``--noise-kind tiebreak``: pi_e's
+  tie-break RNG reseeded, an equally valid pi_e run; ``token``: one warm-up request's output changed by one token):
+  the run-to-run spread of the window P99s (the noise floor).
 
-Horizons (``--horizon``; the affected set is identical for all candidates of a decision):
-- ``T=<t>+drain`` (default ``T=1x+drain``; t in seconds, or ``<f>x`` = f times pi_e's window P99 E2E): arrivals
-  continue for t seconds after the decision, then stop, and every affected request (in flight at the decision,
-  including the routed one, plus every arrival up to the cutoff) runs to completion. Nothing is censored, so the
-  routed request's and late arrivals' tails are scored.
-- ``T=<t>`` (pure cutoff; an option only): the rollout stops at the cutoff and an unfinished request is censored
-  (``--censor elapsed``: its age at the cutoff, a lower bound; ``remaining``: plus remaining decode tokens times
-  pi_e's mean TPOT). BLIND SPOT (review G r2): every request arriving at or after the decision has E2E <= t, so at
-  ``T=1x`` its E2E hinge is identically 0 and the tail term sees only requests already in flight; censoring also
-  credits candidates that push work past the cutoff. Probe on Conv 4R s1.5 w6000+200 (K=120): a candidate scored
-  210 better than pi_e censored and 229 worse uncensored. ``test_headroom.test_censoring_probe`` checks the blind
-  spot and that the drained scores bound the censored ones.
-- ``H=<n>``: the next n routing decisions, then arrivals stop and the system drains (the r1 method; on Tool H=64 is
-  ~8 s of arrivals against a 95 s P99 E2E).
-- ``full``: the rest of the window (reference horizon of ``--mode openloop``).
+Horizons (``--horizon``; within a decision the affected set is identical for all candidates):
+- ``full``: the rest of the window with arrivals continuing, run to completion. Exact, no truncation bias. Its
+  reference drain at the window end is the same one the scored window has.
+- ``T=<t>+drain`` (t in seconds or ``<f>x`` = f times pi_e's window P99 E2E): arrivals for t seconds, then a
+  contention-free drain of the affected set. A PROXY: the drain under-states the tails of requests still in flight at
+  the cutoff (review G r3, Tool K=400: it removed 70-88 % of the set's E2E hinge, differently per candidate, and
+  flattered the candidate it would have picked). Valid only as far as ``openloop`` shows it ranks like ``full``.
+- ``T=<t>`` (pure cutoff, censored; ``--censor elapsed|remaining``): BLIND SPOT (review G r2): every request arriving
+  at or after the decision has E2E <= t, so at ``T=1x`` its E2E hinge is identically 0; censoring credits deferral.
+- ``H=<n>``: n decisions, then a drain (the r1 proxy; ~8 s of arrivals on Tool at H=64).
 
-Horizon selection (``--mode openloop``): pi_e runs alone; at every ``--every``-th decision after the cut, all
-candidates are rolled out under each ``--horizon`` and under ``--reference`` (default ``full``), and the summary
-reports per horizon how well its candidate ranking agrees with the reference: mean Spearman correlation, top-1
-agreement, agreement on whether to deviate from pi_e, pairwise sign agreement against pi_e's choice, and the
-reference-measured gain of the horizon's choice over pi_e's (``ref_gain``; the reference's own is the upper bound).
-One child per candidate serves every horizon: it runs once to the longest horizon and, at each shorter horizon's
-stop point, forks a grandchild that drains and scores it, so a decision costs about one ``full`` rollout plus one
-drain per horizon per candidate. Run this on the window used for the closed loop, then run the closed loop at the
-horizon that ranks like the reference.
+Open-loop statistics (``openloop_stats``). Per point and horizon: Spearman correlation of the candidate scores with
+``full``'s, top-1 and deviate-or-not agreement, pairwise sign agreement against pi_e's choice, ``ref_gain`` = the
+``full`` score gain of the horizon's choice over pi_e's choice, regret = ``full`` score of the horizon's choice minus
+``full``'s best. Every statistic is stratified: ``informative`` (the horizon ended before the window end, n_h <
+n_full; PRIMARY) and ``reached_end`` (identical to ``full`` by construction). Means come with paired bootstrap 95 %
+CIs over points; paired horizon differences (points informative for both) of ``ref_gain`` and regret too. Diagnostics
+from the ``full`` child: each horizon's affected set is also scored under continued arrivals (``cont``), separating
+drain bias (horizon vs cont) from post-horizon externality (cont vs full). Noise floor per point: pi_e's own choice
+rolled out to ``full`` with a perturbation after the longest finite horizon that ends inside the window
+(``--noise-kind tiebreak``: pi_e's tie-break RNG reseeded there; ``token``: a one-token output change, +1 or -1 so
+the KV block count stays, on the first later request), so no finite horizon sees it; |delta full score| is reported
+beside the gains. With few exact ties left after a point, the tiebreak floor can be 0 at that point.
+HEADLINE BOUND FOR A NULL: ``full``'s own one-step gain distribution (median, p90, mean with CI, fraction of points
+above that point's noise floor) at pi_e's states (not the lookahead trajectory's states; standard for a
+policy-improvement check).
 
-Cost (CPU-s per planned decision = R rollouts; measured 2026-10-10 on the Mac at load ~6; every run records
-``cpu_s_children`` and ``cpu_s_per_decision``):
-- Tool 8R s0.75 w0+2000 (a full pi_e run of the window: ~25 s). Closed loop: ``H=64`` 16.4 (r1 run; 2.05 per
-  rollout); ``T=1x`` (94.8 s) 30.4 (3.8 per rollout). Open-loop smoke at the first decision after the cut (the
-  costliest point: the longest remainder), standalone estimates per decision: ``H=64`` 9.6, ``T=0.5x+drain`` 25.7,
-  ``T=1x+drain`` 44.7 (5.6 per rollout), ``T=2x+drain`` 77, ``T=1x`` 32.6, ``full`` 81; the nested open-loop point
-  cost 121 CPU-s for all six horizons (100 s wall with 2 workers). Later decisions are cheaper (horizons hit the
-  window end), so a closed loop at ``T=1x+drain`` is <= 20 CPU-h (~5 h wall at 4 workers, ~2.5 h at 8) and an
-  open-loop selection at ``--every 10`` (165 points) <= 5.5 CPU-h, ~3 CPU-h expected.
-- ``--plan-every K`` divides the closed-loop cost by K but ANSWERS A DIFFERENT QUESTION: the headroom of lookahead at
-  1/K of the decisions with pi_e elsewhere. A null at K > 1 does not bound the K = 1 headroom (gains need not add up)
-  and a positive is not a per-decision estimate. ``--max-decisions M`` plans only the first M (biased to the start).
+PRE-SPECIFIED SUCCESS RULE (fixed 2026-10-10, before any rerun). Windows: Tool and Conv, 8R s0.75 p1, w0+2000 and
+w2000+2000 (4 windows). Per window, with L = the closed ``full`` lookahead run's log P99 ratios vs pi_e, P = >= 20
+placebo runs at the same deviation rate, N = >= 20 noise runs:
+- ``positive``: L_e2e < P5(P_e2e) and L_e2e < P2.5(N_e2e), and likewise for TTFT; and (guard against token pace) L
+  for TPOT and TBT <= P97.5(N) of the same metric;
+- ``negative``: L_e2e or L_ttft > P97.5(N) of that metric;
+- ``null``: L_e2e and L_ttft within [P2.5(N), P97.5(N)];
+- ``inconclusive``: anything else.
+Lookahead headroom is claimed only if all 4 windows are ``positive``; "no headroom" only if all 4 are ``null`` or
+``negative`` and ``full``'s one-step gain is within the noise floor at >= 90 % of the open-loop points.
+``window_verdict`` computes the per-window label into the summary (row ``verdict``).
+
+Cost (CPU-s per planned decision = R rollouts; Mac at load ~6-7, upper bounds; Alpine is faster per core). Tool 8R
+s0.75 w0+2000, a full pi_e run ~25 s: ``full`` from the first decision after the cut 81 (10 per rollout), falling
+about linearly to 0 at the window end, so ~40 on average: ~1,658 x 40 = 66,000 CPU-s = ~18 CPU-h per window.
+Proxies at the first point: ``H=64`` 9.6 (r1 closed loop: 16.4 on average), ``T=0.5x+drain`` 25.7,
+``T=1x+drain`` 44.7, ``T=2x+drain`` 77, ``T=1x`` 32.6. Open loop (one child per candidate serves every horizon:
+it runs to ``full`` and drains the shorter horizons in forked grandchildren; plus one noise rollout): 121 CPU-s at
+the first point, ~70 on average, so ``--every 10`` (165 points) ~3.2 CPU-h. Placebo and noise: one pi_e-speed run
+each (~25 CPU-s). ``--plan-every K`` divides the closed-loop cost by K but answers a different question (lookahead at
+1/K of the decisions; a null at K > 1 does not bound K = 1, a positive is not a per-decision estimate).
 
 Scores (``--score``), from per-request E2E e_i and TTFT f_i over the affected set; tau_e, tau_f = pi_e's window P99
 E2E and P99 TTFT, m = pi_e's window mean E2E:
 - ``tail`` (default): ``sum_i e_i + w * (sum_i (e_i/tau_e - 1)+ + sum_i (f_i/tau_f - 1)+)``, w = 25 m unless
-  ``--tail-weight``. The hinges are the tail terms: by Rockafellar-Uryasev, ``tau + sum_j (x_j - tau)+ / (0.01 N)``
-  with tau = the window P99 bounds the window CVaR_0.99 and is tight at tau, so a hinge change d moves log CVaR_0.99
-  by about d / (0.01 N tau). The weight is a DESIGN CHOICE, a mean regulariser, not the objective's marginal rate:
-  evaluate.score on one scenario puts 0.375 (0.25 x (1 + 0.5)) on each log P99, and its mean-E2E term
-  log(mean / best baseline mean) is one-sided, active only above 1.05 x the best baseline's mean. When it is inactive
-  (likely at pi_e's operating point) the objective's weight on the summed E2E is 0; when active, the same
-  linearisation gives w = 37.5 m. w = 25 m keeps the score tail-dominated (one normalised hinge unit = 25 mean
-  E2Es) while the sum term orders candidates whose hinges tie and guards the mean. TTFT gets its own hinge because
-  placements trade TTFT against E2E (the r1 lex run moved P99 TTFT by +73 %). TPOT and TBT are not scored (per-token
-  pace; P99 TBT is a tail of token gaps that a per-request sum dilutes, and LOR's P99 TBT is +9.8 % over pi_e's on
-  Tool, so placement does move it): every lookahead row reports ``vs_pi_e``, the log ratios of the four P99s and the
-  mean E2E against pi_e plus their tail4 combination, so a gain bought with token pace shows in the row.
-  Logged per decision: each candidate's score and terms (sum, hinge, hinge_ttft, the routed request's E2E, the
-  post-decision E2E hinge, unfinished counts), the per-term gain of the chosen candidate over pi_e's choice and
-  ``decided_by`` = the term with the largest gain (``keep`` when pi_e's choice is kept).
-- ``lex``: (sum (e_i/tau_e - 1)+, sum e_i) lexicographically, ties within 1e-9 (the r1 rule; closed loop only).
-- ``sum``, ``hinge``: one term each.
+  ``--tail-weight``. The hinges are the tail terms (Rockafellar-Uryasev: ``tau + sum_j (x_j - tau)+ / (0.01 N)`` with
+  tau = the window P99 bounds CVaR_0.99, tight at tau). The weight is a DESIGN CHOICE, a mean regulariser:
+  evaluate.score on one scenario puts 0.375 on each log P99 and has a one-sided mean term (only above 1.05 x the best
+  baseline's mean; likely inactive at pi_e, then its weight on the summed E2E is 0; when active the linearisation
+  gives w = 37.5 m). TTFT has its own hinge (placements trade TTFT against E2E). TPOT and TBT are not scored; every
+  closed row reports ``vs_pi_e`` (log ratios of the four P99s and mean E2E, and tail4) so token-pace damage shows.
+  Logged per decision: each candidate's score and terms, the per-term gain of the choice and ``decided_by``.
+- ``lex`` (r1 rule, closed only), ``sum``, ``hinge``.
 
-Resampled output lengths (``--future sampled-lengths``; a PARTIAL information gap): in each decision's children
-(common random numbers: one seed per decision), only OUTPUT LENGTHS are resampled: not-yet-arrived requests from the
-empirical output-length distribution, in-flight requests (including the one being routed) from the same
-distribution conditioned on exceeding the tokens they have already generated, capped at ``max_request_tokens``.
-Arrival times, prompt lengths, prefix hashes and sessions of future arrivals stay TRUE, so this is not the full
-"no hindsight" gap of the plan (resampled arrivals and lengths). The distribution is the capacity-filtered trace
-outside the window (a full-trace scenario falls back to the whole trace). The parent continues on the true trace.
+Resampled output lengths (``--future sampled-lengths``; a PARTIAL information gap): only output lengths are
+resampled in the children (future arrivals unconditioned, in-flight requests conditioned on tokens generated, capped
+at ``max_request_tokens``, from the trace outside the window); arrival times, prompts, prefixes and sessions stay true.
 
 Reuse and resume. ``<out>/summary.json`` carries ``meta`` (scenario, policy and Mooncake sha, code_version,
-prediction bundle); a file with a different meta or format is refused (use a new --out). pi_e and baseline rows
-depend only on that meta (the in-process pi_e is checked against ``evaluate.run_one`` unless ``--skip-baselines``).
-Each lookahead / open-loop row is keyed by a hash of all its parameters INCLUDING the sha256 of headroom.py and
-sim_fork.py as loaded, so rows from other code are never reused. Rows that fail the completion gate are not stored.
-Each run appends one JSON line per decision to ``<key>.jsonl`` after a header line with the parameters; an
-interrupted run resumes from it (the header must match; the logged decisions are replayed with ``apply_decision``,
-checking pi_e's choice at each, then planning continues).
+prediction bundle); another meta or format is refused. Log files and row keys hash all parameters plus
+``decision_sha()``: the source of the functions that decide what a log contains (rollouts, forcing, scoring, loops)
+and sim_fork.py, so docstring and statistics edits do not orphan logs. Summary rows also store ``post_sha()`` (the
+post-processing source); a row whose post_sha differs is recomputed from its log (a closed run replays its log, ~one
+pi_e run; open-loop statistics are pure post-processing). Each log is appended one JSON line per decision after a
+header; a run resumes from it (header must match; replay checks pi_e's choice and the arrival time at each logged
+decision). Rows that fail the completion gate are not stored.
 
-Usage:
-  .venv/bin/python -m evolve.rl_plan.headroom --mode openloop --trace Tool --every 10 \\
-      --horizon H=64,T=0.5x+drain,T=1x+drain,T=2x+drain,T=1x --out evolve/rl_plan/out/tool_s075_w2000_v3
-  .venv/bin/python -m evolve.rl_plan.headroom --trace Tool --horizon T=1x+drain \\
-      --out evolve/rl_plan/out/tool_s075_w2000_v3
+Alpine (acpu, <= 22 CPUs; jobs resume, so chain 4 h jobs; ship cache/prediction_bundle_<key>.pkl so the bundle in
+meta matches): one window per job, ``--workers 8`` (8 rollouts at once, one batch per decision)::
+
+  cd $REPO; jid=
+  for i in 1 2 3 4 5 6 7 8; do
+    jid=$(sbatch --parsable ${jid:+--dependency=afterany:$jid} --cpus-per-task=10 --mem=48G --time=04:00:00 \\
+      --job-name=hr_tool_w0 --export=ALL,REPO_DIR=$REPO,CMD="python -m evolve.rl_plan.headroom --trace Tool \\
+      --start 0 --workers 8 --out evolve/rl_plan/out/v4_tool_w0" scripts/submit_python_job.sbatch)
+  done
+
+A job that finds the run complete reuses the row and exits in ~1 min. Two such chains at once stay within 22 CPUs.
+
+Usage (each window: open loop, closed loop, then placebo and noise):
+  .venv/bin/python -m evolve.rl_plan.headroom --mode openloop --trace Tool --out evolve/rl_plan/out/v4_tool_w0
+  .venv/bin/python -m evolve.rl_plan.headroom --trace Tool --out evolve/rl_plan/out/v4_tool_w0
+  .venv/bin/python -m evolve.rl_plan.headroom --mode placebo --trace Tool --out evolve/rl_plan/out/v4_tool_w0
+  .venv/bin/python -m evolve.rl_plan.headroom --mode noise --trace Tool --out evolve/rl_plan/out/v4_tool_w0
 """
 
 import argparse
 import gc
 import hashlib
+import inspect
 import json
 import math
 import os
@@ -125,9 +144,7 @@ from tail_metrics import summarize_rows  # evolve.evaluate puts scripts/ on sys.
 POLICY = str(ev.REPO / "evolve/finalists/l3_48a067a7df63.py")
 MOONCAKE = str(ev.REPO / "evolve/policies/systems/mooncake_min_ttft.py")
 FORMAT = 2
-# sha256 of the planner and fork code as loaded (part of every lookahead row's key)
-CODE_SHA = {"headroom": hashlib.sha256(Path(__file__).read_bytes()).hexdigest()[:16],
-            "sim_fork": hashlib.sha256(Path(sim_fork.__file__).read_bytes()).hexdigest()[:16]}
+SIM_FORK_SHA = hashlib.sha256(Path(sim_fork.__file__).read_bytes()).hexdigest()[:16]  # as loaded
 
 
 def argv_for(sc, out_dir, policy=POLICY):
@@ -344,9 +361,23 @@ def generated_tokens(r) -> int:
     return folded + max(r.num_processed_tokens - r.num_prefill_tokens, 0)
 
 
+def fit_hashes(hashes, n_tokens: int, block_size: int, tag: int) -> list:
+    """A block-hash list for a request of ``n_tokens`` total tokens (the trace's lists cover prompt AND output, one
+    id per full block, and ``Request`` asserts that): truncated, or extended with fresh ids that occur in no trace
+    (trace ids are >= 0; fresh ones are -(tag * 10^6 + k + 1), unique per ``tag``)."""
+    nb = n_tokens // block_size
+    old = list(hashes)
+    return old[:nb] if nb <= len(old) else old + [-(tag * 1_000_000 + k + 1) for k in range(len(old), nb)]
+
+
 def resample_outputs(h, rng, pool, cap):
     """Replace every output length the router cannot know (in-flight requests: conditioned on what they have
-    generated; future arrivals: unconditioned), capped at ``cap`` total tokens. Child-only state."""
+    generated; future arrivals: unconditioned), capped at ``cap`` total tokens, and fit their block-hash lists to the
+    new lengths (output blocks of a longer output get fresh ids, also in the replica KV managers' per-request hash
+    lists, which must cover every full block). Child-only state."""
+    from vidur.kv_cache.utils import BlockHashType
+    gs = h.sim._scheduler
+    kvs = [getattr(rs, "_kv_cache_manager", None) for rs in gs._replica_schedulers.values()]
     inflight = _inflight(h)
     if inflight:
         gen = np.array([generated_tokens(r) for r in inflight])
@@ -356,13 +387,34 @@ def resample_outputs(h, rng, pool, cap):
             L = int(L)
             r._num_decode_tokens = r.original_num_prefill_tokens + L - r.num_prefill_tokens
             r._original_num_decode_tokens = L
+            if r._block_hash_ids is not None:
+                r._block_hash_ids = fit_hashes(r._block_hash_ids, r.total_tokens, r._block_size, r.id)
+                for kv in kvs:
+                    lst = None if kv is None else kv.req_to_block_hashes.get(r.id)
+                    if lst and len(lst) < len(r._block_hash_ids):
+                        lst += [BlockHashType(x, tuple()) for x in r._block_hash_ids[len(lst):]]
     g = h.sim._request_generator
     i = g.num_requests_generated
     arr = np.array(g._num_decode_tokens, copy=True)
     if len(arr) > i:
         pre = np.asarray(g._num_prefill_tokens[i:])
         arr[i:] = _draw(pool, np.zeros(len(pre), int), np.maximum(cap - pre, 1), rng)
+        hs = list(g._block_hash_ids)
+        for j in range(i, len(arr)):
+            if hs[j] is not None:
+                hs[j] = fit_hashes(hs[j], int(g._num_prefill_tokens[j] + arr[j]), int(g._block_size[j]), 10**9 + j)
+        g._block_hash_ids = hs
     g._num_decode_tokens = arr
+
+
+def _one_token_change(prefill: int, decode: int, block_size, cap: int) -> int:
+    """+1 or -1 output token that keeps the request within its block count and the context cap; 0 if neither."""
+    bs = block_size or 1 << 30
+    total = prefill + decode
+    for d in (1, -1):
+        if decode + d >= 1 and total + d <= cap and (total + d) // bs == total // bs:
+            return d
+    return 0
 
 
 def _due(hz: Horizon, h, n0: int, cutoff: Optional[float]) -> bool:
@@ -388,19 +440,45 @@ def horizon_terms(reqs, n_aff: int, cutoff: Optional[float], plan: Plan) -> dict
     return t
 
 
-def child_rollouts(h, choice, horizons: List[Horizon], plan: Plan, sample=None, timeout: float = 1800.0) -> dict:
+def perturb_one_output(h, after_t: float, after_n: int, cap: int) -> Optional[int]:
+    """Change by one token (``_one_token_change``: the block count and hashes stay valid) the output length of the
+    first not-yet-arrived request that arrives after ``after_t`` and is at least ``after_n`` arrivals away. Returns
+    its trace index, or None when there is no such request. Child-only state (the trace array is copied)."""
+    g = h.sim._request_generator
+    i0 = g.num_requests_generated
+    arr = np.asarray(g._arrived_at[:g.num_requests])
+    d = np.array(g._num_decode_tokens, copy=True)
+    for j in i0 + after_n + np.nonzero(arr[i0 + after_n:] > after_t)[0]:
+        j = int(j)
+        delta = _one_token_change(int(g._num_prefill_tokens[j]), int(d[j]), g._block_size[j], cap)
+        if delta:
+            d[j] += delta
+            g._num_decode_tokens = d
+            return j
+    return None
+
+
+def child_rollouts(h, choice, horizons: List[Horizon], plan: Plan, sample=None, timeout: float = 1800.0,
+                   perturb=None) -> dict:
     """One candidate's rollout under every horizon (run inside an ``os.fork`` child; mutates ``h``).
 
     The child runs once to the longest horizon. At each horizon's stop point it scores that horizon: a pure time
     cutoff is scored in place (censored); a horizon that drains is drained in a forked grandchild (or in place when
     it is the last one), so the shared prefix is simulated once. ``cpu_s`` per horizon estimates its standalone cost
-    (the prefix up to its stop plus its own drain)."""
+    (the prefix up to its stop plus its own drain). When ``full`` is among the horizons, every other horizon's
+    affected set is also scored at the end of the full run (``cont``: the same requests under continued arrivals).
+    ``perturb=(kind, after_t, after_n, cap, seed)`` (noise-floor rollouts): ``token`` applies
+    ``perturb_one_output`` first; ``tiebreak`` reseeds pi_e's tie-break RNG once the rollout is past ``after_t`` and
+    ``after_n`` decisions (so no finite horizon sees it)."""
     after_os_fork(h)
     gc.disable()  # the child's GC would touch (and copy) every page of the parent
     c0 = time.process_time()
     if sample is not None:
         seed, pool, cap = sample
         resample_outputs(h, np.random.default_rng(seed), pool, cap)
+    perturbed = None
+    if perturb is not None and perturb[0] == "token":
+        perturbed = perturb_one_output(h, *perturb[1:4])
     affected = _inflight(h)  # [0] is the request being routed
     n_aff = len(affected)
     g = h.sim._request_generator
@@ -417,6 +495,13 @@ def child_rollouts(h, choice, horizons: List[Horizon], plan: Plan, sample=None, 
     rec = apply_decision(h, choice)
     n0 = h.decisions - 1
     cut = [t_dec + hz.value if hz.mode == "time" else None for hz in horizons]
+    if perturb is not None and perturb[0] == "tiebreak":
+        if any(hz.mode != "full" for hz in horizons):
+            raise ValueError("a tiebreak-perturbed rollout scores only the full horizon")
+        _, after_t, after_n, _, seed = perturb
+        if h.run(lambda x: _next_time(x) > after_t and x.decisions >= n0 + after_n):
+            h.sim._scheduler._ctx.rng.seed(seed)
+            perturbed = f"ctx.rng seed {seed} at t={h.now:.3f}"
 
     def finish(i, drain, prefix, forked=False):
         if forked:
@@ -431,12 +516,14 @@ def child_rollouts(h, choice, horizons: List[Horizon], plan: Plan, sample=None, 
         return t
 
     out: List[Optional[dict]] = [None] * len(horizons)
+    n_at_stop = [None] * len(horizons)
     pending = list(range(len(horizons)))
     while pending:
         ended = not h.run(lambda x: any(_due(horizons[i], x, n0, cut[i]) for i in pending))
         due = list(pending) if ended else [i for i in pending if _due(horizons[i], h, n0, cut[i])]
         for i in due:
             pending.remove(i)
+            n_at_stop[i] = n_aff + len(made)
         due.sort(key=lambda i: horizons[i].mode == "time" and not horizons[i].drain, reverse=True)  # censored first
         for j, i in enumerate(due):
             hz = horizons[i]
@@ -447,7 +534,12 @@ def child_rollouts(h, choice, horizons: List[Horizon], plan: Plan, sample=None, 
             else:
                 kid = _fork_child(lambda i=i, p=prefix: finish(i, True, p, forked=True))
                 out[i] = _collect_all([kid], timeout)[0]
-    return {"choice": choice, "policy_choice": rec["policy_choice"], "executed": rec["executed"], "h": out}
+    if any(hz.mode == "full" for hz in horizons):  # the full run has completed every request
+        for i, hz in enumerate(horizons):
+            if hz.mode != "full":
+                out[i]["cont"] = horizon_terms((affected + made)[:n_at_stop[i]], n_aff, None, plan)
+    return {"choice": choice, "policy_choice": rec["policy_choice"], "executed": rec["executed"], "h": out,
+            "perturbed": perturbed}
 
 
 # ------------------------------------------------------------------ os.fork children
@@ -550,20 +642,28 @@ def _collect_all(kids: List[_Child], timeout: float) -> List[dict]:
             c.err.close()
 
 
+def _run_children(fns: List[Callable[[], dict]], workers: int, timeout: float) -> List[dict]:
+    out = []
+    for i in range(0, len(fns), workers):
+        out += _collect_all([_fork_child(f) for f in fns[i:i + workers]], timeout)
+    return out
+
+
+def _check_consistent(res: List[dict], nh: int) -> None:
+    if len({r["policy_choice"] for r in res}) != 1 or any(len({r["h"][j]["n"] for r in res}) != 1
+                                                          for j in range(nh)):
+        raise RuntimeError(f"rollouts disagree on pi_e's choice or the affected set: "
+                           f"{[(r['choice'], r['policy_choice'], [t['n'] for t in r['h']]) for r in res]}")
+
+
 def evaluate_candidates(h, cands, horizons: List[Horizon], plan: Plan, workers: int, timeout: float = 1800.0,
                         sample=None) -> List[dict]:
     """Every candidate's ``child_rollouts`` (``workers`` children at a time). Checks that all children saw the same
     pi_e choice and, per horizon, the same affected set size."""
-    out = []
-    for i in range(0, len(cands), workers):
-        kids = [_fork_child(lambda c=c: child_rollouts(h, c, horizons, plan, sample, timeout))
-                for c in cands[i:i + workers]]
-        out += _collect_all(kids, timeout)
-    if len({r["policy_choice"] for r in out}) != 1 or any(len({r["h"][j]["n"] for r in out}) != 1
-                                                          for j in range(len(horizons))):
-        raise RuntimeError(f"rollouts disagree on pi_e's choice or the affected set: "
-                           f"{[(r['choice'], r['policy_choice'], [t['n'] for t in r['h']]) for r in out]}")
-    return out
+    res = _run_children([lambda c=c: child_rollouts(h, c, horizons, plan, sample, timeout) for c in cands],
+                        workers, timeout)
+    _check_consistent(res, len(horizons))
+    return res
 
 
 def _by(res, j: int, pe: int) -> dict:
@@ -583,8 +683,7 @@ def read_log(path: Path, header: dict) -> dict:
     if not path.exists() or path.stat().st_size == 0:
         path.write_text(json.dumps({"header": header}) + "\n")
         return {}
-    text = path.read_text()
-    lines = text.split("\n")
+    lines = path.read_text().split("\n")
     complete, partial = lines[:-1], lines[-1]
     first = json.loads(complete[0]) if complete else {}
     if first.get("header") != header:
@@ -603,10 +702,10 @@ def closed_loop(sc, hz: Horizon, plan: Plan, cut, out_dir, log_path, workers=4, 
                 max_decisions=None, candidates="all", child_timeout=1800.0, chooser=None, plan_every=1,
                 header=None):
     """Run the window with lookahead decisions after ``cut``; write outputs to ``out_dir`` and one JSON line per
-    planned decision to ``log_path`` (appended after a header; decisions already logged are replayed, see
-    ``read_log``). ``chooser(by, pe, plan) -> (best, info)`` replaces ``select_candidate`` (tests);
-    ``candidates="pe"`` evaluates only pi_e's choice (neutrality check). ``plan_every=K`` plans only every K-th
-    decision after the cut (pi_e elsewhere): a different question, see the module docstring."""
+    planned decision to ``log_path`` (appended after a header; decisions already logged are replayed, checking pi_e's
+    choice and the arrival time, see ``read_log``). ``chooser(by, pe, plan) -> (best, info)`` replaces
+    ``select_candidate`` (tests); ``candidates="pe"`` evaluates only pi_e's choice (neutrality check).
+    ``plan_every=K`` plans only every K-th decision after the cut (pi_e elsewhere): a different question."""
     if hz.rel:
         raise ValueError("resolve a relative time horizon first")
     chooser = chooser or select_candidate
@@ -632,9 +731,9 @@ def closed_loop(sc, hz: Horizon, plan: Plan, cut, out_dir, log_path, workers=4, 
             if k in logged:  # resume: replay the logged decision
                 row = logged[k]
                 rec = apply_decision(h, row["chosen"])
-                if rec["policy_choice"] != row["pe"]:
-                    raise SystemExit(f"resume diverged at decision {k}: pi_e chose {rec['policy_choice']}, the log "
-                                     f"says {row['pe']}")
+                if rec["policy_choice"] != row["pe"] or row["t"] != req.arrived_at:
+                    raise SystemExit(f"resume diverged at decision {k}: pi_e chose {rec['policy_choice']} for the "
+                                     f"request arriving at {req.arrived_at}; the log says {row['pe']} at {row['t']}")
                 best, pe, info = row["chosen"], row["pe"], row
                 n_replayed += 1
                 cpu += row.get("cpu_s", 0.0)
@@ -671,14 +770,79 @@ def closed_loop(sc, hz: Horizon, plan: Plan, cut, out_dir, log_path, workers=4, 
             "cpu_s_children": cpu, "cpu_s_per_decision": cpu / max(n_planned, 1)}
 
 
+# ------------------------------------------------------------------ controls: placebo and noise
+
+def placebo_run(sc, rate: float, seed: int, cut, out_dir, plan_every=1) -> dict:
+    """pi_e with random deviations: at each eligible decision (after ``cut``, every ``plan_every``-th) a uniformly
+    random replica is forced with probability q = rate * R / (R - 1), so pi_e's choice is replaced by a uniformly
+    random other replica with probability ``rate`` (pi_e's choice need not be known in advance)."""
+    R = sc.replicas
+    q = min(1.0, rate * R / (R - 1))
+    rng = np.random.default_rng(seed)
+    h = build_simulator(argv_for(sc, out_dir))
+    n_elig = n_dev = n_plan = 0
+    while h.next_decision():
+        req = h.sim._scheduler._request_queue[0]
+        n = h.decisions
+        if req.arrived_at >= cut:
+            n_elig += 1
+            if (n_elig - 1) % plan_every == 0:
+                n_plan += 1
+                choice = int(rng.integers(R)) if rng.random() < q else None
+                rec = apply_decision(h, choice)
+                n_dev += rec["executed"] != rec["policy_choice"]
+                continue
+        h.run(lambda x: x.decisions > n)
+    h.write_output()
+    return {"planned": n_plan, "deviations": n_dev, "deviation_frac": n_dev / max(n_plan, 1)}
+
+
+def noise_run(sc, seed: int, cut, out_dir, kind: str = "tiebreak") -> dict:
+    """pi_e with a perturbation that should not matter, to measure the run-to-run spread of the window P99s:
+    ``tiebreak`` reseeds the global scheduler's RNG (pi_e's ``ctx.rng``, used only to break exact ties: 10 of 2,000
+    decisions on Tool w0+2000), i.e. an equally valid pi_e run; ``token`` changes by one token
+    (``_one_token_change``) the output of one uniformly chosen warm-up request (arriving before ``cut``). On Tool
+    w0+2000 four ``token`` runs moved no P99 by more than 1e-4, so microscopic changes do not cascade there; the
+    spread comes from discrete routing changes, which ``tiebreak`` and the placebo measure."""
+    rng = np.random.default_rng(seed)
+    h = build_simulator(argv_for(sc, out_dir))
+    if kind == "tiebreak":
+        h.sim._scheduler._ctx.rng.seed(1_000_003 + seed)
+        return {"perturbed": f"ctx.rng seed {1_000_003 + seed}", **_finish_run(h)}
+    if kind != "token":
+        raise ValueError(f"unknown noise kind {kind!r}")
+    g = h.sim._request_generator
+    d = np.array(g._num_decode_tokens, copy=True)
+    cap = ev.max_request_tokens(sc)
+    n_warm = int(np.searchsorted(np.asarray(g._arrived_at[:g.num_requests]), cut))
+    while True:
+        j = int(rng.integers(max(n_warm, 1)))
+        delta = _one_token_change(int(g._num_prefill_tokens[j]), int(d[j]), g._block_size[j], cap)
+        if delta:
+            break
+    d[j] += delta
+    g._num_decode_tokens = d
+    return {"perturbed": j, **_finish_run(h)}
+
+
+def _finish_run(h) -> dict:
+    h.run()
+    h.write_output()
+    return {}
+
+
 # ------------------------------------------------------------------ open-loop horizon selection
 
 def open_loop(sc, horizons: List[Horizon], ref: Horizon, plan: Plan, cut, log_path, workers=4, future="true",
-              every=10, max_points=None, child_timeout=1800.0, header=None) -> dict:
+              every=10, max_points=None, child_timeout=1800.0, header=None, point_noise="tiebreak") -> dict:
     """pi_e alone; at every ``every``-th decision after ``cut`` (at most ``max_points``) all candidates are rolled
-    out under ``horizons`` + ``ref`` and logged. Returns ``openloop_stats`` of all logged points (resumable)."""
+    out under ``horizons`` + ``ref`` (``full``), plus one noise rollout of pi_e's own choice to ``full`` with
+    ``perturb_one_output`` after the longest finite horizon that ends inside the window; logged per point.
+    Returns ``openloop_stats``."""
     if plan.score == "lex":
         raise ValueError("open-loop selection needs a scalar score")
+    if ref.mode != "full":
+        raise ValueError("the reference horizon must be full")
     all_h = list(horizons) + [ref]
     if any(x.rel for x in all_h):
         raise ValueError("resolve relative time horizons first")
@@ -686,6 +850,8 @@ def open_loop(sc, horizons: List[Horizon], ref: Horizon, plan: Plan, cut, log_pa
     rows = dict(logged)
     sample_pool = output_pool(sc) if future == "sampled-lengths" else None
     cap = ev.max_request_tokens(sc)
+    times = [x.value for x in horizons if x.mode == "time"]
+    max_n = int(max([x.value for x in horizons if x.mode == "decisions"], default=0)) + 1
     n_eligible = n_points = 0
     t0 = time.time()
     with tempfile.TemporaryDirectory() as tmp, open(log_path, "a") as log:
@@ -702,13 +868,28 @@ def open_loop(sc, horizons: List[Horizon], ref: Horizon, plan: Plan, cut, log_pa
                     if n + 1 not in rows:
                         c0 = _cpu_children()
                         sample = ((1000003 * n + 7), sample_pool, cap) if future == "sampled-lengths" else None
-                        res = evaluate_candidates(h, list(range(sc.replicas)), all_h, plan, workers, child_timeout,
-                                                  sample)
+                        t_dec = _next_time(h)
+                        g = h.sim._request_generator
+                        last = float(g._arrived_at[g.num_requests - 1])
+                        # after the longest finite horizon that ends inside the window
+                        max_t = max([t for t in times if t_dec + t < last], default=0.0)
+                        fns = [lambda c=c: child_rollouts(h, c, all_h, plan, sample, child_timeout)
+                               for c in range(sc.replicas)]
+                        pert = (point_noise, t_dec + max_t, max_n, cap, 1_000_003 + n)
+                        fns.append(lambda: child_rollouts(h, None, [ref], plan, sample, child_timeout, perturb=pert))
+                        res = _run_children(fns, workers, child_timeout)
+                        res, noise = res[:-1], res[-1]
+                        _check_consistent(res, len(all_h))
                         pe = res[0]["policy_choice"]
+                        full_pe = _by(res, len(all_h) - 1, pe)[pe]
+                        nz = None
+                        if noise["perturbed"] is not None:
+                            nz = {"perturbed": noise["perturbed"],
+                                  "delta": {k: noise["h"][0][k] - full_pe[k] for k in ("sum", "hinge", "hinge_ttft")}}
                         row = {"k": n + 1, "t": req.arrived_at, "pe": pe,
                                "h": {x.label: {str(c): t for c, t in sorted(_by(res, j, pe).items())}
                                      for j, x in enumerate(all_h)},
-                               "cpu_s": _cpu_children() - c0, "wall": time.time() - t0}
+                               "noise": nz, "cpu_s": _cpu_children() - c0, "wall": time.time() - t0}
                         log.write(json.dumps(row) + "\n")
                         log.flush()
                         rows[n + 1] = row
@@ -724,41 +905,157 @@ def _ranks(v: np.ndarray) -> np.ndarray:
     return pd.Series(v).rank(method="average").to_numpy()
 
 
+def _spearman(a: np.ndarray, b: np.ndarray) -> float:
+    if a.std() == 0 or b.std() == 0:
+        return float("nan")
+    return float(np.corrcoef(_ranks(a), _ranks(b))[0, 1])
+
+
+def boot_ci(x, B: int = 2000, seed: int = 0) -> dict:
+    """Mean of ``x`` (NaN ignored) with a bootstrap 95 % CI over its entries (points); paired use: pass per-point
+    differences."""
+    x = np.asarray(x, float)
+    x = x[~np.isnan(x)]
+    if len(x) == 0:
+        return {"n": 0, "mean": None, "lo": None, "hi": None}
+    m = x[np.random.default_rng(seed).integers(len(x), size=(B, len(x)))].mean(axis=1)
+    return {"n": int(len(x)), "mean": float(x.mean()), "lo": float(np.percentile(m, 2.5)),
+            "hi": float(np.percentile(m, 97.5))}
+
+
+def _point_metrics(row, lab, ref_label, plan, key=None) -> dict:
+    """One point's agreement metrics of horizon ``lab`` (or its ``key`` sub-record, e.g. ``cont``) with the
+    reference."""
+    pe = row["pe"]
+    by_h = {int(c): (t[key] if key else t) for c, t in row["h"][lab].items()}
+    by_r = {int(c): t for c, t in row["h"][ref_label].items()}
+    s_h = {c: sum(score_parts(t, plan).values()) for c, t in by_h.items()}
+    s_r = {c: sum(score_parts(t, plan).values()) for c, t in by_r.items()}
+    best_h, _ = select_candidate(by_h, pe, plan)
+    best_r, _ = select_candidate(by_r, pe, plan)
+    cs = sorted(s_h)
+    others = [c for c in cs if c != pe]
+    return {"spearman": _spearman(np.array([s_h[c] for c in cs]), np.array([s_r[c] for c in cs])),
+            "top1": float(best_h == best_r), "deviate_agree": float((best_h != pe) == (best_r != pe)),
+            "pair_sign_agree": float(np.mean([np.sign(s_h[c] - s_h[pe]) == np.sign(s_r[c] - s_r[pe])
+                                              for c in others])) if others else float("nan"),
+            "ref_gain": s_r[pe] - s_r[best_h], "regret": s_r[best_h] - s_r[best_r],
+            "harmful": float(s_r[best_h] > s_r[pe]), "deviates": float(best_h != pe),
+            "cpu_s": sum(t.get("cpu_s", 0.0) for t in row["h"][lab].values()),
+            "informative": next(iter(row["h"][lab].values()))["n"] < next(iter(row["h"][ref_label].values()))["n"]}
+
+
+_METRICS = ("spearman", "top1", "deviate_agree", "pair_sign_agree", "ref_gain", "regret", "harmful", "deviates",
+            "cpu_s")
+
+
 def openloop_stats(rows, labels, ref_label, plan: Plan) -> dict:
-    """Per horizon, agreement of its candidate scores with the reference horizon's, over the logged points."""
+    """Per horizon and stratum (``informative`` = the horizon ended before the window end: PRIMARY;
+    ``reached_end``; ``all``) the mean and bootstrap 95 % CI of each agreement metric; drain-bias and externality
+    diagnostics from ``cont``; paired horizon differences of ref_gain and regret; the reference's own one-step gain
+    against the per-point noise floor (see the module docstring)."""
+    rows = sorted(rows, key=lambda r: r["k"])
+    pm = {lab: [_point_metrics(r, lab, ref_label, plan) for r in rows] for lab in labels}
     out = {}
-    for lab in list(labels) + [ref_label]:
-        acc = {k: [] for k in ("spearman", "top1", "deviate_agree", "pair_sign_agree", "ref_gain", "harmful",
-                               "deviates", "cpu_s")}
-        for row in rows:
-            pe = row["pe"]
-            by_h = {int(c): t for c, t in row["h"][lab].items()}
-            by_r = {int(c): t for c, t in row["h"][ref_label].items()}
-            s_h = {c: sum(score_parts(t, plan).values()) for c, t in by_h.items()}
-            s_r = {c: sum(score_parts(t, plan).values()) for c, t in by_r.items()}
-            best_h, _ = select_candidate(by_h, pe, plan)
-            best_r, _ = select_candidate(by_r, pe, plan)
-            cs = sorted(s_h)
-            a, b = np.array([s_h[c] for c in cs]), np.array([s_r[c] for c in cs])
-            if a.std() > 0 and b.std() > 0:
-                acc["spearman"].append(float(np.corrcoef(_ranks(a), _ranks(b))[0, 1]))
-            acc["top1"].append(best_h == best_r)
-            acc["deviate_agree"].append((best_h != pe) == (best_r != pe))
-            acc["pair_sign_agree"] += [np.sign(s_h[c] - s_h[pe]) == np.sign(s_r[c] - s_r[pe]) for c in cs if c != pe]
-            acc["ref_gain"].append(s_r[pe] - s_r[best_h])
-            acc["harmful"].append(s_r[best_h] > s_r[pe])
-            acc["deviates"].append(best_h != pe)
-            acc["cpu_s"].append(sum(t["cpu_s"] for t in by_h.values()))
-        m = {k: (float(np.mean(v)) if v else None) for k, v in acc.items()}
-        out[lab] = {"points": len(rows), "spearman_mean": m["spearman"], "top1_agree": m["top1"],
-                    "deviate_agree": m["deviate_agree"], "pair_sign_agree": m["pair_sign_agree"],
-                    "ref_gain_mean": m["ref_gain"], "ref_gain_sum": float(np.sum(acc["ref_gain"])),
-                    "harmful_frac": m["harmful"], "deviate_frac": m["deviates"],
-                    "standalone_cpu_s_per_decision": m["cpu_s"]}
+    for lab in labels:
+        info_mask = np.array([p["informative"] for p in pm[lab]], bool)
+        st = {}
+        for name, mask in (("informative", info_mask), ("reached_end", ~info_mask),
+                           ("all", np.ones(len(rows), bool))):
+            st[name] = {"points": int(mask.sum())} | {
+                m: boot_ci([p[m] for p, k in zip(pm[lab], mask) if k]) for m in _METRICS}
+        has_cont = rows and all("cont" in next(iter(r["h"][lab].values())) for r in rows)
+        if has_cont:  # drain bias (horizon vs the same set under continued arrivals) and externality (cont vs full)
+            sp_hc, sp_cf = [], []
+            for r, k in zip(rows, info_mask):
+                if not k:
+                    continue
+                cs = sorted(int(c) for c in r["h"][lab])
+                s_h = np.array([sum(score_parts(r["h"][lab][str(c)], plan).values()) for c in cs])
+                s_c = np.array([sum(score_parts(r["h"][lab][str(c)]["cont"], plan).values()) for c in cs])
+                s_f = np.array([sum(score_parts(r["h"][ref_label][str(c)], plan).values()) for c in cs])
+                sp_hc.append(_spearman(s_h, s_c))
+                sp_cf.append(_spearman(s_c, s_f))
+            st["informative"]["spearman_vs_cont"] = boot_ci(sp_hc)
+            st["informative"]["spearman_cont_vs_full"] = boot_ci(sp_cf)
+        out[lab] = st
+    pairs = {}
+    for i, a in enumerate(labels):
+        for b in labels[i + 1:]:
+            both = [k for k in range(len(rows)) if pm[a][k]["informative"] and pm[b][k]["informative"]]
+            pairs[f"{a} - {b}"] = {m: boot_ci([pm[a][k][m] - pm[b][k][m] for k in both]) for m in ("ref_gain",
+                                                                                                     "regret")}
+    out["paired_informative"] = pairs
+    gains, floor = [], []
+    for r in rows:
+        by_r = {int(c): t for c, t in r["h"][ref_label].items()}
+        s_r = {c: sum(score_parts(t, plan).values()) for c, t in by_r.items()}
+        best_r, _ = select_candidate(by_r, r["pe"], plan)
+        gains.append(s_r[r["pe"]] - s_r[best_r])
+        nz = r.get("noise")
+        floor.append(abs(sum(score_parts(nz["delta"], plan).values())) if nz else float("nan"))
+    g, f = np.array(gains), np.array(floor)
+    ok = ~np.isnan(f)
+    out[ref_label] = {
+        "points": len(rows), "one_step_gain": boot_ci(g),
+        "gain_median": float(np.median(g)) if len(g) else None,
+        "gain_p90": float(np.percentile(g, 90)) if len(g) else None,
+        "noise_floor_median": float(np.median(f[ok])) if ok.any() else None,
+        "noise_floor_p90": float(np.percentile(f[ok], 90)) if ok.any() else None,
+        "frac_gain_above_noise": float(np.mean(g[ok] > f[ok])) if ok.any() else None,
+        "noise_points": int(ok.sum())}
     return out
 
 
+# ------------------------------------------------------------------ verdict (pre-specified rule)
+
+def window_verdict(rows: dict) -> dict:
+    """The module docstring's per-window rule from the summary rows (closed ``full`` lookahead, placebo, noise)."""
+    heads = [v for v in rows.values() if isinstance(v, dict) and v.get("params", {}).get("mode") == "closed"
+             and v["params"].get("horizon") == "full" and v["params"].get("plan_every") == 1
+             and v["params"].get("max_decisions") is None and v["params"].get("future") == "true"]
+    if len(heads) != 1:
+        return {"label": "missing", "reason": f"{len(heads)} closed full-horizon lookahead rows"}
+    L = heads[0]["vs_pi_e"]
+    rate = heads[0]["deviation_frac"]
+    P = [v["vs_pi_e"] for v in rows.values() if isinstance(v, dict) and v.get("params", {}).get("mode") == "placebo"
+         and abs(v["params"]["rate"] - rate) < 1e-9]
+    N = [v["vs_pi_e"] for v in rows.values() if isinstance(v, dict) and v.get("params", {}).get("mode") == "noise"]
+    if len(P) < 20 or len(N) < 20:
+        return {"label": "missing", "reason": f"{len(P)} placebo (rate {rate:.4f}) and {len(N)} noise runs; need 20"}
+    q = lambda xs, m, p: float(np.percentile([x[f"log_p99_{m}"] for x in xs], p))  # noqa: E731
+    lab = {m: L[f"log_p99_{m}"] for m in ("e2e", "ttft", "tpot", "tbt")}
+    pos = all(lab[m] < q(P, m, 5) and lab[m] < q(N, m, 2.5) for m in ("e2e", "ttft")) and \
+        all(lab[m] <= q(N, m, 97.5) for m in ("tpot", "tbt"))
+    neg = any(lab[m] > q(N, m, 97.5) for m in ("e2e", "ttft"))
+    null = all(q(N, m, 2.5) <= lab[m] <= q(N, m, 97.5) for m in ("e2e", "ttft"))
+    label = "positive" if pos else "negative" if neg else "null" if null else "inconclusive"
+    return {"label": label, "lookahead": lab, "rate": rate, "n_placebo": len(P), "n_noise": len(N),
+            "placebo_p5": {m: q(P, m, 5) for m in lab}, "noise_p2.5": {m: q(N, m, 2.5) for m in lab},
+            "noise_p97.5": {m: q(N, m, 97.5) for m in lab}}
+
+
 # ------------------------------------------------------------------ summary with provenance
+
+def _src_sha(objs) -> str:
+    h = hashlib.sha256()
+    for o in objs:
+        h.update(inspect.getsource(o).encode())
+    return h.hexdigest()[:16]
+
+
+def decision_sha() -> str:
+    """What a log's contents depend on: rollout, forcing, sampling, scoring and loop code, plus sim_fork.py."""
+    return _src_sha([argv_for, Horizon, Plan, request_costs, rollout_terms, score_parts, select_candidate, _inflight,
+                     _next_time, apply_decision, output_pool, _draw, generated_tokens, fit_hashes, resample_outputs,
+                     _one_token_change, _due, horizon_terms, perturb_one_output, child_rollouts, evaluate_candidates,
+                     _by, closed_loop, open_loop, placebo_run, noise_run, _finish_run]) + ":" + SIM_FORK_SHA
+
+
+def post_sha() -> str:
+    """What a summary row computed from a log depends on (post-processing)."""
+    return _src_sha([score_output, vs_pi_e, openloop_stats, _point_metrics, boot_ci, _spearman, window_verdict])
+
 
 def _sha(p) -> str:
     return ev.file_sha(Path(p).resolve())[:12]
@@ -800,7 +1097,7 @@ def vs_pi_e(r: dict, pe: dict) -> dict:
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("--mode", default="closed", choices=("closed", "openloop"))
+    ap.add_argument("--mode", default="closed", choices=("closed", "openloop", "placebo", "noise"))
     ap.add_argument("--trace", default="Tool")
     ap.add_argument("--replicas", type=int, default=8)
     ap.add_argument("--scale", type=float, default=0.75)
@@ -808,25 +1105,30 @@ def main(argv=None):
     ap.add_argument("--len", type=int, default=2000)
     ap.add_argument("--p", type=int, default=1)
     ap.add_argument("--model", default="l3_8b")
-    ap.add_argument("--horizon", help="comma-separated: H=<n>, T=<s>[+drain], T=<f>x[+drain], full. closed: one "
-                    "closed-loop run per horizon (default T=1x+drain); openloop: the horizons compared (default "
+    ap.add_argument("--horizon", help="comma-separated: full, H=<n>, T=<s>[+drain], T=<f>x[+drain]. closed: one "
+                    "run per horizon (default full); openloop: the proxies compared with --reference (default "
                     "H=64,T=0.5x+drain,T=1x+drain,T=2x+drain,T=1x)")
-    ap.add_argument("--reference", default="full", help="openloop: the reference horizon")
+    ap.add_argument("--reference", default="full", help="openloop: the reference horizon (must be full)")
     ap.add_argument("--every", type=int, default=10, help="openloop: every k-th decision after the warm-up")
     ap.add_argument("--max-points", type=int, help="openloop: at most this many decisions")
+    ap.add_argument("--seeds", type=int, default=20, help="placebo/noise: number of runs")
+    ap.add_argument("--rate", type=float, help="placebo: deviation rate (default: the closed full row's)")
+    ap.add_argument("--noise-kind", default="tiebreak", choices=("tiebreak", "token"),
+                    help="noise runs and the open-loop per-point noise rollout: the perturbation")
     ap.add_argument("--score", default="tail", choices=("tail", "lex", "hinge", "sum"))
     ap.add_argument("--tail-weight", type=float, help="w of the tail score (default 25 * pi_e's mean E2E)")
     ap.add_argument("--censor", default="elapsed", choices=("elapsed", "remaining"), help="pure T=<t> only")
     ap.add_argument("--min-gain", type=float, default=0.0, help="score gain a deviation needs (scalar scores)")
     ap.add_argument("--future", default="true", choices=("true", "sampled-lengths"))
     ap.add_argument("--workers", type=int, default=4)
-    ap.add_argument("--child-timeout", type=float, default=1800.0, help="seconds per batch of rollout children")
+    ap.add_argument("--child-timeout", type=float, default=3600.0, help="seconds per batch of rollout children")
     ap.add_argument("--max-decisions", type=int)
-    ap.add_argument("--plan-every", type=int, default=1, help="closed: plan every K-th decision (another question)")
+    ap.add_argument("--plan-every", type=int, default=1, help="closed/placebo: plan every K-th decision "
+                    "(another question)")
     ap.add_argument("--skip-baselines", action="store_true")
     ap.add_argument("--out", required=True)
     a = ap.parse_args(argv)
-    default_h = "T=1x+drain" if a.mode == "closed" else "H=64,T=0.5x+drain,T=1x+drain,T=2x+drain,T=1x"
+    default_h = "full" if a.mode == "closed" else "H=64,T=0.5x+drain,T=1x+drain,T=2x+drain,T=1x"
     horizons = [Horizon.parse(s) for s in (a.horizon or default_h).split(",") if s.strip()]
     sc = ev.Scenario(a.trace, a.replicas, a.scale, a.start, a.len, a.p, model=a.model)
     out = Path(a.out)
@@ -838,6 +1140,7 @@ def main(argv=None):
             _sha(MOONCAKE), "code_version": ev.code_version(), "bundle": bundle}
     summ = load_summary(summ_path, meta)
     rows = summ["rows"]
+    psha = post_sha()
 
     def save():
         _atomic_json(summ_path, summ)
@@ -881,42 +1184,72 @@ def main(argv=None):
     plan = Plan(a.score, pe["p99_e2e"], pe["p99_ttft"], weight, a.censor, pe["mean_tpot"], a.min_gain)
     common = {"score": a.score, "future": a.future, "weight": weight if a.score == "tail" else None,
               "min_gain": a.min_gain, "tau_e": plan.tau_e, "tau_f": plan.tau_f, "tpot_ref": plan.tpot_ref,
-              "censor": a.censor, "cut": pe["cut"], "policy_sha": meta["policy_sha"], "code_sha": CODE_SHA}
+              "censor": a.censor, "cut": pe["cut"], "policy_sha": meta["policy_sha"], "decision_sha": decision_sha()}
     failed = False
+
+    def store(key, params, info, res):
+        nonlocal failed
+        info.update(res)
+        if not res["ok"]:  # not stored as final
+            print(f"ERROR: {key} failed the completion gate: {res['reason']}")
+            failed = True
+            return
+        info["vs_pi_e"] = vs_pi_e(res, pe)
+        rows[key] = {"params": params, "post_sha": psha, **info}
+        save()
+
     if a.mode == "openloop":
         ref = Horizon.parse(a.reference)
         hs = [x.resolve(pe["p99_e2e"]) for x in horizons]
         params = dict(common, mode="openloop", horizons=[x.label for x in horizons], reference=ref.label,
-                      horizon_values=[x.value for x in hs], every=a.every, max_points=a.max_points)
+                      horizon_values=[x.value for x in hs], every=a.every, max_points=a.max_points,
+                      point_noise=a.noise_kind)
         key = _row_key(params)
         stats = open_loop(sc, hs, ref.resolve(pe["p99_e2e"]), plan, pe["cut"], out / f"{key}.jsonl", a.workers,
-                          a.future, a.every, a.max_points, a.child_timeout, header=params)
-        rows[key] = {"params": params, "stats": stats}
+                          a.future, a.every, a.max_points, a.child_timeout, header=params,
+                          point_noise=a.noise_kind)
+        rows[key] = {"params": params, "post_sha": psha, "stats": stats}
         save()
         print(json.dumps({key: rows[key]}, indent=1))
-    else:
+    elif a.mode == "closed":
         for hz in horizons:
             hz_abs = hz.resolve(pe["p99_e2e"])
             params = dict(common, mode="closed", horizon=hz.label, horizon_mode=hz_abs.mode,
                           horizon_value=hz_abs.value, max_decisions=a.max_decisions, plan_every=a.plan_every)
             key = _row_key(params)
-            if key in rows:
+            if key in rows and rows[key].get("post_sha") == psha:
                 print(f"{key}: already in {summ_path}, reused")
                 continue
-            with tempfile.TemporaryDirectory() as tmp:
+            with tempfile.TemporaryDirectory() as tmp:  # a complete log replays without new rollouts
                 info = closed_loop(sc, hz_abs, plan, pe["cut"], tmp, out / f"{key}.jsonl", a.workers, a.future,
                                    a.max_decisions, child_timeout=a.child_timeout, plan_every=a.plan_every,
                                    header=params)
-                res = score_output(tmp, sc)
-            info.update(res)
-            if not res["ok"]:  # not stored as final; the log stays for inspection
-                print(f"ERROR: {key} failed the completion gate: {res['reason']}")
-                failed = True
+                store(key, params, info, score_output(tmp, sc))
+            print(json.dumps({key: rows.get(key)}, indent=1))
+    else:
+        rate = a.rate
+        if a.mode == "placebo" and rate is None:
+            heads = [v for v in rows.values() if isinstance(v, dict) and v.get("params", {}).get("mode") == "closed"
+                     and v["params"].get("horizon") == "full" and v["params"].get("plan_every") == a.plan_every]
+            if len(heads) != 1:
+                raise SystemExit(f"--rate needed: {len(heads)} closed full-horizon rows to take it from")
+            rate = heads[0]["deviation_frac"]
+        for seed in range(a.seeds):
+            params = dict(common, mode=a.mode, seed=seed)
+            if a.mode == "placebo":
+                params.update(rate=rate, plan_every=a.plan_every)
+            else:
+                params.update(noise_kind=a.noise_kind)
+            key = _row_key(params)
+            if key in rows and rows[key].get("post_sha") == psha:
                 continue
-            info["vs_pi_e"] = vs_pi_e(res, pe)
-            rows[key] = {"params": params, **info}
-            save()
-            print(json.dumps({key: rows[key]}, indent=1))
+            with tempfile.TemporaryDirectory() as tmp:
+                info = (placebo_run(sc, rate, seed, pe["cut"], tmp, a.plan_every) if a.mode == "placebo"
+                        else noise_run(sc, seed, pe["cut"], tmp, a.noise_kind))
+                store(key, params, info, score_output(tmp, sc))
+    rows["verdict"] = window_verdict(rows)
+    save()
+    print(json.dumps({"verdict": rows["verdict"]}, indent=1))
     if failed:
         sys.exit(1)
 
