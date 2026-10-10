@@ -29,3 +29,4 @@ Not yet reviewed: `evolve/rl_plan/` (headroom pilot; agent still running, uncomm
   hinge-driven on Tool; stale summary reuse; 5 minor). All accepted. Horizon and score are pilot-methodology choices
   that also inform the MDP discussion (Q-list); the fixer implements a time horizon with arrivals continuing and an
   H sweep, keeps lex as an option, and switches forcing to sim_fork (record-only mode) after E round 2 settles.
+- 2026-10-10 E round 3: changes requested (1 major: 'independent' check shallow -> allowlist by source sha + recursive guard; 3 minor: ctx-attribute state, module-state leak between forks, os.fork RNG helper). Fixer resumed. E_r2 issues all fixed.
