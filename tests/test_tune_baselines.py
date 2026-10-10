@@ -106,15 +106,20 @@ def test_install_writes_the_frozen_policy(tmp_path, monkeypatch):
     load_policy(str(out))
 
 
-def test_history_retries_invalid_and_ignores_a_truncated_last_line(tmp_path):
+def test_history_keeps_consumed_failures_and_retries_only_the_last_generation(tmp_path):
     import json
     from evolve.analysis.tune_baselines import load_history
     log = tmp_path / "history.jsonl"
-    ok = {"params": {"A": 1.0}, "fitness": 0.1, "valid": True}
-    bad = {"params": {"A": 2.0}, "fitness": -1e9, "valid": False}
-    log.write_text(json.dumps(ok) + "\n" + json.dumps(bad) + "\n" + '{"params": {"A": 3')
+    rec = lambda a, valid, gen: {"params": {"A": a}, "fitness": 0.1 if valid else -1e9, "valid": valid, "gen": gen}
+    rows = [rec(0.0, True, -1), rec(1.0, False, 0), rec(2.0, True, 0), rec(3.0, False, 1), rec(4.0, True, 1)]
+    log.write_text("".join(json.dumps(r) + "\n" for r in rows) + '{"params": {"A": 5')
     done = load_history(log)
-    assert list(done) == [json.dumps({"A": 1.0}, sort_keys=True)]
+    keys = {json.loads(k)["A"] for k in done}
+    assert keys == {0.0, 1.0, 2.0, 4.0}  # 1.0 failed in a finished generation (consumed); 3.0 is retried
+    assert log.read_text().endswith("\n") and len(log.read_text().splitlines()) == 5  # truncated line removed
+    old = [{k: v for k, v in r.items() if k != "gen"} for r in rows]  # pre-"gen" records: inferred from position
+    log.write_text("".join(json.dumps(r) + "\n" for r in old))
+    assert {json.loads(k)["A"] for k in load_history(log, lam=2)} == {0.0, 1.0, 2.0, 4.0}
 
 
 def test_resume_replays_without_new_evaluations(tmp_path, monkeypatch):
@@ -145,3 +150,42 @@ def test_resume_replays_without_new_evaluations(tmp_path, monkeypatch):
         raise AssertionError("resume with another seed must be refused")
     except SystemExit:
         pass
+
+
+def test_resume_after_a_mid_run_failure_and_a_kill_follows_the_original_trajectory(tmp_path, monkeypatch):
+    import json
+    import sys
+    from evolve import evaluate as ev
+    from evolve.analysis import tune_baselines as tb
+    seen = set()
+
+    def fake_eval(path, scenarios, workers, baselines, objective):
+        x = float(re.search(r"^PREFILL_SCALE = (.*)$", open(path).read(), re.M).group(1))
+        first = x not in seen
+        seen.add(x)
+        if first and len(seen) == 5:  # one transient failure in generation 0, consumed by the ES
+            return {"combined_score": -1e9, "valid": False, "failures": {"s": {"reason": "timeout"}}}
+        return {"combined_score": -abs(x - 2.0), "valid": True, "code_version": ev.code_version()}
+
+    monkeypatch.setattr(ev, "evaluate_policy", fake_eval)
+    monkeypatch.setattr(ev, "ensure_baselines", lambda *a, **k: None)
+
+    def run(d):
+        monkeypatch.setattr(sys, "argv", ["tb", "--family", "dynamo", "--budget", "25", "--run-dir", str(d)])
+        tb.main()
+        return [json.loads(l) for l in (d / "history.jsonl").read_text().splitlines()]
+
+    full = run(tmp_path / "full")
+    seen.clear()
+    part = tmp_path / "part"
+    part.mkdir()
+    (part / "meta.json").write_text((tmp_path / "full" / "meta.json").read_text())
+    killed = full[:12]  # killed mid-generation; mark one in-flight candidate of the last generation as failed
+    killed[-1] = dict(killed[-1], valid=False, fitness=-1e9)
+    (part / "history.jsonl").write_text("".join(json.dumps(r) + "\n" for r in killed))
+    seen.update(float(r["params"]["PREFILL_SCALE"]) for r in full[:5])  # the transient failure does not recur
+    resumed = run(part)
+    key = lambda rows: sorted(json.dumps(r["params"], sort_keys=True) for r in rows if r["valid"])
+    assert key(resumed) == key(full)
+    assert json.loads((part / "best.json").read_text())["params"] == json.loads(
+        (tmp_path / "full" / "best.json").read_text())["params"]

@@ -1,5 +1,7 @@
 """Equal-budget tuning control (readiness plan §5 item 4): an evolution strategy over the cost constants of our
-Mooncake and Dynamo re-implementations, scored exactly like an evolve candidate (same stage, bar and objective).
+Mooncake and Dynamo re-implementations, scored like an evolve candidate (same stage and objective) against BAR_V4, the
+bar before tuning exists. The evolved search uses bar v4t (BAR_V4 + these tuned rules), so the two fitness values are
+compared only through bar_eval on one bar, never directly.
 
 If a tuned production rule matches the evolved router, the LLM search added nothing. The budget is counted in
 candidate evaluations, and must equal one evolve run's candidate count (e.g. 125 on search3b).
@@ -61,11 +63,15 @@ def reflect(u: np.ndarray) -> np.ndarray:
     return np.where(u > 1.0, 2.0 - u, u)
 
 
+def lam_of(dim: int) -> int:
+    return max(4, 4 + int(3 * math.log(dim)))
+
+
 def ask_tell(budget: int, dim: int, evaluate, seed: int = 0, lam: int = 0):
     """Diagonal (mu/mu_w, lambda)-ES in [0, 1]^dim. evaluate(list of unit vectors) -> list of fitness (higher is
     better). Returns the history of (u, fitness)."""
     rng = np.random.default_rng(seed)
-    lam = lam or max(4, 4 + int(3 * math.log(dim)))
+    lam = lam or lam_of(dim)
     mu = lam // 2
     w = np.log(mu + 0.5) - np.log(np.arange(1, mu + 1))
     w /= w.sum()
@@ -100,21 +106,39 @@ def install(family: str, run: Path) -> Path:
     return out
 
 
-def load_history(log: Path) -> dict:
-    """Completed evaluations by params key. Invalid records are dropped so they are retried: a failure is usually a
-    job time-limit or out-of-memory kill, not the candidate. A truncated last line (killed mid-write) is ignored."""
+def load_history(log: Path, lam: int = 0) -> dict:
+    """Evaluations to reuse on resume, by params key, so the resumed ES replays the original trajectory exactly.
+
+    Each record carries the ES generation it belongs to ("gen"; -1 = the defaults). A failed evaluation in an earlier
+    generation was already consumed by the ES (as fitness -1e9), so it is kept: retrying it could change every later
+    generation and break the equal budget. A failed evaluation in the last recorded generation was not consumed (the
+    job died before the generation finished, usually a time-limit or out-of-memory kill), so it is dropped and
+    retried. A truncated last line (killed mid-write) is removed from the file, so later appends stay parseable.
+    Records written before "gen" existed get it from their position (defaults first, then blocks of lam)."""
     done = {}
-    if log.exists():
-        lines = log.read_text().splitlines()
-        for i, line in enumerate(lines):
-            try:
-                r = json.loads(line)
-            except json.JSONDecodeError:
-                if i == len(lines) - 1:
-                    continue
+    if not log.exists():
+        return done
+    text = log.read_text()
+    lines = text.splitlines()
+    recs = []
+    for i, line in enumerate(lines):
+        try:
+            recs.append(json.loads(line))
+        except json.JSONDecodeError:
+            if i != len(lines) - 1:
                 raise
-            if r.get("valid"):
-                done[json.dumps(r["params"], sort_keys=True)] = r
+            tmp = log.with_suffix(".tmp")
+            tmp.write_text("".join(l + "\n" for l in lines[:-1]))
+            tmp.replace(log)
+    for i, r in enumerate(recs):
+        if "gen" not in r:
+            if not lam:
+                raise ValueError("history records without 'gen' need lam to infer it")
+            r["gen"] = -1 if i == 0 else (i - 1) // lam
+    last = max((r["gen"] for r in recs), default=-1)
+    for r in recs:
+        if r.get("valid") or r["gen"] < last:
+            done[json.dumps(r["params"], sort_keys=True)] = r
     return done
 
 
@@ -140,18 +164,21 @@ def main():
     run = Path(a.run_dir)
     (run / "candidates").mkdir(parents=True, exist_ok=True)
     log = run / "history.jsonl"
+    bar = [b if not b.startswith("policy:") else f"{Path(b[7:]).name}:{ev.file_sha(Path(b[7:]))[:12]}"
+           for b in ev.BAR_V4]
     meta = {"family": a.family, "stage": a.stage, "objective": a.objective, "seed": a.seed, "budget": a.budget,
-            "code_version": ev.code_version()}
+            "code_version": ev.code_version(), "bar": bar}
     if (run / "meta.json").exists():
         old = json.loads((run / "meta.json").read_text())
         if old != meta:
             raise SystemExit(f"run dir was started with {old}, not {meta}")
     else:
         (run / "meta.json").write_text(json.dumps(meta, indent=2))
-    done = load_history(log)
+    done = load_history(log, lam_of(len(names)))
     scenarios = ev.STAGES[a.stage]
 
     lock = threading.Lock()
+    gen = [-1]  # ES generation being evaluated (-1 = the defaults); set before each population is scored
 
     def score(params: dict) -> float:
         key = json.dumps(params, sort_keys=True)
@@ -164,7 +191,7 @@ def main():
         res = ev.evaluate_policy(str(path), scenarios, workers=a.workers, baselines=ev.BAR_V4,
                                  objective=a.objective)
         rec = {"params": params, "fitness": res["combined_score"], "valid": res.get("valid", False),
-               "file": str(path), "code_version": res.get("code_version") or meta["code_version"]}
+               "file": str(path), "code_version": res.get("code_version") or meta["code_version"], "gen": gen[0]}
         if not rec["valid"]:
             rec["failures"] = {k: v.get("reason") for k, v in res.get("failures", {}).items()}
         with lock:
@@ -181,7 +208,11 @@ def main():
     score(defaults)
     ev.ensure_baselines(scenarios, ev.BAR_V4, a.workers)  # once, before candidates run in parallel
     with cf.ThreadPoolExecutor(max_workers=a.parallel) as ex:
-        ask_tell(a.budget - 1, len(names), lambda pop: list(ex.map(lambda u: score(params_of(u)), pop)), seed=a.seed)
+        def evaluate(pop):
+            gen[0] += 1
+            return list(ex.map(lambda u: score(params_of(u)), pop))
+
+        ask_tell(a.budget - 1, len(names), evaluate, seed=a.seed)
     best = max(done.values(), key=lambda r: r["fitness"])  # valid evaluations only
     (run / "best.json").write_text(json.dumps(best, indent=2))
     print(f"best {best['params']} fitness {best['fitness']:+.4f} ({len(done)} evaluations)")
