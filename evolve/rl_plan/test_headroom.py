@@ -13,11 +13,15 @@
 - resampled output lengths leak no true length; fork failures are reported and every child is reaped;
 - review G r4: arrival jitter keeps every request's fields together; noise runs and the per-point floor perturb the
   run; the tail-weight sweep and its pre-specified choice; the verdict filters controls by code sha and noise kind and
-  the head by weight; per-mode decision shas; block bootstrap; the cross-window claim.
+  the head by weight; per-mode decision shas; block bootstrap; the cross-window claim;
+- review G r5: the jitter changes routing, not just arrival stamps; world-B (cross-fit) rollouts; the cross-fitted
+  weight rule (strict improvement, minimum deviation rate, rule_met); trade / noise-model / pace-guard labels; the
+  pooled statistic; the pilot verdict recomputes labels and checks the windows; the tails tie-break.
 All on Conv 4R s1.5 w6000+200 p1 (~8 s per full run)."""
 
 import filecmp
 import json
+import math
 import os
 import signal
 import time
@@ -214,7 +218,14 @@ def test_open_loop_selection_and_resume(plain, tmp_path):
     rows = [json.loads(x) for x in log.read_text().splitlines()[1:]]
     assert all(r["noise"]["perturbed"].startswith("arrivals") for r in rows)
     # the jitter floor perturbs the full rollout (the r3 tiebreak floor was identically 0 on Tool)
-    assert any(abs(v) > 0 for r in rows for v in r["noise"]["delta"].values())
+    # ... by more than the arrival shift alone can (each E2E moves by <= d when nothing else changes): routing changed
+    assert any(abs(r["noise"]["delta"]["sum"]) > 2 * hr.NOISE_DELTA * r["h"]["full"][str(r["pe"])]["n"] for r in rows)
+    for r in rows:  # world B: every candidate, the same jitter, pi_e's choice = the floor rollout
+        assert sorted(map(int, r["xfit"])) == list(range(SC.replicas))
+        assert r["xfit"][str(r["pe"])]["sum"] == pytest.approx(r["h"]["full"][str(r["pe"])]["sum"]
+                                                               + r["noise"]["delta"]["sum"])
+    assert st["full"]["xfit_points"] == 2 and st["full"]["one_step_gain_xfit"]["n"] == 2
+    assert st["full"]["weight_choice"]["rule_met"] in (True, False) and "gain_xfit" in st["full"]["weight_choice"]
     n_lines = len(log.read_text().splitlines())
     st2 = hr.open_loop(SC, hz, ref, plan, s["cut"], log, workers=2, every=20, max_points=2,
                        mean_e2e=s["mean_e2e"])  # resume: no new rows
@@ -374,7 +385,8 @@ def test_placebo_and_noise_runs(plain, tmp_path):
     assert 0.3 < info["deviation_frac"] < 0.7 and hr.score_output(tmp_path / "P1", SC)["ok"]
     info = hr.noise_run(SC, 3, s["cut"], tmp_path / "N", hr.NOISE_DELTA)
     assert hr.score_output(tmp_path / "N", SC)["ok"] and info["jittered_from"] > 0
-    assert not filecmp.cmp(_csv(d), _csv(tmp_path / "N"), shallow=False)  # 5 ms of jitter changes the run
+    sn = hr.score_output(tmp_path / "N", SC)  # more than new arrival stamps: a P99 moves by > 1e-3 (log)
+    assert max(abs(math.log(sn[f"p99_{m}"] / s[f"p99_{m}"])) for m in ("e2e", "ttft")) > 1e-3
     hr.noise_run(SC, 3, s["cut"], tmp_path / "N2", hr.NOISE_DELTA)  # seeded: reproducible
     _same_outputs(tmp_path / "N", tmp_path / "N2")
 
@@ -414,20 +426,39 @@ def _ctl(mode, vs, sha=None, **kw):
     return {"params": p, "vs_pi_e": vs}
 
 
-def test_window_verdict_rule():
-    rng = np.random.default_rng(0)
-    base = {f"placebo{i}": _ctl("placebo", _vs(*rng.normal(0, 0.02, 4)), rate=0.2) for i in range(20)}
-    base |= {f"noise{i}": _ctl("noise", _vs(*rng.normal(0, 0.02, 4)), noise_kind="jitter", noise_delta=0.005)
+def _controls(rng, sd=0.02, n_off=0.0):
+    base = {f"placebo{i}": _ctl("placebo", _vs(*rng.normal(0, sd, 4)), rate=0.2) for i in range(20)}
+    base |= {f"noise{i}": _ctl("noise", _vs(*(rng.normal(0, sd, 4) + n_off)), noise_kind="jitter", noise_delta=0.005)
              for i in range(20)}
-    head = {"params": {"mode": "closed", "horizon": "full", "plan_every": 1, "max_decisions": None, "future": "true",
-                       "score": "tail", "weight": 10.0, "decision_sha": "c1"}, "deviation_frac": 0.2}
+    return base
+
+
+HEAD = {"params": {"mode": "closed", "horizon": "full", "plan_every": 1, "max_decisions": None, "future": "true",
+                   "score": "tail", "weight": 10.0, "decision_sha": "c1"}, "deviation_frac": 0.2}
+
+
+def test_window_verdict_rule():
+    base = _controls(np.random.default_rng(0))
+    head = HEAD
     V = lambda rows, **kw: hr.window_verdict(rows, SHAS, 0.005, **kw)  # noqa: E731
+    lab = lambda *vs: V(base | {"L": dict(head, vs_pi_e=_vs(*vs))})["label"]  # noqa: E731
     assert V(base)["label"] == "missing"
-    assert V(base | {"L": dict(head, vs_pi_e=_vs(-0.2, -0.2))})["label"] == "positive"
-    assert V(base | {"L": dict(head, vs_pi_e=_vs(-0.2, -0.2, tbt=0.3))})["label"] != "positive"
-    assert V(base | {"L": dict(head, vs_pi_e=_vs(0.2, -0.2))})["label"] == "negative"
-    assert V(base | {"L": dict(head, vs_pi_e=_vs(0.0, 0.0))})["label"] == "null"
-    assert V(base | {"L": dict(head, vs_pi_e=_vs(-0.2, 0.0))})["label"] == "inconclusive"
+    assert lab(-0.2, -0.2) == "positive"
+    assert lab(-0.2, -0.2, 0.0, 0.3) == "trade"  # tails bought with token pace
+    assert lab(-0.3, 0.05) == "trade" and lab(0.2, -0.2) == "trade"  # review G r5: not "negative"
+    assert lab(0.2, 0.0) == "negative" and lab(0.2, 0.2) == "negative"
+    assert lab(0.0, 0.0) == "null"
+    assert lab(-0.2, 0.0) == "inconclusive"
+    v = V(base | {"L": dict(head, vs_pi_e=_vs(-0.2, -0.2))})
+    assert v["band"]["e2e"]["noise_p2.5"] < 0 < v["band"]["e2e"]["noise_p97.5"] and v["mde_pct"]["e2e"] < 0
+    assert v["clauses"]["better"] == {"e2e": True, "ttft": True} and v["clauses"]["pace_ok"]["tpot"]
+    # pace guard relative to the band: a TPOT ratio at the band's upper edge passes, above it fails
+    edge = v["clauses"]["pace_limit"]["tpot"]
+    assert lab(-0.2, -0.2, edge - 1e-6) == "positive" and lab(-0.2, -0.2, edge + 1e-3) == "trade"
+    # the noise model: if 0 (pi_e itself) lies outside N's band, no label but inconclusive_noise_model
+    off = _controls(np.random.default_rng(0), n_off=0.1)
+    assert hr.window_verdict(off | {"L": dict(head, vs_pi_e=_vs(0.0, 0.0))}, SHAS, 0.005)["label"] == \
+        "inconclusive_noise_model"
     few = {k: v for k, v in base.items() if k != "noise0"}
     assert V(few | {"L": dict(head, vs_pi_e=_vs(-0.2, -0.2))})["label"] == "missing"
     # review G r4 finding 4: other noise kinds and stale-code controls are never pooled
@@ -444,31 +475,93 @@ def test_window_verdict_rule():
     # finding 3: two weight arms; the verdict takes the pre-specified one
     arm = {"L2": dict(head, params=dict(head["params"], weight=40.0), vs_pi_e=_vs(-0.2, -0.2))}
     assert V(base | L | arm)["label"] == "missing"
-    assert V(base | L | arm, weight=40.0)["label"] == "positive" and V(base | L | arm, weight=10.0) == ref | {
-        "weight": 10.0}
+    assert V(base | L | arm, weight=40.0)["label"] == "positive" and V(base | L | arm, weight=10.0) == ref
+
+
+def _xrow(k, a, b, pe=0):
+    t = lambda x: {"sum": x[0], "hinge": x[1], "hinge_ttft": x[2]}  # noqa: E731
+    return {"k": k, "pe": pe, "h": {"full": {str(c): t(v) for c, v in a.items()}},
+            "xfit": {str(c): t(v) for c, v in b.items()} if b is not None else None}
 
 
 def test_weight_sweep_and_choice():
-    # pi_e = 0. c1: lower sum, worse E2E hinge (chosen at small w); c2: better hinge, higher sum
-    row = {"k": 1, "pe": 0, "h": {"full": {"0": {"sum": 100.0, "hinge": 1.0, "hinge_ttft": 0.5},
-                                           "1": {"sum": 90.0, "hinge": 1.2, "hinge_ttft": 0.5},
-                                           "2": {"sum": 103.0, "hinge": 0.9, "hinge_ttft": 0.5}}}}
-    sw = hr.weight_sweep([row, dict(row, k=2)], "full", mean_e2e=1.0)
+    # pi_e = 0. In A, c1 has a lower sum and a worse E2E hinge (argmin at 25m); c2 the reverse (argmin from 100m)
+    A = {0: (100.0, 1.0, 0.5), 1: (90.0, 1.2, 0.5), 2: (103.0, 0.9, 0.5)}
+    B = {0: (100.0, 1.0, 0.5), 1: (95.0, 1.1, 0.5), 2: (104.0, 0.8, 0.5)}
+    rows = [_xrow(k, A, B) for k in range(1, 11)]
+    sw = hr.weight_sweep(rows, "full", mean_e2e=1.0)
     g = sw["grid"]
-    assert g["25m"]["d_hinge"]["mean"] == pytest.approx(0.2) and g["25m"]["frac_hinge_worse"] == 1.0
-    assert g["100m"]["d_hinge"]["mean"] == pytest.approx(-0.1) and g["100m"]["frac_hinge_better"] == 1.0
-    assert sw["choice"] == {"label": "100m", "weight_m": 100.0, "weight": 100.0, "rule_met": True}
-    bad = {"k": 1, "pe": 0, "h": {"full": {"0": {"sum": 100.0, "hinge": 1.0, "hinge_ttft": 0.5},
-                                           "1": {"sum": 100.0, "hinge": 0.5, "hinge_ttft": 0.8}}}}
-    assert hr.weight_sweep([bad], "full", 1.0)["choice"]["rule_met"] is False  # tails trade TTFT for E2E
+    assert g["25m"]["d_hinge"]["mean"] == pytest.approx(0.1) and g["25m"]["frac_hinge_worse"] == 1.0
+    assert g["100m"]["d_hinge"]["hi"] == pytest.approx(-0.2) and g["100m"]["frac_hinge_better"] == 1.0
+    assert g["100m"]["gain_xfit"]["mean"] == pytest.approx((100 + 150) - (104 + 130))  # cross-fitted, in B
+    assert g["100m"]["gain_insample"]["mean"] == pytest.approx((100 + 150) - (103 + 140))
+    assert sw["choice"]["label"] == "100m" and sw["choice"]["rule_met"] is True
+    # review G r5 (a): a weight at which nothing deviates is never chosen (it used to pass trivially)
+    A2 = {0: (100.0, 1.0, 0.5), 1: (120.0, 0.99, 0.5)}  # deviates only at tails
+    B2 = {0: (100.0, 1.0, 0.5), 1: (121.0, 0.9, 0.5)}
+    sw2 = hr.weight_sweep([_xrow(k, A2, B2) for k in range(1, 11)], "full", 1.0)
+    assert sw2["grid"]["25m"]["deviates"]["mean"] == 0.0 and sw2["choice"]["label"] == "tails"
+    assert sw2["choice"]["rule_met"] is True
+    # an improvement that is not strict (CI touching 0) or a worse other tail: rule not met, tails flagged
+    B3 = {0: (100.0, 1.0, 0.5), 1: (95.0, 1.2, 0.5), 2: (104.0, 1.0, 0.4)}
+    B4 = {0: (100.0, 1.0, 0.5), 1: (95.0, 1.2, 0.5), 2: (104.0, 1.0, 0.6)}
+    sw3 = hr.weight_sweep([_xrow(k, A, B3 if k % 2 else B4) for k in range(1, 11)], "full", 1.0)
+    assert sw3["choice"]["label"] == "tails" and sw3["choice"]["rule_met"] is False
+    assert hr.weight_sweep([_xrow(1, A, None)], "full", 1.0)["choice"] is None  # no world-B rollouts
+
+
+def test_tails_tie_break():
+    # equal hinges: the summed E2E decides even at the tails weight (review G r5 nit)
+    by = {0: {"sum": 10000.0, "hinge": 50.0, "hinge_ttft": 20.0}, 1: {"sum": 9500.0, "hinge": 50.0, "hinge_ttft": 20.0}}
+    assert hr.select_candidate(by, 0, hr.Plan("tail", weight=1e9 * 20.0))[0] == 1
+
+
+def test_pooled_stat():
+    rng = np.random.default_rng(3)
+    Ns = [[_vs(*rng.normal(0, 0.02, 4)) for _ in range(20)] for _ in range(4)]
+    null = hr.pooled_stat([(_vs(0.0, 0.0), N) for N in Ns])
+    for m in ("e2e", "ttft"):
+        assert null[m]["q5"] <= null[m]["Z"] <= null[m]["q95"] and null[m]["n_null"] == 20 ** 4
+        assert -10 < null[m]["mde_pct"] < 0
+    better = hr.pooled_stat([(_vs(-0.05, -0.05), N) for N in Ns])
+    assert all(better[m]["Z"] < better[m]["q5"] for m in ("e2e", "ttft"))
+
+
+def _window(tag, L, rule_met=True, xlo=-1.0, n_off=0.0, seed=0, psha=None):
+    rng = np.random.default_rng(seed)
+    shas = {m: hr.decision_sha(m) for m in ("closed", "placebo", "noise")}
+    rows = {f"placebo{i}": _ctl("placebo", _vs(*rng.normal(0, 0.02, 4)), sha=shas["placebo"], rate=0.2)
+            for i in range(20)}
+    rows |= {f"noise{i}": _ctl("noise", _vs(*(rng.normal(0, 0.02, 4) + n_off)), sha=shas["noise"],
+                               noise_kind="jitter", noise_delta=hr.NOISE_DELTA) for i in range(20)}
+    rows["L"] = dict(HEAD, params=dict(HEAD["params"], decision_sha=shas["closed"], weight=100.0), vs_pi_e=_vs(*L))
+    ch = {"label": "100m", "weight_m": 100.0, "weight": 100.0, "rule_met": rule_met,
+          "gain_xfit": {"n": 10, "mean": xlo + 1, "lo": xlo, "hi": xlo + 2}}
+    rows["ol"] = {"params": {"mode": "openloop", "max_points": None, "future": "true",
+                             "decision_sha": hr.decision_sha("openloop")},
+                  "post_sha": psha or hr.post_sha(), "stats": {"full": {"weight_choice": ch}}}
+    rows["verdict"] = {"label": "positive"}  # a stale stored label: never trusted
+    return {"meta": {"scenario": tag}, "rows": rows}
 
 
 def test_pilot_verdict():
-    w = lambda lab: {"verdict": {"label": lab}}  # noqa: E731
-    assert hr.pilot_verdict({i: w("positive") for i in range(4)})["claim"] == "headroom"
-    assert hr.pilot_verdict({0: w("null"), 1: w("negative"), 2: w("null"), 3: w("null")})["claim"] == "no headroom"
-    assert hr.pilot_verdict({0: w("positive"), 1: w("null"), 2: w("null"), 3: w("null")})["claim"] == "inconclusive"
-    assert hr.pilot_verdict({i: w("positive") for i in range(3)})["claim"] == "incomplete"
+    tags = hr.pilot_windows()
+    assert len(tags) == 4
+    P = lambda ws: hr.pilot_verdict({t: w for t, w in zip(tags, ws)})  # noqa: E731
+    nulls = [_window(t, (0.0, 0.0), seed=i) for i, t in enumerate(tags)]
+    v = P(nulls)
+    assert v["claim"] == "no headroom", v["reasons"]
+    assert all(x < 0 for x in v["effect_size_ruled_out_pct"].values())
+    assert P([_window(t, (-0.2, -0.2), seed=i) for i, t in enumerate(tags)])["claim"] == "headroom"
+    trade = nulls[:3] + [_window(tags[3], (-0.3, 0.1), seed=3)]
+    assert P(trade)["claim"] == "inconclusive" and P(trade)["windows"][tags[3]]["label"] == "trade"
+    assert P(nulls[:3] + [_window(tags[3], (0.2, 0.0), rule_met=False, seed=3)])["claim"] == "inconclusive"
+    assert P(nulls[:3] + [_window(tags[3], (0.0, 0.0), xlo=0.5, seed=3)])["claim"] == "inconclusive"
+    stale = P(nulls[:3] + [_window(tags[3], (0.0, 0.0), seed=3, psha="old")])
+    assert stale["claim"] == "inconclusive" and stale["windows"][tags[3]]["label"] == "stale"
+    wrong = nulls[:3] + [_window(ev.Scenario("Tool", 8, 0.75, 4000, 2000, 1, model="l3_8b").tag, (0.0, 0.0))]
+    assert hr.pilot_verdict({i: w for i, w in enumerate(wrong)})["claim"] == "invalid_windows"
+    assert hr.pilot_verdict({i: w for i, w in enumerate(nulls[:3])})["claim"] == "invalid_windows"
 
 
 def test_boot_ci():

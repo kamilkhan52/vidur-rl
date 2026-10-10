@@ -1,4 +1,4 @@
-"""Closed-loop headroom pilot (RL design discussion, 2026-10-10; reviews G r1-r4).
+"""Closed-loop headroom pilot (RL design discussion, 2026-10-10; reviews G r1-r5).
 
 Question: with the true future (hindsight), does picking at every routing decision the candidate replica whose
 rollout scores best, with pi_e (the evolved rule l3_48a067a7df63) as the rollout policy, improve the window's P99
@@ -14,9 +14,9 @@ Modes (``--mode``):
   request of a burst is planned (bursts are single requests with jittered arrivals). Early decisions' affected sets
   include requests from before the warm-up cut, which the window metrics do not score.
 - ``openloop`` (run FIRST in each window): pi_e runs alone; at every ``--every``-th decision after the cut all
-  candidates are rolled out under each ``--horizon`` and under ``--reference`` (``full``); judges the cheaper proxy
-  horizons against ``full``, gives ``full``'s own one-step gain distribution, and pre-specifies the closed loop's tail
-  weight (``weight_sweep``, below).
+  candidates are rolled out under each ``--horizon`` and under ``--reference`` (``full``, world A), and again to
+  ``full`` in a jittered world B (below); judges the cheaper proxy horizons against ``full``, gives ``full``'s own
+  one-step gain (in sample and cross-fitted), and pre-specifies the closed loop's tail weight (``weight_sweep``).
 - ``placebo``: ``--seeds`` closed loops that deviate from pi_e uniformly at random at the lookahead run's deviation
   rate (``--rate``, default: the closed ``full`` row's), no rollouts.
 - ``noise``: ``--seeds`` pi_e runs with every arrival after the warm-up cut jittered by U(-d, d) seconds
@@ -51,36 +51,58 @@ review G r4), and the lag-1 autocorrelation of the per-point gains is reported; 
 span them, and the CIs remain conditional on the one pi_e trajectory. Noise floor per point: pi_e's own choice
 rolled out to ``full`` with every later arrival jittered by U(-d, d) (``jitter_future``, the same d as the noise
 runs; a routing perturbation right after the decision, so it cannot be 0 by construction); |delta full score| is
-reported beside the gains (median, p90, count of exact zeros, median gain/floor ratio).
-HEADLINE BOUND FOR A NULL: ``full``'s own one-step gain distribution (median, p90, mean with CI) at pi_e's states (not
-the lookahead trajectory's states; standard for a policy-improvement check), DESCRIPTIVE beside the floor: the
-argmin over R candidates in hindsight also harvests chaotic differences (G r3: the post-horizon part of ``full``'s
-candidate differences is barely rank-correlated with anything shorter), so its gain exceeds a single-draw floor even
-without causal headroom, and "gain within the floor" is not used as a criterion.
+reported beside the gains (median, p90, count of exact zeros, median gain/floor ratio). With the summed E2E
+measured from the shifted arrivals, a floor of ~d per request is trivial; routing changes show as much more.
+CROSS-FIT (review G r5). World B: at each point every candidate is also rolled out to ``full`` with the SAME arrival
+jitter (one seed per point, common random numbers; pi_e's choice in B is the floor rollout). c* = ``full``'s argmin in
+A; its cross-fitted gain s_pe(B) - s_c*(B) and per-term changes in B do not inherit the chaos that made c* look best
+in A (G r5 smoke: jitter-only chaos in the candidate differences was as large as the differences, and the in-sample
+E2E-hinge change of the same c* flipped sign under jitter), so their mean over points estimates the expected gain of
+the hindsight argmin under the same noise model that defines N. The in-sample gain (``one_step_gain``) and its
+distribution beside the floor stay DESCRIPTIVE: a best-of-R argmin harvests chaos, so "gain within one floor draw" is
+not a criterion. All gains are at pi_e's states, not the lookahead trajectory's (standard for policy improvement).
+Caveat (G r5 smoke, one point): under both jitter seeds pi_e's own choice ranked second-worst of 8, so B may disfavour
+pi_e's trajectory systematically; the verdict's noise-model check below guards the window rule against that.
 
-Tail weight (``weight_sweep``; PRE-SPECIFIED 2026-10-10, before any rerun). Review G r4 smoke (Tool w0+2000, 2
-points): under w = 25 m ``full``'s argmin cut the summed E2E by ~2,000 s and made BOTH tail hinges worse (13 of 14
-alternatives: lower sum, higher E2E hinge), i.e. the score's mean term (~9x the tails) bought mean with tail. For w = f
-m, f in 25, 100, 400 and ``tails`` (hinges only), the open loop reports the per-term change of ``full``'s argmin vs
-pi_e's choice. Rule: the closed loop uses the SMALLEST w on that grid whose argmin does not worsen either tail term on
-average over the window's open-loop points (mean change of the E2E hinge <= 0 and of the TTFT hinge <= 0); if none,
-``tails`` (flagged ``rule_met: False``). ``--tail-weight auto`` (the closed loop's default) reads that choice from the
-window's complete open-loop row; the verdict uses the closed row at that weight only.
+Tail weight (``weight_sweep``; PRE-SPECIFIED 2026-10-10, revised after review G r5, before any rerun). Review G r4
+smoke (Tool w0+2000, 2 points): under w = 25 m ``full``'s argmin cut the summed E2E by ~2,000 s and made BOTH tail
+hinges worse, i.e. the mean term (~9x the tails) bought mean with tail. For w = f m, f in 25, 100, 400 and ``tails``
+(hinges only; the summed E2E breaks exact hinge ties), the open loop reports ``full``'s argmin's deviation rate and its
+CROSS-FITTED per-term changes against pi_e's choice. Rule: the closed loop uses the SMALLEST w on the grid at which
+(i) the argmin deviates at >= 5 % of the open-loop points (``MIN_DEV_RATE``; a weight that never deviates would make
+the closed loop pi_e and a trivial null), and (ii) cross-fitted, one tail hinge improves STRICTLY (block-CI upper
+bound of its mean change < 0) while the other does not worsen on average (mean change <= 0). If no w qualifies:
+``tails`` with ``rule_met: False``; such a window never counts toward "no headroom". ``--tail-weight auto`` (the
+closed loop's default) reads the choice from the window's complete open-loop row; the verdict uses the closed row at
+that weight only.
 
-PRE-SPECIFIED SUCCESS RULE (fixed 2026-10-10, revised after review G r4, before any rerun). Windows: Tool and Conv,
-8R s0.75 p1, w0+2000 and w2000+2000 (4 windows). Per window, with L = the closed ``full`` lookahead run's log P99
-ratios vs pi_e (tail score at the pre-specified weight), P = >= 20 placebo runs at the same deviation rate, N = >= 20
-noise runs (arrival jitter, d = 5 ms; only rows of the current per-mode ``decision_sha``, one noise kind, never
-pooled):
-- ``positive``: L_e2e < P5(P_e2e) and L_e2e < P2.5(N_e2e), and likewise for TTFT; and (guard against token pace) L
-  for TPOT and TBT <= P97.5(N) of the same metric;
-- ``negative``: L_e2e or L_ttft > P97.5(N) of that metric;
-- ``null``: L_e2e and L_ttft within [P2.5(N), P97.5(N)];
-- ``inconclusive``: anything else.
-Lookahead headroom is claimed only if all 4 windows are ``positive``; "no headroom" (for one-step lookahead on the
-pre-specified score) only if all 4 are ``null`` or ``negative`` (the former open-loop leg, "gain within the noise floor
-at >= 90 % of points", is dropped: see the headline bound above); anything else is inconclusive. ``window_verdict``
-writes the per-window label into the summary (row ``verdict``); ``pilot_verdict`` (``--mode pilot``) the claim.
+PRE-SPECIFIED SUCCESS RULE (fixed 2026-10-10, revised after reviews G r4 and r5, before any rerun). Windows: Tool and
+Conv, 8R s0.75 p1, w0+2000 and w2000+2000 (``pilot_windows``; ``pilot_verdict`` refuses any other set). Per window,
+with L = the closed ``full`` lookahead run's log P99 ratios vs pi_e (tail score at the pre-specified weight), P = >= 20
+placebo runs at the same deviation rate, N = >= 20 noise runs (arrival jitter, d = 5 ms; only rows of the current
+per-mode ``decision_sha``, one noise kind, never pooled). For E2E and TTFT: "better" = L < P2.5(N) and L < P5(P);
+"worse" = L > P97.5(N); "within" = P2.5(N) <= L <= P97.5(N). Pace guard (non-inferiority, relative to the noise band,
+not a knife edge: on Tool N's TPOT band is ~0.1 % wide and offset from 0): L_tpot <= max(P97.5(N_tpot),
+P97.5(P_tpot)), likewise TBT. Labels, in this order:
+- ``inconclusive_noise_model``: 0 (pi_e itself) outside [P2.5(N), P97.5(N)] for E2E or TTFT;
+- ``trade``: one of E2E/TTFT better and the other worse, or both better with the pace guard failed;
+- ``positive``: both better and the pace guard holds;
+- ``negative``: at least one worse and neither better;
+- ``null``: both within;
+- ``inconclusive``: anything else (e.g. one better, the other within).
+Cross-window claim (``pilot_verdict``, recomputed from the rows with the current code; stored labels are not trusted):
+- ``headroom``: all 4 windows ``positive``;
+- ``no headroom``: all 4 ``null`` or ``negative``, AND every window's weight rule met, AND every window's cross-fitted
+  one-step gain at that weight has a block-CI lower bound <= 0 (else: a per-decision gain exists that does not reach
+  window P99, which is inconclusive), AND the pooled statistic Z (``pooled_stat``: sum over windows of (L - median N) /
+  (IQR(N) / 1.349), against the sum of one leave-one-out noise draw per window) is not below its null 5 % quantile, for
+  E2E and for TTFT;
+- ``inconclusive`` otherwise, with reasons. A ``trade`` never counts toward either claim.
+EFFECT SIZE. A null does not bound the gain at 0. "No headroom" means: no one-step-lookahead P99 gain larger than the
+reported bound: per window the noise band's lower edge (``mde_pct`` = exp(P2.5(N)) - 1), and pooled the common P99
+change at which Z reaches its null 5 % quantile (``effect_size_ruled_out_pct``). The 3-run calibrations on Tool
+w0+2000 spread the log P99s over ~0.02-0.05 (E2E, TTFT), so a single window cannot see gains below a few %, and the
+pooled statistic roughly halves that; the actual bounds come from the 20 runs and are printed with the claim.
 
 Cost (CPU-s per planned decision = R rollouts; Mac at load ~6-7, upper bounds; Alpine is faster per core). Tool 8R
 s0.75 w0+2000, a full pi_e run ~25 s: ``full`` from the first decision after the cut 81 (10 per rollout), falling
@@ -88,7 +110,8 @@ about linearly to 0 at the window end, so ~40 on average: ~1,658 x 40 = 66,000 C
 Proxies at the first point: ``H=64`` 9.6 (r1 closed loop: 16.4 on average), ``T=0.5x+drain`` 25.7,
 ``T=1x+drain`` 44.7, ``T=2x+drain`` 77, ``T=1x`` 32.6. Open loop (one child per candidate serves every horizon:
 it runs to ``full`` and drains the shorter horizons in forked grandchildren; plus one noise rollout): 121 CPU-s at
-the first point, ~70 on average, so ``--every 10`` (165 points) ~3.2 CPU-h. Placebo and noise: one pi_e-speed run
+the first point, ~70 on average, so ``--every 10`` (165 points) ~3.2 CPU-h; the cross-fit's R-1 world-B ``full``
+rollouts add ~1.5-2 CPU-h (~5 CPU-h per window in all). Placebo and noise: one pi_e-speed run
 each (~25 CPU-s). ``--plan-every K`` divides the closed-loop cost by K but answers a different question (lookahead at
 1/K of the decisions; a null at K > 1 does not bound K = 1, a positive is not a per-decision estimate).
 
@@ -314,7 +337,9 @@ def score_parts(t: dict, plan: Plan) -> dict:
 
 def select_candidate(by: dict, pe: int, plan: Plan):
     """Best candidate and the decision record. ``by``: candidate -> rollout terms. Ties and gains within
-    ``min_gain`` (plus 1e-9 relative) keep pi_e's choice ``pe``."""
+    ``min_gain`` plus 1e-9 relative keep pi_e's choice ``pe``; for the tail score the relative part is taken on the
+    unweighted summed E2E (not on the weighted score), so at a huge weight (``tails``) the summed E2E still breaks
+    exact hinge ties (review G r5)."""
     if plan.score == "lex":
         key = lambda c: (by[c]["hinge"], by[c]["sum"])  # noqa: E731
         best = min(by, key=lambda c: (key(c), c != pe, c))
@@ -326,7 +351,8 @@ def select_candidate(by: dict, pe: int, plan: Plan):
     s = {c: sum(p.values()) for c, p in parts.items()}
     best = min(s, key=lambda c: (s[c], c != pe, c))
     gain = s[pe] - s[best]
-    if gain <= plan.min_gain + 1e-9 * max(1.0, abs(s[pe])):
+    scale = abs(parts[pe]["mean"]) if plan.score == "tail" else abs(s[pe])
+    if gain <= plan.min_gain + 1e-9 * max(1.0, scale):
         best, gain = pe, 0.0
     term_gain = {k: parts[pe][k] - parts[best][k] for k in parts[pe]}
     decided = "keep" if best == pe else max(term_gain, key=term_gain.get)
@@ -852,9 +878,11 @@ def open_loop(sc, horizons: List[Horizon], ref: Horizon, plan: Plan, cut, log_pa
               every=10, max_points=None, child_timeout=1800.0, header=None, noise_delta=NOISE_DELTA,
               mean_e2e=None) -> dict:
     """pi_e alone; at every ``every``-th decision after ``cut`` (at most ``max_points``) all candidates are rolled
-    out under ``horizons`` + ``ref`` (``full``), plus one noise rollout of pi_e's own choice to ``full`` with every
-    later arrival jittered by U(-noise_delta, noise_delta) s (``jitter_future``); logged per point.
-    Returns ``openloop_stats`` (``mean_e2e``: pi_e's window mean E2E, for the weight sweep)."""
+    out under ``horizons`` + ``ref`` (``full``: world A), and every candidate again to ``full`` in world B, where every
+    later arrival is jittered by U(-noise_delta, noise_delta) s with one seed per point shared by all candidates
+    (``jitter_future``, common random numbers). pi_e's own choice in B (``noise``, also the per-point floor against A)
+    is rolled out unforced; the others are forced (``xfit``; pi_e's choice is read from a probe fork first). Logged
+    per point. Returns ``openloop_stats`` (``mean_e2e``: pi_e's window mean E2E, for the weight rule)."""
     if not noise_delta > 0:
         raise ValueError("noise_delta must be > 0")
     if plan.score == "lex":
@@ -884,24 +912,32 @@ def open_loop(sc, horizons: List[Horizon], ref: Horizon, plan: Plan, cut, log_pa
                     if n + 1 not in rows:
                         c0 = _cpu_children()
                         sample = ((1000003 * n + 7), sample_pool, cap) if future == "sampled-lengths" else None
-                        fns = [lambda c=c: child_rollouts(h, c, all_h, plan, sample, child_timeout)
-                               for c in range(sc.replicas)]
+                        probe = h.fork()  # pi_e's choice here, so that world B forces only the others
+                        pe0 = apply_decision(probe, None)["policy_choice"]
+                        del probe
+                        R = sc.replicas
+                        fns = [lambda c=c: child_rollouts(h, c, all_h, plan, sample, child_timeout) for c in range(R)]
                         jit = lambda x, s=1_000_003 + n: jitter_future(x, noise_delta, s)  # noqa: E731
-                        fns.append(lambda: child_rollouts(h, None, [ref], plan, sample, child_timeout,
-                                                          after_decision=jit))
+                        others = [c for c in range(R) if c != pe0]
+                        fns += [lambda c=c: child_rollouts(h, c, [ref], plan, sample, child_timeout,
+                                                           after_decision=jit) for c in [None] + others]
                         res = _run_children(fns, workers, child_timeout)
-                        res, noise = res[:-1], res[-1]
+                        res, xres = res[:R], res[R:]
+                        noise = xres[0]
                         _check_consistent(res, len(all_h))
                         pe = res[0]["policy_choice"]
                         full_pe = _by(res, len(all_h) - 1, pe)[pe]
-                        if noise["policy_choice"] != pe or noise["h"][0]["n"] != full_pe["n"]:
-                            raise RuntimeError(f"noise rollout at decision {n + 1} disagrees with the candidates")
+                        if pe != pe0 or any(x["policy_choice"] != pe or x["h"][0]["n"] != full_pe["n"]
+                                            or x["perturbed"] != noise["perturbed"] for x in xres):
+                            raise RuntimeError(f"world-B rollouts at decision {n + 1} disagree with the candidates")
                         nz = {"perturbed": noise["perturbed"],
                               "delta": {k: noise["h"][0][k] - full_pe[k] for k in ("sum", "hinge", "hinge_ttft")}}
+                        xfit = {str(pe): noise["h"][0]} | {str(c): x["h"][0] for c, x in zip(others, xres[1:])}
                         row = {"k": n + 1, "t": req.arrived_at, "pe": pe,
                                "h": {x.label: {str(c): t for c, t in sorted(_by(res, j, pe).items())}
                                      for j, x in enumerate(all_h)},
-                               "noise": nz, "cpu_s": _cpu_children() - c0, "wall": time.time() - t0}
+                               "noise": nz, "xfit": dict(sorted(xfit.items(), key=lambda kv: int(kv[0]))),
+                               "cpu_s": _cpu_children() - c0, "wall": time.time() - t0}
                         log.write(json.dumps(row) + "\n")
                         log.flush()
                         rows[n + 1] = row
@@ -984,39 +1020,68 @@ def _point_metrics(row, lab, ref_label, plan, key=None) -> dict:
 _METRICS = ("spearman", "top1", "deviate_agree", "pair_sign_agree", "ref_gain", "regret", "harmful", "deviates",
             "cpu_s")
 WEIGHT_GRID = ((25.0, "25m"), (100.0, "100m"), (400.0, "400m"), (1e9, "tails"))  # multiples of pi_e's mean E2E
+MIN_DEV_RATE = 0.05  # the weight rule's minimum fraction of open-loop points at which full's argmin deviates
+
+
+def crossfit(rows, ref_label: str, plan: Plan) -> dict:
+    """Per point: c* = the ``ref_label`` (full, world A) argmin under ``plan``; its in-sample gain over pi_e's choice
+    (A) and its CROSS-FITTED gain and per-term changes in world B (every candidate rolled out with the same arrival
+    jitter, ``xfit``): the chaos that made c* look best in A does not carry over to B, so the mean over points
+    estimates the expected gain of the hindsight argmin under the noise model that defines N (review G r5). Rows
+    without ``xfit`` give NaN."""
+    out = {k: [] for k in ("deviates", "gain_a", "gain_b", "d_sum", "d_hinge", "d_hinge_ttft")}
+    for r in sorted(rows, key=lambda r: r["k"]):
+        pe = r["pe"]
+        by_a = {int(c): t for c, t in r["h"][ref_label].items()}
+        best, _ = select_candidate(by_a, pe, plan)
+        s_a = {c: sum(score_parts(t, plan).values()) for c, t in by_a.items()}
+        out["deviates"].append(float(best != pe))
+        out["gain_a"].append(s_a[pe] - s_a[best])
+        xb = r.get("xfit")
+        if not xb:
+            for k in ("gain_b", "d_sum", "d_hinge", "d_hinge_ttft"):
+                out[k].append(float("nan"))
+            continue
+        by_b = {int(c): t for c, t in xb.items()}
+        s_b = {c: sum(score_parts(t, plan).values()) for c, t in by_b.items()}
+        out["gain_b"].append(s_b[pe] - s_b[best])
+        for k in ("sum", "hinge", "hinge_ttft"):
+            out[f"d_{k}"].append(by_b[best][k] - by_b[pe][k])
+    return {k: np.array(v, float) for k, v in out.items()}
 
 
 def weight_sweep(rows, ref_label: str, mean_e2e: float, block: int = BLOCK) -> dict:
-    """Per tail weight w = f * m (``WEIGHT_GRID``; ``tails`` ~ hinges only, the summed E2E a tie-break): the
-    ``ref_label`` (full) argmin of the tail score at each point and its per-term change against pi_e's choice
-    (argmin minus pi_e; negative = better): summed E2E, E2E hinge, TTFT hinge (unweighted), with block-bootstrap CIs
-    and the fractions of points where each hinge improves or worsens. ``choice``: the PRE-SPECIFIED weight rule (fixed
-    2026-10-10, before any rerun): the smallest w on the grid whose argmin does not worsen either tail term on
-    average (mean change of the E2E hinge <= 0 and of the TTFT hinge <= 0); if none does, ``tails``
-    (``rule_met: False``)."""
-    rows = sorted(rows, key=lambda r: r["k"])
+    """Per tail weight w = f * m (``WEIGHT_GRID``; ``tails`` = hinges only, the summed E2E breaking exact ties): the
+    deviation rate of ``full``'s argmin, its in-sample (world A) and cross-fitted (world B, ``crossfit``) one-step
+    gain, and its cross-fitted per-term changes against pi_e's choice (negative = better), with block-bootstrap CIs
+    and the fractions of points where each hinge improves or worsens.
+    ``choice``: the PRE-SPECIFIED weight rule (fixed 2026-10-10 after review G r5, before any rerun): the smallest w on
+    the grid at which (i) the argmin deviates at >= ``MIN_DEV_RATE`` of the points, and (ii) cross-fitted, one tail
+    hinge improves strictly (block-CI upper bound of its mean change < 0) and the other does not worsen on average
+    (mean change <= 0). If no w qualifies: ``tails`` with ``rule_met: False``, which ``pilot_verdict`` carries (such a
+    window never counts toward "no headroom"). Needs the ``xfit`` rollouts (else ``choice`` is None)."""
     out, choice = {}, None
+    have_x = bool(rows) and all(r.get("xfit") for r in rows)
     for f, name in WEIGHT_GRID:
-        p = Plan("tail", weight=f * mean_e2e)
-        d = {"sum": [], "hinge": [], "hinge_ttft": []}
-        dev = []
-        for r in rows:
-            by_r = {int(c): t for c, t in r["h"][ref_label].items()}
-            best, _ = select_candidate(by_r, r["pe"], p)
-            dev.append(float(best != r["pe"]))
-            for k in d:
-                d[k].append(by_r[best][k] - by_r[r["pe"]][k])
-        a = {k: np.array(v, float) for k, v in d.items()}
-        out[name] = {"weight_m": f, "weight": f * mean_e2e, "deviates": boot_ci(dev, block=block),
-                     **{f"d_{k}": boot_ci(v, block=block) for k, v in a.items()},
-                     **{f"frac_{k}_{w}": (float(np.mean(op(a[k], 0.0))) if len(rows) else None)
-                        for k in ("hinge", "hinge_ttft") for w, op in (("better", np.less), ("worse", np.greater))}}
-        ok = len(rows) and a["hinge"].mean() <= 0 and a["hinge_ttft"].mean() <= 0
-        if choice is None and ok:
-            choice = {"label": name, "weight_m": f, "weight": f * mean_e2e, "rule_met": True}
-    if choice is None:
+        x = crossfit(rows, ref_label, Plan("tail", weight=f * mean_e2e))
+        e = {"weight_m": f, "weight": f * mean_e2e, "deviates": boot_ci(x["deviates"], block=block),
+             "gain_insample": boot_ci(x["gain_a"], block=block), "gain_xfit": boot_ci(x["gain_b"], block=block),
+             **{k: boot_ci(x[k], block=block) for k in ("d_sum", "d_hinge", "d_hinge_ttft")}}
+        for k in ("hinge", "hinge_ttft"):
+            d = x[f"d_{k}"][~np.isnan(x[f"d_{k}"])]
+            e[f"frac_{k}_better"] = float(np.mean(d < 0)) if len(d) else None
+            e[f"frac_{k}_worse"] = float(np.mean(d > 0)) if len(d) else None
+        out[name] = e
+        if have_x and choice is None:
+            h, t = e["d_hinge"], e["d_hinge_ttft"]
+            strict = (h["hi"] < 0 and t["mean"] <= 0) or (t["hi"] < 0 and h["mean"] <= 0)
+            if e["deviates"]["mean"] >= MIN_DEV_RATE and strict:
+                choice = {"label": name, "weight_m": f, "weight": f * mean_e2e, "rule_met": True,
+                          "gain_xfit": e["gain_xfit"]}
+    if have_x and choice is None:
         f, name = WEIGHT_GRID[-1]
-        choice = {"label": name, "weight_m": f, "weight": f * mean_e2e, "rule_met": False}
+        choice = {"label": name, "weight_m": f, "weight": f * mean_e2e, "rule_met": False,
+                  "gain_xfit": out[name]["gain_xfit"]}
     return {"grid": out, "choice": choice}
 
 
@@ -1024,8 +1089,9 @@ def openloop_stats(rows, labels, ref_label, plan: Plan, mean_e2e: Optional[float
     """Per horizon and stratum (``informative`` = the horizon ended before the window end: PRIMARY;
     ``reached_end``; ``all``) the mean and block-bootstrap 95 % CI of each agreement metric, and the lag-1
     autocorrelation of ``ref_gain``; drain-bias and externality diagnostics from ``cont``; paired horizon differences
-    of ref_gain and regret; the reference's own one-step gain against the per-point noise floor; with ``mean_e2e``,
-    the tail-weight sweep and the pre-specified weight choice (``weight_sweep``). See the module docstring."""
+    of ref_gain and regret; the reference's own one-step gain, in sample (world A) against the per-point noise floor
+    and cross-fitted (world B, ``crossfit``); with ``mean_e2e``, the tail-weight sweep and the pre-specified weight
+    choice (``weight_sweep``). See the module docstring."""
     rows = sorted(rows, key=lambda r: r["k"])
     pm = {lab: [_point_metrics(r, lab, ref_label, plan) for r in rows] for lab in labels}
     out = {}
@@ -1079,6 +1145,9 @@ def openloop_stats(rows, labels, ref_label, plan: Plan, mean_e2e: Optional[float
         "frac_gain_above_noise": float(np.mean(g[ok] > f[ok])) if ok.any() else None,
         "gain_over_floor_median": (float(np.median(g[ok] / np.maximum(f[ok], 1e-12))) if ok.any() else None),
         "noise_points": int(ok.sum())}
+    x = crossfit(rows, ref_label, plan)
+    out[ref_label]["one_step_gain_xfit"] = boot_ci(x["gain_b"], block=block)  # at the run's own weight
+    out[ref_label]["xfit_points"] = int((~np.isnan(x["gain_b"])).sum())
     if mean_e2e is not None and plan.score == "tail":
         sw = weight_sweep(rows, ref_label, mean_e2e, block)
         out[ref_label]["weights"] = sw["grid"]
@@ -1107,17 +1176,20 @@ def head_rows(rows: dict, sha: Optional[str] = None, weight: Optional[float] = N
     return out
 
 
-def window_verdict(rows: dict, shas: Optional[dict] = None, noise_delta: Optional[float] = None,
+METRICS4 = ("e2e", "ttft", "tpot", "tbt")
+TAILS2 = ("e2e", "ttft")
+
+
+def verdict_inputs(rows: dict, shas: Optional[dict] = None, noise_delta: Optional[float] = None,
                    weight: Optional[float] = None) -> dict:
-    """The module docstring's per-window rule from the summary rows: the closed ``full`` lookahead (``head_rows``),
-    placebo runs at its deviation rate and noise runs. ``shas`` (mode -> ``decision_sha(mode)``) keeps only rows of
-    the current code; noise rows must be one kind (``jitter``; ``noise_delta`` when given), never pooled."""
+    """The head row (``head_rows``) and its controls: placebo runs at its deviation rate and noise runs of one kind,
+    only rows of the current per-mode ``decision_sha`` (``shas``), never pooled across kinds. ``{"missing": reason}``
+    when something is absent."""
     shas = shas or {}
     heads = head_rows(rows, shas.get("closed"), weight)
     if len(heads) != 1:
-        return {"label": "missing", "reason": f"{len(heads)} closed full-horizon lookahead rows"
+        return {"missing": f"{len(heads)} closed full-horizon lookahead rows"
                 + (f" at weight {weight:.6g}" if weight is not None else "")}
-    L = heads[0]["vs_pi_e"]
     rate = heads[0]["deviation_frac"]
     ctl = [v for v in rows.values() if _params(v).get("mode") in ("placebo", "noise")]
     cur = [v for v in ctl if shas.get(_params(v)["mode"]) in (None, _params(v).get("decision_sha"))]
@@ -1130,50 +1202,162 @@ def window_verdict(rows: dict, shas: Optional[dict] = None, noise_delta: Optiona
     want = f"jitter:{noise_delta}" if noise_delta is not None else (next(iter(kinds)) if len(kinds) == 1 else None)
     counts = {"noise_by_kind": {k: len(v) for k, v in kinds.items()}, "stale_controls": len(ctl) - len(cur)}
     if want is None:
-        return {"label": "missing", "reason": f"several noise kinds {sorted(kinds)}; name the pre-registered one",
-                **counts}
+        return {"missing": f"several noise kinds {sorted(kinds)}; name the pre-registered one", **counts}
     N = kinds.get(want, [])
     if len(P) < 20 or len(N) < 20:
-        return {"label": "missing", "reason": f"{len(P)} placebo (rate {rate:.4f}) and {len(N)} noise ({want}) runs; "
-                f"need 20", **counts}
+        return {"missing": f"{len(P)} placebo (rate {rate:.4f}) and {len(N)} noise ({want}) runs; need 20", **counts}
+    return {"head": heads[0], "L": heads[0]["vs_pi_e"], "rate": rate, "P": P, "N": N, "noise_kind": want, **counts}
+
+
+def window_verdict(rows: dict, shas: Optional[dict] = None, noise_delta: Optional[float] = None,
+                   weight: Optional[float] = None) -> dict:
+    """The module docstring's per-window rule (labels positive / negative / trade / null / inconclusive /
+    inconclusive_noise_model) from the summary rows, with every clause, the noise band per metric and the smallest
+    P99 change the window can call (``mde_pct``)."""
+    inp = verdict_inputs(rows, shas, noise_delta, weight)
+    if "missing" in inp:
+        return {"label": "missing", "reason": inp.pop("missing"), **inp}
+    L, P, N = inp["L"], inp["P"], inp["N"]
     q = lambda xs, m, p: float(np.percentile([x[f"log_p99_{m}"] for x in xs], p))  # noqa: E731
-    lab = {m: L[f"log_p99_{m}"] for m in ("e2e", "ttft", "tpot", "tbt")}
-    pos = all(lab[m] < q(P, m, 5) and lab[m] < q(N, m, 2.5) for m in ("e2e", "ttft")) and \
-        all(lab[m] <= q(N, m, 97.5) for m in ("tpot", "tbt"))
-    neg = any(lab[m] > q(N, m, 97.5) for m in ("e2e", "ttft"))
-    null = all(q(N, m, 2.5) <= lab[m] <= q(N, m, 97.5) for m in ("e2e", "ttft"))
-    label = "positive" if pos else "negative" if neg else "null" if null else "inconclusive"
-    return {"label": label, "lookahead": lab, "rate": rate, "weight": _params(heads[0]).get("weight"),
-            "n_placebo": len(P), "n_noise": len(N), "noise_kind": want, **counts,
-            "placebo_p5": {m: q(P, m, 5) for m in lab}, "noise_p2.5": {m: q(N, m, 2.5) for m in lab},
-            "noise_p97.5": {m: q(N, m, 97.5) for m in lab}}
-
-
-def pilot_verdict(windows: dict) -> dict:
-    """The pre-specified cross-window claim from each window's summary rows (name -> rows, with ``verdict``):
-    ``headroom`` only if all 4 windows are ``positive``; ``no headroom`` (for one-step lookahead on the pre-registered
-    score) only if all 4 are ``null`` or ``negative``; else ``inconclusive``. Also collects each window's open-loop
-    one-step gain against its noise floor (descriptive, not part of the rule)."""
-    labels, ol = {}, {}
-    for name, rows in windows.items():
-        labels[name] = (rows.get("verdict") or {}).get("label", "missing")
-        for v in rows.values():
-            p = _params(v)
-            if p.get("mode") == "openloop" and p.get("max_points") is None and "stats" in v:
-                f = v["stats"].get(p.get("reference", "full"), {})
-                ol[name] = {k: f.get(k) for k in ("one_step_gain", "gain_median", "noise_floor_median",
-                                                  "frac_gain_above_noise", "gain_over_floor_median",
-                                                  "weight_choice")}
-    vals = list(labels.values())
-    if len(vals) != 4:
-        claim = "incomplete"
-    elif all(x == "positive" for x in vals):
-        claim = "headroom"
-    elif all(x in ("null", "negative") for x in vals):
-        claim = "no headroom"
+    lab = {m: L[f"log_p99_{m}"] for m in METRICS4}
+    band = {m: {"noise_p2.5": q(N, m, 2.5), "noise_p50": q(N, m, 50), "noise_p97.5": q(N, m, 97.5),
+                "placebo_p5": q(P, m, 5), "placebo_p97.5": q(P, m, 97.5)} for m in METRICS4}
+    zero_in = {m: band[m]["noise_p2.5"] <= 0.0 <= band[m]["noise_p97.5"] for m in TAILS2}
+    better = {m: lab[m] < band[m]["noise_p2.5"] and lab[m] < band[m]["placebo_p5"] for m in TAILS2}
+    worse = {m: lab[m] > band[m]["noise_p97.5"] for m in TAILS2}
+    within = {m: band[m]["noise_p2.5"] <= lab[m] <= band[m]["noise_p97.5"] for m in TAILS2}
+    pace_limit = {m: max(band[m]["noise_p97.5"], band[m]["placebo_p97.5"]) for m in ("tpot", "tbt")}
+    pace_ok = {m: lab[m] <= pace_limit[m] for m in ("tpot", "tbt")}
+    if not all(zero_in.values()):
+        label = "inconclusive_noise_model"  # pi_e itself (L = 0) would fall outside its own noise band
+    elif any(better.values()) and any(worse.values()):
+        label = "trade"
+    elif all(better.values()):
+        label = "positive" if all(pace_ok.values()) else "trade"  # tails bought with token pace
+    elif any(worse.values()):
+        label = "negative"
+    elif all(within.values()):
+        label = "null"
     else:
-        claim = "inconclusive"
-    return {"claim": claim, "windows": labels, "openloop": ol}
+        label = "inconclusive"
+    return {"label": label, "lookahead": lab, "rate": inp["rate"], "weight": _params(inp["head"]).get("weight"),
+            "n_placebo": len(P), "n_noise": len(N), "noise_kind": inp["noise_kind"],
+            "noise_by_kind": inp["noise_by_kind"], "stale_controls": inp["stale_controls"],
+            "clauses": {"zero_in_noise_band": zero_in, "better": better, "worse": worse, "within": within,
+                        "pace_ok": pace_ok, "pace_limit": pace_limit},
+            "band": band, "mde_pct": {m: 100 * math.expm1(band[m]["noise_p2.5"]) for m in TAILS2}}
+
+
+def _robust_scale(x: np.ndarray) -> float:
+    s = float(np.subtract(*np.percentile(x, [75, 25])) / 1.349)
+    return s if s > 0 else float(np.std(x, ddof=1)) if len(x) > 1 else 0.0
+
+
+def pooled_stat(windows: list, max_enum: int = 200_000, draws: int = 100_000) -> dict:
+    """The pre-specified pooled cross-window statistic. ``windows``: a list of (L, N) (lookahead ``vs_pi_e`` and the
+    window's noise ``vs_pi_e`` rows). Per tail metric: z_w = (L_w - median N_w) / s(N_w), s = IQR / 1.349, and
+    Z = sum_w z_w. Null distribution: the same sum over one leave-one-out noise draw per window (z of N_wj against
+    the other N_w), enumerated exactly up to ``max_enum`` combinations, else ``draws`` seeded draws. Reports Z, its
+    null quantiles, P(null <= Z), and the common P99 change (log and %) at which Z reaches the null's 5 % quantile
+    (the pooled minimum detectable effect)."""
+    out = {}
+    for m in TAILS2:
+        key = f"log_p99_{m}"
+        zs, nulls, inv = [], [], 0.0
+        for L, N in windows:
+            x = np.array([r[key] for r in N], float)
+            s = _robust_scale(x)
+            if not s > 0:
+                out[m] = {"error": "a window's noise runs have zero spread"}
+                break
+            zs.append((L[key] - np.median(x)) / s)
+            inv += 1.0 / s
+            loo = []
+            for j in range(len(x)):
+                rest = np.delete(x, j)
+                sr = _robust_scale(rest)
+                loo.append((x[j] - np.median(rest)) / sr if sr > 0 else 0.0)
+            nulls.append(np.array(loo))
+        else:
+            if int(np.prod([len(a) for a in nulls])) <= max_enum:
+                tot = np.zeros(1)
+                for a in nulls:
+                    tot = np.add.outer(tot, a).ravel()
+            else:
+                rng = np.random.default_rng(0)
+                tot = sum(a[rng.integers(len(a), size=draws)] for a in nulls)
+            Z = float(sum(zs))
+            qs = {f"q{p:g}": float(np.percentile(tot, p)) for p in (2.5, 5, 50, 95, 97.5)}
+            mde = (qs["q5"] - qs["q50"]) / inv
+            out[m] = {"Z": Z, "z": [float(z) for z in zs], **qs, "p_low": float(np.mean(tot <= Z)),
+                      "n_null": int(len(tot)), "mde_log": float(mde), "mde_pct": float(100 * math.expm1(mde))}
+    return out
+
+
+def pilot_windows() -> list:
+    """The 4 pre-registered windows' scenario tags."""
+    return sorted(ev.Scenario(t, 8, 0.75, s, 2000, 1, model="l3_8b").tag for t in ("Tool", "Conv") for s in (0, 2000))
+
+
+def pilot_verdict(summaries: dict, noise_delta: float = NOISE_DELTA, future: str = "true") -> dict:
+    """The pre-specified cross-window claim from the 4 windows' ``summary.json`` contents (name -> summary). Checks
+    that they are exactly the pre-registered windows, then RECOMPUTES each window's verdict with the current code's
+    shas and post-processing (stored labels are not trusted) at its pre-specified weight, and the pooled statistic.
+    - ``headroom``: all 4 windows ``positive``.
+    - ``no headroom`` (no one-step-lookahead P99 gain beyond the stated effect size): all 4 ``null`` or ``negative``,
+      every window's weight rule met, every window's cross-fitted one-step gain at that weight with a block-CI lower
+      bound <= 0, and the pooled Z not below its null 5 % quantile for E2E and TTFT.
+    - ``inconclusive`` otherwise (``reasons`` lists what failed); a ``trade`` never counts toward either claim."""
+    tags = sorted(s.get("meta", {}).get("scenario") for s in summaries.values())
+    if tags != pilot_windows():
+        return {"claim": "invalid_windows", "got": tags, "expected": pilot_windows()}
+    shas = {m: decision_sha(m) for m in ("closed", "placebo", "noise")}
+    psha = post_sha()
+    per, pooled_in, reasons = {}, [], []
+    for name, summ in summaries.items():
+        rows = summ["rows"]
+        tag = summ["meta"]["scenario"]
+        try:
+            ch = chosen_weight(rows, future, psha)
+        except SystemExit as e:
+            per[tag] = {"label": "stale", "reason": str(e)}
+            reasons.append(f"{tag}: stale open-loop statistics")
+            continue
+        if ch is None:
+            per[tag] = {"label": "missing", "reason": "no complete open-loop row with the weight choice"}
+            reasons.append(f"{tag}: no open-loop row")
+            continue
+        v = window_verdict(rows, shas, noise_delta, ch["weight"])
+        per[tag] = {"label": v["label"], "weight": ch["label"], "rule_met": ch["rule_met"],
+                    "gain_xfit": ch.get("gain_xfit"), "mde_pct": v.get("mde_pct"), "clauses": v.get("clauses")}
+        if v["label"] == "missing":
+            reasons.append(f"{tag}: {v['reason']}")
+            continue
+        inp = verdict_inputs(rows, shas, noise_delta, ch["weight"])
+        pooled_in.append((inp["L"], inp["N"]))
+    labels = [p["label"] for p in per.values()]
+    pooled = pooled_stat(pooled_in) if len(pooled_in) == 4 else None
+    if all(x == "positive" for x in labels):
+        claim = "headroom"
+    else:
+        ok = all(x in ("null", "negative") for x in labels)
+        if not ok:
+            reasons.append(f"labels {labels}")
+        for tag, p in per.items():
+            if p.get("rule_met") is False:
+                ok = False
+                reasons.append(f"{tag}: weight rule not met")
+            g = p.get("gain_xfit") or {}
+            if g.get("lo") is not None and g["lo"] > 0:
+                ok = False
+                reasons.append(f"{tag}: cross-fitted one-step gain > 0 (per-decision gain that does not reach P99)")
+        if pooled is None or any("error" in pooled[m] or pooled[m]["Z"] < pooled[m]["q5"] for m in TAILS2):
+            ok = False
+            reasons.append("pooled Z below its null 5 % quantile, or not computable")
+        claim = "no headroom" if ok else "inconclusive"
+    bound = ({m: pooled[m].get("mde_pct") for m in TAILS2} if pooled else None)
+    return {"claim": claim, "windows": per, "pooled": pooled, "reasons": reasons,
+            "effect_size_ruled_out_pct": bound}
 
 
 # ------------------------------------------------------------------ summary with provenance
@@ -1203,8 +1387,8 @@ def decision_sha(mode: str = "closed") -> str:
 
 def post_sha() -> str:
     """What a summary row computed from a log depends on (post-processing)."""
-    return _src_sha([score_output, vs_pi_e, openloop_stats, _point_metrics, boot_ci, lag1, _spearman, weight_sweep,
-                     head_rows, window_verdict])
+    return _src_sha([score_output, vs_pi_e, openloop_stats, _point_metrics, boot_ci, lag1, _spearman, crossfit,
+                     weight_sweep, head_rows, verdict_inputs, window_verdict, _robust_scale, pooled_stat])
 
 
 def _sha(p) -> str:
@@ -1310,8 +1494,8 @@ def main(argv=None):
                     "comma-separated)")
     a = ap.parse_args(argv)
     if a.mode == "pilot":
-        wins = {d: json.loads((Path(d) / "summary.json").read_text())["rows"] for d in a.out.split(",") if d}
-        print(json.dumps({"pilot": pilot_verdict(wins)}, indent=1))
+        wins = {d: json.loads((Path(d) / "summary.json").read_text()) for d in a.out.split(",") if d}
+        print(json.dumps({"pilot": pilot_verdict(wins, a.noise_delta, a.future)}, indent=1))
         return
     if not a.noise_delta > 0:
         raise SystemExit("--noise-delta must be > 0")
