@@ -8,6 +8,8 @@ import sys
 import tempfile
 import time
 
+os.environ.setdefault("MPLBACKEND", "Agg")  # in-process simulators save plots only; no GUI backend
+
 import numpy as np
 
 from evolve import evaluate as ev

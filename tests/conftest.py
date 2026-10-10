@@ -9,6 +9,10 @@ import os
 import sys
 from pathlib import Path
 
+# Simulators are built in-process here; plots go to files only. A GUI backend (macOS default) can hang in AppKit
+# initialisation when tests run as a background process, so use Agg unless the caller chose a backend.
+os.environ.setdefault("MPLBACKEND", "Agg")
+
 import pandas as pd
 import pytest
 
