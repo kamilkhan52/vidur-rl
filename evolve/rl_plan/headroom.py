@@ -61,8 +61,9 @@ E2E-hinge change of the same c* flipped sign under jitter), so their mean over p
 the hindsight argmin under the same noise model that defines N. The in-sample gain (``one_step_gain``) and its
 distribution beside the floor stay DESCRIPTIVE: a best-of-R argmin harvests chaos, so "gain within one floor draw" is
 not a criterion. All gains are at pi_e's states, not the lookahead trajectory's (standard for policy improvement).
-Caveat (G r5 smoke, one point): under both jitter seeds pi_e's own choice ranked second-worst of 8, so B may disfavour
-pi_e's trajectory systematically; the verdict's noise-model check below guards the window rule against that.
+Caveat: the jitter itself raises P99 E2E for every policy checked (review G r6 check, below), and at the G r5 smoke
+point pi_e's choice ranked second-worst of 8 under both seeds; world B may disfavour pi_e's trajectory, which would
+bias the cross-fitted gain upward. It is a mechanism report, not a gate.
 
 Tail weight (``weight_sweep``; PRE-SPECIFIED 2026-10-10, revised after review G r5, before any rerun). Review G r4
 smoke (Tool w0+2000, 2 points): under w = 25 m ``full``'s argmin cut the summed E2E by ~2,000 s and made BOTH tail
@@ -72,37 +73,55 @@ CROSS-FITTED per-term changes against pi_e's choice. Rule: the closed loop uses 
 (i) the argmin deviates at >= 5 % of the open-loop points (``MIN_DEV_RATE``; a weight that never deviates would make
 the closed loop pi_e and a trivial null), and (ii) cross-fitted, one tail hinge improves STRICTLY (block-CI upper
 bound of its mean change < 0) while the other does not worsen on average (mean change <= 0). If no w qualifies:
-``tails`` with ``rule_met: False``; such a window never counts toward "no headroom". ``--tail-weight auto`` (the
-closed loop's default) reads the choice from the window's complete open-loop row; the verdict uses the closed row at
-that weight only.
+the pre-registered fallback ``tails`` (hinges only, no mean term), recorded as ``rule_met: False, fallback: True``.
+``--tail-weight auto`` (the closed loop's default) reads the choice from the window's complete open-loop row; the
+verdict uses the closed row at that weight only. The rule only PICKS the weight: neither ``rule_met`` nor the
+cross-fitted gain gates a claim (review G r6: as gates they excluded each other, so a true null could only read
+"inconclusive"); both are reported as the mechanism of a null (see the claim below).
 
-PRE-SPECIFIED SUCCESS RULE (fixed 2026-10-10, revised after reviews G r4 and r5, before any rerun). Windows: Tool and
+PRE-SPECIFIED SUCCESS RULE (fixed 2026-10-10, revised after reviews G r4, r5 and r6, before any open-loop output was
+read). Windows: Tool and
 Conv, 8R s0.75 p1, w0+2000 and w2000+2000 (``pilot_windows``; ``pilot_verdict`` refuses any other set). Per window,
 with L = the closed ``full`` lookahead run's log P99 ratios vs pi_e (tail score at the pre-specified weight), P = >= 20
 placebo runs at the same deviation rate, N = >= 20 noise runs (arrival jitter, d = 5 ms; only rows of the current
-per-mode ``decision_sha``, one noise kind, never pooled). For E2E and TTFT: "better" = L < P2.5(N) and L < P5(P);
-"worse" = L > P97.5(N); "within" = P2.5(N) <= L <= P97.5(N). Pace guard (non-inferiority, relative to the noise band,
+per-mode ``decision_sha``, one noise kind, never pooled), CENTRED: each metric's N shifted by its median
+(``NOISE_CENTRE``). Review G r6 check, Tool w0+2000, 9 jittered runs each against the unjittered run: the jitter
+raises P99 E2E for every policy (pi_e median +0.022, 7/9 worse; lor +0.072, 8/9; mooncake +0.021, 7/9) and P99 TTFT
+for pi_e (+0.022, 8/9) and lor (+0.158, 8/9) but not mooncake (-0.037, 4/9). The unjittered realisation, where L is
+measured, is atypically favourable; uncentred, the lookahead would get that offset as a free edge against N. Centring
+keeps N's spread (the window's P99 lottery) around the unjittered pi_e (0) and assumes the lookahead shares pi_e's
+offset; the offsets and the uncentred band check are reported (``noise_offset``, ``zero_in_raw_noise_band``). For
+E2E and TTFT: "below" = L < P2.5(N); "better" = below and L < P5(P); "worse" = L > P97.5(N); "within" = P2.5(N) <=
+L <= P97.5(N). Pace guard (non-inferiority, relative to the noise band,
 not a knife edge: on Tool N's TPOT band is ~0.1 % wide and offset from 0): L_tpot <= max(P97.5(N_tpot),
 P97.5(P_tpot)), likewise TBT. Labels, in this order:
-- ``inconclusive_noise_model``: 0 (pi_e itself) outside [P2.5(N), P97.5(N)] for E2E or TTFT;
+- ``inconclusive_noise_model``: 0 (pi_e itself) outside [P2.5(N), P97.5(N)] for E2E or TTFT (cannot happen once N is
+  centred; kept for ``NOISE_CENTRE = "none"``);
 - ``trade``: one of E2E/TTFT better and the other worse, or both better with the pace guard failed;
 - ``positive``: both better and the pace guard holds;
-- ``negative``: at least one worse and neither better;
+- ``negative``: at least one worse and neither below the noise band (review G r6: a tail below the band but within
+  the placebo's reach, with the other worse, is ``inconclusive``, not ``negative``);
 - ``null``: both within;
 - ``inconclusive``: anything else (e.g. one better, the other within).
 Cross-window claim (``pilot_verdict``, recomputed from the rows with the current code; stored labels are not trusted):
 - ``headroom``: all 4 windows ``positive``;
-- ``no headroom``: all 4 ``null`` or ``negative``, AND every window's weight rule met, AND every window's cross-fitted
-  one-step gain at that weight has a block-CI lower bound <= 0 (else: a per-decision gain exists that does not reach
-  window P99, which is inconclusive), AND the pooled statistic Z (``pooled_stat``: sum over windows of (L - median N) /
-  (IQR(N) / 1.349), against the sum of one leave-one-out noise draw per window) is not below its null 5 % quantile, for
-  E2E and for TTFT;
+- ``no headroom``: all 4 ``null`` or ``negative``, AND the pooled statistic Z (``pooled_stat``: sum over windows of
+  (L - median N) / (IQR(N) / 1.349) on the centred N, against the sum of one leave-one-out noise draw per window) is
+  not below its null 5 % quantile, for E2E and for TTFT;
 - ``inconclusive`` otherwise, with reasons. A ``trade`` never counts toward either claim.
-EFFECT SIZE. A null does not bound the gain at 0. "No headroom" means: no one-step-lookahead P99 gain larger than the
-reported bound: per window the noise band's lower edge (``mde_pct`` = exp(P2.5(N)) - 1), and pooled the common P99
-change at which Z reaches its null 5 % quantile (``effect_size_ruled_out_pct``). The 3-run calibrations on Tool
-w0+2000 spread the log P99s over ~0.02-0.05 (E2E, TTFT), so a single window cannot see gains below a few %, and the
-pooled statistic roughly halves that; the actual bounds come from the 20 runs and are printed with the claim.
+The 4 windows must share one setup (``meta`` except ``scenario``) and the current ``code_version``. Each null window
+states its MECHANISM: (i) ``rule_met: False``: even in hindsight the one-step argmin improves no tail term per
+decision (cross-fitted); the closed loop then ran at ``tails``, without a mean term, so a P99 regression is not a
+mean-for-tail trade; (ii) ``rule_met: True``: per-decision tail gains exist (``gain_xfit`` CI) but do not reach
+window P99 beyond the bound.
+EFFECT SIZE (data-based). A null does not bound the gain at 0. "No headroom" means: no one-step-lookahead P99 gain
+larger than the bound the data support. Per window (``ruled_out``): the one-sided 97.5 % bound L - P97.5(N) on the
+lookahead's log P99 change (L = delta + a lottery draw distributed like the centred N, so delta >= L - P97.5(N));
+pooled (``effect_size_ruled_out_pct``): a common change delta shifts Z by delta * sum_w 1/s_w, so the one-sided 95 %
+bound is (Z - q95) / sum_w 1/s_w. Both are measured from the observed L, relative to the noise distribution, not from
+0. The design MDEs (``detectable_pct``: P2.5(N) - median N per window; the pooled shift at which the null's median
+reaches q5) only say what the design can see. From the G r6 9-run noise set on Tool w0 (E2E sd 0.023, TTFT 0.041), a
+window with L = 0 excludes only gains beyond roughly 4-8 %; the pooled bound is tighter.
 
 Cost (CPU-s per planned decision = R rollouts; Mac at load ~6-7, upper bounds; Alpine is faster per core). Tool 8R
 s0.75 w0+2000, a full pi_e run ~25 s: ``full`` from the first decision after the cut 81 (10 per rollout), falling
@@ -149,16 +168,20 @@ after a header; a run resumes from it (header must match; replay checks pi_e's c
 logged decision). Rows that fail the completion gate are not stored.
 
 Alpine (acpu, <= 22 CPUs; jobs resume, so chain 4 h jobs; ship cache/prediction_bundle_<key>.pkl so the bundle in
-meta matches): one window per job, ``--workers 8`` (8 rollouts at once, one batch per decision)::
+meta matches): one window per chain, ``--workers 8`` (8 rollouts at once, one batch per decision). Each job runs
+the four modes IN ORDER (open loop first: the closed loop's ``--tail-weight auto`` refuses to start without its
+row); every mode resumes from its log or reuses its finished rows, so a job picks up wherever the last one stopped::
 
-  cd $REPO; jid=
+  cd $REPO; jid=; H="python -m evolve.rl_plan.headroom --trace Tool --start 0 --workers 8 \\
+    --out evolve/rl_plan/out/v4_tool_w0"
   for i in 1 2 3 4 5 6 7 8; do
     jid=$(sbatch --parsable ${jid:+--dependency=afterany:$jid} --cpus-per-task=10 --mem=48G --time=04:00:00 \\
-      --job-name=hr_tool_w0 --export=ALL,REPO_DIR=$REPO,CMD="python -m evolve.rl_plan.headroom --trace Tool \\
-      --start 0 --workers 8 --out evolve/rl_plan/out/v4_tool_w0" scripts/submit_python_job.sbatch)
+      --job-name=hr_tool_w0 --export=ALL,REPO_DIR=$REPO,CMD="$H --mode openloop && $H --mode closed && \\
+      $H --mode placebo && $H --mode noise" scripts/submit_python_job.sbatch)
   done
 
-A job that finds the run complete reuses the row and exits in ~1 min. Two such chains at once stay within 22 CPUs.
+A job that finds everything complete exits in a few minutes. Two such chains at once stay within 22 CPUs. Conv's
+per-rollout cost is unmeasured (the cost table is Tool's): check it from the first open-loop points.
 
 Usage (each window: open loop, closed loop at the open loop's weight, then placebo and noise; then the pilot):
   .venv/bin/python -m evolve.rl_plan.headroom --mode openloop --trace Tool --out evolve/rl_plan/out/v4_tool_w0
@@ -1058,8 +1081,9 @@ def weight_sweep(rows, ref_label: str, mean_e2e: float, block: int = BLOCK) -> d
     ``choice``: the PRE-SPECIFIED weight rule (fixed 2026-10-10 after review G r5, before any rerun): the smallest w on
     the grid at which (i) the argmin deviates at >= ``MIN_DEV_RATE`` of the points, and (ii) cross-fitted, one tail
     hinge improves strictly (block-CI upper bound of its mean change < 0) and the other does not worsen on average
-    (mean change <= 0). If no w qualifies: ``tails`` with ``rule_met: False``, which ``pilot_verdict`` carries (such a
-    window never counts toward "no headroom"). Needs the ``xfit`` rollouts (else ``choice`` is None)."""
+    (mean change <= 0). If no w qualifies: the pre-registered fallback ``tails``, recorded as ``rule_met: False,
+    fallback: True``. ``rule_met`` is NOT a gate of any claim (review G r6): ``pilot_verdict`` reports it as the
+    mechanism of a null. Needs the ``xfit`` rollouts (else ``choice`` is None)."""
     out, choice = {}, None
     have_x = bool(rows) and all(r.get("xfit") for r in rows)
     for f, name in WEIGHT_GRID:
@@ -1077,11 +1101,11 @@ def weight_sweep(rows, ref_label: str, mean_e2e: float, block: int = BLOCK) -> d
             strict = (h["hi"] < 0 and t["mean"] <= 0) or (t["hi"] < 0 and h["mean"] <= 0)
             if e["deviates"]["mean"] >= MIN_DEV_RATE and strict:
                 choice = {"label": name, "weight_m": f, "weight": f * mean_e2e, "rule_met": True,
-                          "gain_xfit": e["gain_xfit"]}
+                          "fallback": False, "gain_xfit": e["gain_xfit"]}
     if have_x and choice is None:
         f, name = WEIGHT_GRID[-1]
         choice = {"label": name, "weight_m": f, "weight": f * mean_e2e, "rule_met": False,
-                  "gain_xfit": out[name]["gain_xfit"]}
+                  "fallback": True, "gain_xfit": out[name]["gain_xfit"]}
     return {"grid": out, "choice": choice}
 
 
@@ -1178,6 +1202,12 @@ def head_rows(rows: dict, sha: Optional[str] = None, weight: Optional[float] = N
 
 METRICS4 = ("e2e", "ttft", "tpot", "tbt")
 TAILS2 = ("e2e", "ttft")
+# Review G r6 check (Tool w0+2000, 9 jittered runs each vs the unjittered run): the +-5 ms jitter raises P99 E2E for
+# every policy (pi_e median +0.022, 7/9 worse; lor +0.072, 8/9; mooncake +0.021, 7/9) and TTFT for pi_e (+0.022, 8/9)
+# and lor (+0.158, 8/9), not for mooncake (-0.037, 4/9). The unjittered realisation, in which L is measured, is
+# atypically favourable, so the noise runs are CENTRED: each metric's N is shifted by its median, keeping its spread
+# (the window's P99 lottery) around the unjittered pi_e (0). Assumes the lookahead shares pi_e's offset.
+NOISE_CENTRE = "median"
 
 
 def verdict_inputs(rows: dict, shas: Optional[dict] = None, noise_delta: Optional[float] = None,
@@ -1203,17 +1233,24 @@ def verdict_inputs(rows: dict, shas: Optional[dict] = None, noise_delta: Optiona
     counts = {"noise_by_kind": {k: len(v) for k, v in kinds.items()}, "stale_controls": len(ctl) - len(cur)}
     if want is None:
         return {"missing": f"several noise kinds {sorted(kinds)}; name the pre-registered one", **counts}
-    N = kinds.get(want, [])
-    if len(P) < 20 or len(N) < 20:
-        return {"missing": f"{len(P)} placebo (rate {rate:.4f}) and {len(N)} noise ({want}) runs; need 20", **counts}
-    return {"head": heads[0], "L": heads[0]["vs_pi_e"], "rate": rate, "P": P, "N": N, "noise_kind": want, **counts}
+    N_raw = kinds.get(want, [])
+    if len(P) < 20 or len(N_raw) < 20:
+        return {"missing": f"{len(P)} placebo (rate {rate:.4f}) and {len(N_raw)} noise ({want}) runs; need 20",
+                **counts}
+    off = {m: float(np.median([x[f"log_p99_{m}"] for x in N_raw])) if NOISE_CENTRE == "median" else 0.0
+           for m in METRICS4}
+    N = [{f"log_p99_{m}": x[f"log_p99_{m}"] - off[m] for m in METRICS4} for x in N_raw]
+    return {"head": heads[0], "L": heads[0]["vs_pi_e"], "rate": rate, "P": P, "N": N, "N_raw": N_raw,
+            "noise_offset": off, "noise_kind": want, **counts}
 
 
 def window_verdict(rows: dict, shas: Optional[dict] = None, noise_delta: Optional[float] = None,
                    weight: Optional[float] = None) -> dict:
     """The module docstring's per-window rule (labels positive / negative / trade / null / inconclusive /
-    inconclusive_noise_model) from the summary rows, with every clause, the noise band per metric and the smallest
-    P99 change the window can call (``mde_pct``)."""
+    inconclusive_noise_model) from the summary rows, with every clause, the noise band per metric, the data-based
+    bound (``ruled_out``: the one-sided 97.5 % confidence bound L - P97.5(N) on the lookahead's P99 change, i.e. gains
+    larger than it are excluded; relative to the noise distribution, not to 0) and, for design only, the shift the
+    window can detect (``detectable_pct`` = P2.5(N) - median(N))."""
     inp = verdict_inputs(rows, shas, noise_delta, weight)
     if "missing" in inp:
         return {"label": "missing", "reason": inp.pop("missing"), **inp}
@@ -1222,8 +1259,11 @@ def window_verdict(rows: dict, shas: Optional[dict] = None, noise_delta: Optiona
     lab = {m: L[f"log_p99_{m}"] for m in METRICS4}
     band = {m: {"noise_p2.5": q(N, m, 2.5), "noise_p50": q(N, m, 50), "noise_p97.5": q(N, m, 97.5),
                 "placebo_p5": q(P, m, 5), "placebo_p97.5": q(P, m, 97.5)} for m in METRICS4}
-    zero_in = {m: band[m]["noise_p2.5"] <= 0.0 <= band[m]["noise_p97.5"] for m in TAILS2}
-    better = {m: lab[m] < band[m]["noise_p2.5"] and lab[m] < band[m]["placebo_p5"] for m in TAILS2}
+    raw = inp["N_raw"]
+    zero_in = {m: band[m]["noise_p2.5"] <= 0.0 <= band[m]["noise_p97.5"] for m in TAILS2}  # always, once centred
+    zero_in_raw = {m: q(raw, m, 2.5) <= 0.0 <= q(raw, m, 97.5) for m in TAILS2}
+    below = {m: lab[m] < band[m]["noise_p2.5"] for m in TAILS2}
+    better = {m: below[m] and lab[m] < band[m]["placebo_p5"] for m in TAILS2}
     worse = {m: lab[m] > band[m]["noise_p97.5"] for m in TAILS2}
     within = {m: band[m]["noise_p2.5"] <= lab[m] <= band[m]["noise_p97.5"] for m in TAILS2}
     pace_limit = {m: max(band[m]["noise_p97.5"], band[m]["placebo_p97.5"]) for m in ("tpot", "tbt")}
@@ -1234,18 +1274,22 @@ def window_verdict(rows: dict, shas: Optional[dict] = None, noise_delta: Optiona
         label = "trade"
     elif all(better.values()):
         label = "positive" if all(pace_ok.values()) else "trade"  # tails bought with token pace
-    elif any(worse.values()):
+    elif any(worse.values()) and not any(below.values()):
         label = "negative"
     elif all(within.values()):
         label = "null"
     else:
         label = "inconclusive"
     return {"label": label, "lookahead": lab, "rate": inp["rate"], "weight": _params(inp["head"]).get("weight"),
-            "n_placebo": len(P), "n_noise": len(N), "noise_kind": inp["noise_kind"],
+            "n_placebo": len(P), "n_noise": len(N), "noise_kind": inp["noise_kind"], "noise_centre": NOISE_CENTRE,
+            "noise_offset": inp["noise_offset"], "zero_in_raw_noise_band": zero_in_raw,
             "noise_by_kind": inp["noise_by_kind"], "stale_controls": inp["stale_controls"],
-            "clauses": {"zero_in_noise_band": zero_in, "better": better, "worse": worse, "within": within,
-                        "pace_ok": pace_ok, "pace_limit": pace_limit},
-            "band": band, "mde_pct": {m: 100 * math.expm1(band[m]["noise_p2.5"]) for m in TAILS2}}
+            "clauses": {"zero_in_noise_band": zero_in, "below_noise": below, "better": better, "worse": worse,
+                        "within": within, "pace_ok": pace_ok, "pace_limit": pace_limit},
+            "band": band,
+            "ruled_out": {m: {"log": lab[m] - band[m]["noise_p97.5"],
+                              "pct": 100 * math.expm1(lab[m] - band[m]["noise_p97.5"])} for m in TAILS2},
+            "detectable_pct": {m: 100 * math.expm1(band[m]["noise_p2.5"] - band[m]["noise_p50"]) for m in TAILS2}}
 
 
 def _robust_scale(x: np.ndarray) -> float:
@@ -1258,8 +1302,9 @@ def pooled_stat(windows: list, max_enum: int = 200_000, draws: int = 100_000) ->
     window's noise ``vs_pi_e`` rows). Per tail metric: z_w = (L_w - median N_w) / s(N_w), s = IQR / 1.349, and
     Z = sum_w z_w. Null distribution: the same sum over one leave-one-out noise draw per window (z of N_wj against
     the other N_w), enumerated exactly up to ``max_enum`` combinations, else ``draws`` seeded draws. Reports Z, its
-    null quantiles, P(null <= Z), and the common P99 change (log and %) at which Z reaches the null's 5 % quantile
-    (the pooled minimum detectable effect)."""
+    null quantiles, P(null <= Z), the data-based one-sided 95 % bound on a common P99 change (Z = Z0 + delta *
+    sum_w 1/s_w, so gains beyond ``bound`` = (Z - q95) / sum_w 1/s_w are excluded; log and %), and for design only
+    the common shift at which the null's median reaches its 5 % quantile (``detectable``)."""
     out = {}
     for m in TAILS2:
         key = f"log_p99_{m}"
@@ -1288,9 +1333,11 @@ def pooled_stat(windows: list, max_enum: int = 200_000, draws: int = 100_000) ->
                 tot = sum(a[rng.integers(len(a), size=draws)] for a in nulls)
             Z = float(sum(zs))
             qs = {f"q{p:g}": float(np.percentile(tot, p)) for p in (2.5, 5, 50, 95, 97.5)}
-            mde = (qs["q5"] - qs["q50"]) / inv
+            det = (qs["q5"] - qs["q50"]) / inv
+            bnd = (Z - qs["q95"]) / inv
             out[m] = {"Z": Z, "z": [float(z) for z in zs], **qs, "p_low": float(np.mean(tot <= Z)),
-                      "n_null": int(len(tot)), "mde_log": float(mde), "mde_pct": float(100 * math.expm1(mde))}
+                      "n_null": int(len(tot)), "bound_log": float(bnd), "bound_pct": float(100 * math.expm1(bnd)),
+                      "detectable_log": float(det), "detectable_pct": float(100 * math.expm1(det))}
     return out
 
 
@@ -1301,35 +1348,54 @@ def pilot_windows() -> list:
 
 def pilot_verdict(summaries: dict, noise_delta: float = NOISE_DELTA, future: str = "true") -> dict:
     """The pre-specified cross-window claim from the 4 windows' ``summary.json`` contents (name -> summary). Checks
-    that they are exactly the pre-registered windows, then RECOMPUTES each window's verdict with the current code's
-    shas and post-processing (stored labels are not trusted) at its pre-specified weight, and the pooled statistic.
+    that they are exactly the pre-registered windows, written with one setup (``meta`` identical except
+    ``scenario``) whose ``code_version`` is the current one, then RECOMPUTES each window's verdict with the current
+    code's shas and post-processing (stored labels are not trusted) at its pre-specified weight, and the pooled
+    statistic.
     - ``headroom``: all 4 windows ``positive``.
-    - ``no headroom`` (no one-step-lookahead P99 gain beyond the stated effect size): all 4 ``null`` or ``negative``,
-      every window's weight rule met, every window's cross-fitted one-step gain at that weight with a block-CI lower
-      bound <= 0, and the pooled Z not below its null 5 % quantile for E2E and TTFT.
-    - ``inconclusive`` otherwise (``reasons`` lists what failed); a ``trade`` never counts toward either claim."""
-    tags = sorted(s.get("meta", {}).get("scenario") for s in summaries.values())
+    - ``no headroom`` (no one-step-lookahead P99 gain beyond ``effect_size_ruled_out_pct``, the pooled data-based
+      bound; per-window bounds in ``windows``): all 4 ``null`` or ``negative``, and the pooled Z not below its null
+      5 % quantile for E2E and TTFT.
+    - ``inconclusive`` otherwise (``reasons`` lists what failed); a ``trade`` never counts toward either claim.
+    The weight rule's outcome and the cross-fitted one-step gain are NOT gates (review G r6: as gates they excluded
+    each other, so a true null could not reach "no headroom"); each window reports them as the mechanism of a null:
+    (i) ``rule_met: False``: even in hindsight the one-step argmin improves no tail term per decision (cross-fitted);
+    (ii) ``rule_met: True``: per-decision tail gains exist (``gain_xfit``) but do not reach window P99 beyond the
+    bound."""
+    metas = [dict(s.get("meta", {})) for s in summaries.values()]
+    tags = sorted(m.get("scenario") for m in metas)
     if tags != pilot_windows():
-        return {"claim": "invalid_windows", "got": tags, "expected": pilot_windows()}
+        return {"claim": "invalid_windows", "reason": "not the 4 pre-registered windows", "got": tags,
+                "expected": pilot_windows()}
+    setups = {json.dumps({k: v for k, v in m.items() if k != "scenario"}, sort_keys=True) for m in metas}
+    if len(setups) != 1:
+        return {"claim": "invalid_windows", "reason": "the windows differ in setup (meta other than scenario)",
+                "setups": sorted(setups)}
+    cv = ev.code_version()
+    if metas[0].get("code_version") != cv:
+        return {"claim": "invalid_windows", "reason": f"code_version {metas[0].get('code_version')} is not the "
+                f"current {cv}"}
     shas = {m: decision_sha(m) for m in ("closed", "placebo", "noise")}
     psha = post_sha()
     per, pooled_in, reasons = {}, [], []
     for name, summ in summaries.items():
         rows = summ["rows"]
         tag = summ["meta"]["scenario"]
-        try:
-            ch = chosen_weight(rows, future, psha)
-        except SystemExit as e:
-            per[tag] = {"label": "stale", "reason": str(e)}
-            reasons.append(f"{tag}: stale open-loop statistics")
-            continue
-        if ch is None:
-            per[tag] = {"label": "missing", "reason": "no complete open-loop row with the weight choice"}
-            reasons.append(f"{tag}: no open-loop row")
+        status, ch = weight_status(rows, future, psha)
+        if status != "ok":
+            per[tag] = {"label": status, "reason": ch}
+            reasons.append(f"{tag}: {status}: {ch}")
             continue
         v = window_verdict(rows, shas, noise_delta, ch["weight"])
+        mech = None
+        if v["label"] in ("null", "negative"):
+            mech = ("(i) even in hindsight the one-step argmin improves no tail term per decision (cross-fitted)"
+                    if not ch["rule_met"] else
+                    "(ii) per-decision tail gains exist (gain_xfit) but do not reach window P99 beyond the bound")
         per[tag] = {"label": v["label"], "weight": ch["label"], "rule_met": ch["rule_met"],
-                    "gain_xfit": ch.get("gain_xfit"), "mde_pct": v.get("mde_pct"), "clauses": v.get("clauses")}
+                    "fallback": ch.get("fallback"), "gain_xfit": ch.get("gain_xfit"), "mechanism": mech,
+                    "ruled_out": v.get("ruled_out"), "detectable_pct": v.get("detectable_pct"),
+                    "clauses": v.get("clauses")}
         if v["label"] == "missing":
             reasons.append(f"{tag}: {v['reason']}")
             continue
@@ -1343,19 +1409,12 @@ def pilot_verdict(summaries: dict, noise_delta: float = NOISE_DELTA, future: str
         ok = all(x in ("null", "negative") for x in labels)
         if not ok:
             reasons.append(f"labels {labels}")
-        for tag, p in per.items():
-            if p.get("rule_met") is False:
-                ok = False
-                reasons.append(f"{tag}: weight rule not met")
-            g = p.get("gain_xfit") or {}
-            if g.get("lo") is not None and g["lo"] > 0:
-                ok = False
-                reasons.append(f"{tag}: cross-fitted one-step gain > 0 (per-decision gain that does not reach P99)")
         if pooled is None or any("error" in pooled[m] or pooled[m]["Z"] < pooled[m]["q5"] for m in TAILS2):
             ok = False
             reasons.append("pooled Z below its null 5 % quantile, or not computable")
         claim = "no headroom" if ok else "inconclusive"
-    bound = ({m: pooled[m].get("mde_pct") for m in TAILS2} if pooled else None)
+    bound = ({m: pooled[m].get("bound_pct") for m in TAILS2} if pooled and
+             not any("error" in pooled[m] for m in TAILS2) else None)
     return {"claim": claim, "windows": per, "pooled": pooled, "reasons": reasons,
             "effect_size_ruled_out_pct": bound}
 
@@ -1387,8 +1446,10 @@ def decision_sha(mode: str = "closed") -> str:
 
 def post_sha() -> str:
     """What a summary row computed from a log depends on (post-processing)."""
+    consts = repr((NOISE_CENTRE, MIN_DEV_RATE, WEIGHT_GRID, BLOCK))
     return _src_sha([score_output, vs_pi_e, openloop_stats, _point_metrics, boot_ci, lag1, _spearman, crossfit,
-                     weight_sweep, head_rows, verdict_inputs, window_verdict, _robust_scale, pooled_stat])
+                     weight_sweep, head_rows, verdict_inputs, window_verdict, _robust_scale, pooled_stat]
+                    ) + hashlib.sha256(consts.encode()).hexdigest()[:4]
 
 
 def _sha(p) -> str:
@@ -1429,21 +1490,34 @@ def vs_pi_e(r: dict, pe: dict) -> dict:
     return out
 
 
-def chosen_weight(rows: dict, future: str, psha: str) -> Optional[dict]:
-    """The pre-specified tail weight (``weight_sweep``'s choice) from this window's complete open-loop row of the
-    current open-loop ``decision_sha`` and post-processing; None when there is no such row. Refuses ambiguity and
-    stale statistics."""
+def weight_status(rows: dict, future: str, psha: str):
+    """``("ok", choice)`` for this window's complete open-loop row of the current open-loop ``decision_sha`` and
+    post-processing, else ``(status, reason)`` with status ``missing`` (no such row), ``stale`` (statistics from
+    older post-processing), ``no_xfit`` (no weight choice: the row lacks the world-B rollouts) or ``ambiguous``."""
     ol = [v for v in rows.values() if _params(v).get("mode") == "openloop" and _params(v).get("max_points") is None
           and _params(v).get("future") == future and _params(v).get("decision_sha") == decision_sha("openloop")]
     if not ol:
-        return None
+        return "missing", "no complete open-loop row of the current code (run --mode openloop first)"
     if any(v.get("post_sha") != psha for v in ol):
-        raise SystemExit("the open-loop row's statistics are from older post-processing: rerun --mode openloop "
-                         "(replays its log, no new rollouts)")
-    ch = {json.dumps(v["stats"]["full"].get("weight_choice"), sort_keys=True) for v in ol}
-    if len(ch) != 1 or "null" in ch:
-        raise SystemExit(f"open-loop rows disagree on (or lack) the weight choice: {sorted(ch)}")
-    return json.loads(ch.pop())
+        return "stale", "the open-loop statistics are from older post-processing: rerun --mode openloop (replays " \
+            "its log, no new rollouts)"
+    ch = [v["stats"]["full"].get("weight_choice") for v in ol]
+    if any(c is None for c in ch):
+        return "no_xfit", "the open-loop row has no weight choice (its points lack the world-B rollouts)"
+    if len({json.dumps(c, sort_keys=True) for c in ch}) != 1:
+        return "ambiguous", f"{len(ol)} open-loop rows disagree on the weight choice"
+    return "ok", ch[0]
+
+
+def chosen_weight(rows: dict, future: str, psha: str) -> Optional[dict]:
+    """The pre-specified tail weight (``weight_sweep``'s choice) of this window; None when there is no open-loop row;
+    refuses (SystemExit) stale statistics, a missing choice or ambiguity."""
+    status, ch = weight_status(rows, future, psha)
+    if status == "missing":
+        return None
+    if status != "ok":
+        raise SystemExit(f"{status}: {ch}")
+    return ch
 
 
 def parse_weight(spec: str, mean_e2e: float) -> float:
