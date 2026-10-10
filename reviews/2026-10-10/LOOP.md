@@ -30,3 +30,4 @@ Not yet reviewed: `evolve/rl_plan/` (headroom pilot; agent still running, uncomm
   that also inform the MDP discussion (Q-list); the fixer implements a time horizon with arrivals continuing and an
   H sweep, keeps lex as an option, and switches forcing to sim_fork (record-only mode) after E round 2 settles.
 - 2026-10-10 E round 3: changes requested (1 major: 'independent' check shallow -> allowlist by source sha + recursive guard; 3 minor: ctx-attribute state, module-state leak between forks, os.fork RNG helper). Fixer resumed. E_r2 issues all fixed.
+- 2026-10-10 G round 2: changes requested (3 major: pure time cutoff blind to later arrivals -> T+drain default; summary key lacks headroom/sim_fork sha; len-600 sweep cannot separate horizons -> open-loop horizon selection; 2 minor). Fixer resumed.
