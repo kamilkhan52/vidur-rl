@@ -10,7 +10,10 @@
   E2E tail; T+drain censors nothing and bounds the censored scores from above;
 - one child serving several horizons (grandchild drains) scores each exactly as a single-horizon rollout;
 - open-loop horizon selection runs and resumes; an interrupted closed loop resumes to the uninterrupted result;
-- resampled output lengths leak no true length; fork failures are reported and every child is reaped.
+- resampled output lengths leak no true length; fork failures are reported and every child is reaped;
+- review G r4: arrival jitter keeps every request's fields together; noise runs and the per-point floor perturb the
+  run; the tail-weight sweep and its pre-specified choice; the verdict filters controls by code sha and noise kind and
+  the head by weight; per-mode decision shas; block bootstrap; the cross-window claim.
 All on Conv 4R s1.5 w6000+200 p1 (~8 s per full run)."""
 
 import filecmp
@@ -191,7 +194,7 @@ def test_open_loop_selection_and_resume(plain, tmp_path):
     hz = [hr.Horizon.parse(x) for x in ("H=8", "T=10+drain", "T=1000+drain")]  # the last reaches the window end
     ref = hr.Horizon.parse("full")
     log = tmp_path / "o.jsonl"
-    st = hr.open_loop(SC, hz, ref, plan, s["cut"], log, workers=2, every=20, max_points=2)
+    st = hr.open_loop(SC, hz, ref, plan, s["cut"], log, workers=2, every=20, max_points=2, mean_e2e=s["mean_e2e"])
     labels = ("H8", "T10s+drain", "T1000s+drain")
     assert st["_run"]["points"] == 2 and set(st) == set(labels) | {"full", "paired_informative", "_run"}
     for x in labels[:2]:
@@ -204,12 +207,17 @@ def test_open_loop_selection_and_resume(plain, tmp_path):
     assert end["informative"]["points"] == 0 and end["reached_end"]["points"] == 2
     assert end["reached_end"]["top1"]["mean"] == 1.0 and end["reached_end"]["regret"]["mean"] == 0.0
     assert end["reached_end"]["ref_gain"]["mean"] == pytest.approx(st["full"]["one_step_gain"]["mean"])
-    assert st["full"]["one_step_gain"]["n"] == 2 and st["full"]["noise_points"] >= 1
+    assert st["full"]["one_step_gain"]["n"] == 2 and st["full"]["noise_points"] == 2
     assert st["paired_informative"]["H8 - T10s+drain"]["regret"]["n"] == 2
+    assert set(st["full"]["weights"]) == {"25m", "100m", "400m", "tails"}
+    assert st["full"]["weight_choice"]["label"] in st["full"]["weights"]
     rows = [json.loads(x) for x in log.read_text().splitlines()[1:]]
-    assert all(r["noise"] is None or r["noise"]["perturbed"] is not None for r in rows)
+    assert all(r["noise"]["perturbed"].startswith("arrivals") for r in rows)
+    # the jitter floor perturbs the full rollout (the r3 tiebreak floor was identically 0 on Tool)
+    assert any(abs(v) > 0 for r in rows for v in r["noise"]["delta"].values())
     n_lines = len(log.read_text().splitlines())
-    st2 = hr.open_loop(SC, hz, ref, plan, s["cut"], log, workers=2, every=20, max_points=2)  # resume: no new rows
+    st2 = hr.open_loop(SC, hz, ref, plan, s["cut"], log, workers=2, every=20, max_points=2,
+                       mean_e2e=s["mean_e2e"])  # resume: no new rows
     assert len(log.read_text().splitlines()) == n_lines
     assert {k: v for k, v in st2.items() if k != "_run"} == {k: v for k, v in st.items() if k != "_run"}
 
@@ -299,11 +307,7 @@ def test_resampled_lengths_hide_true_lengths(tmp_path):
     assert true[0]["h"][3]["sum"] != res[0]["h"][3]["sum"]  # the lengths did change the rollout
 
 
-def test_one_token_change():
-    assert hr._one_token_change(10, 3, 16, 1000) == 1  # 13 -> 14 tokens, same block
-    assert hr._one_token_change(10, 5, 16, 1000) == -1  # 15 -> 16 would add a block
-    assert hr._one_token_change(10, 1, 16, 1000) == 1
-    assert hr._one_token_change(13, 1, 16, 16) == 1 and hr._one_token_change(15, 1, 16, 16) == 0
+def test_fit_hashes():
     assert hr.fit_hashes([1, 2, 3], 40, 16, 5) == [1, 2]
     assert hr.fit_hashes([1, 2], 70, 16, 5) == [1, 2, -5000003, -5000004]
 
@@ -354,8 +358,12 @@ def test_summary_reuse_refuses_other_setups(tmp_path):
     base = {"horizon": "T1x", "score": "tail", "future": "true", "max_decisions": None, "weight": 1.0}
     assert hr._row_key(base) != hr._row_key(dict(base, max_decisions=5)) != hr._row_key(dict(base, weight=2.0))
     assert hr._row_key(dict(base, decision_sha="a")) != hr._row_key(dict(base, decision_sha="b"))
-    assert hr.decision_sha() == hr.decision_sha() and hr.decision_sha().endswith(hr.SIM_FORK_SHA)
+    assert hr.decision_sha() == hr.decision_sha("closed") and hr.decision_sha().endswith(hr.SIM_FORK_SHA)
+    shas = {m: hr.decision_sha(m) for m in ("closed", "openloop", "placebo", "noise")}
+    assert len(set(shas.values())) == 4 and all(v.endswith(hr.SIM_FORK_SHA) for v in shas.values())
     assert hr.decision_sha().split(":")[0] != hr.post_sha()
+    with pytest.raises(ValueError):
+        hr.decision_sha("pilot")
 
 
 def test_placebo_and_noise_runs(plain, tmp_path):
@@ -364,36 +372,111 @@ def test_placebo_and_noise_runs(plain, tmp_path):
     _same_outputs(d, tmp_path / "P0")
     info = hr.placebo_run(SC, 0.5, 1, s["cut"], tmp_path / "P1")
     assert 0.3 < info["deviation_frac"] < 0.7 and hr.score_output(tmp_path / "P1", SC)["ok"]
-    info = hr.noise_run(SC, 3, s["cut"], tmp_path / "T")  # default: tie-break RNG reseeded
-    assert hr.score_output(tmp_path / "T", SC)["ok"] and info["perturbed"].startswith("ctx.rng seed")
-    info = hr.noise_run(SC, 3, s["cut"], tmp_path / "N", kind="token")
-    g = build_simulator(hr.argv_for(SC, tmp_path / "G")).sim._request_generator
-    assert hr.score_output(tmp_path / "N", SC)["ok"] and g._arrived_at[info["perturbed"]] < s["cut"]
-    assert not filecmp.cmp(_csv(d), _csv(tmp_path / "N"), shallow=False)  # one token early changes the run
+    info = hr.noise_run(SC, 3, s["cut"], tmp_path / "N", hr.NOISE_DELTA)
+    assert hr.score_output(tmp_path / "N", SC)["ok"] and info["jittered_from"] > 0
+    assert not filecmp.cmp(_csv(d), _csv(tmp_path / "N"), shallow=False)  # 5 ms of jitter changes the run
+    hr.noise_run(SC, 3, s["cut"], tmp_path / "N2", hr.NOISE_DELTA)  # seeded: reproducible
+    _same_outputs(tmp_path / "N", tmp_path / "N2")
+
+
+def test_jitter_arrivals():
+    n = 50
+    rng = np.random.default_rng(1)
+    t = np.sort(rng.uniform(0, 1.0, n))
+    g = SimpleNamespace(num_requests=n - 5, num_requests_generated=0, _arrived_at=t.copy(),
+                        _num_prefill_tokens=np.arange(n) * 10, _num_decode_tokens=np.arange(n) * 100,
+                        _block_hash_ids=[[j] for j in range(n)], _block_size=[16] * n, _session_id=list(range(n)),
+                        _prompt_extra=[f"r{j}" for j in range(n)], _other=[1, 2], name="x")
+    before = {k: v for k, v in vars(g).items()}
+    hr.jitter_arrivals(g, 10, float(t[9]), 0.05, np.random.default_rng(0))
+    a = g._arrived_at
+    assert np.array_equal(a[:10], t[:10]) and np.array_equal(a[n - 5:], t[n - 5:])  # outside [i0, num_requests)
+    assert np.all(np.diff(a[:n - 5]) >= 0) and a[10:n - 5].min() >= t[9]
+    assert not np.array_equal(a, t)
+    ids = [h[0] for h in g._block_hash_ids]  # every field moved with its request
+    assert sorted(ids) == list(range(n)) and ids != list(range(n))
+    assert g._num_prefill_tokens.tolist() == [10 * j for j in ids] and g._num_decode_tokens.tolist() == [
+        100 * j for j in ids]
+    assert g._session_id == ids and g._prompt_extra == [f"r{j}" for j in ids] and g._other == [1, 2]
+    assert all(abs(a[k] - t[j]) <= 0.05 or a[k] == t[9] for k, j in enumerate(ids))
+    assert np.array_equal(before["_arrived_at"], t) and before["_block_hash_ids"][10] == [10]  # replaced, not edited
 
 
 def _vs(e2e, ttft, tpot=0.0, tbt=0.0):
     return {"log_p99_e2e": e2e, "log_p99_ttft": ttft, "log_p99_tpot": tpot, "log_p99_tbt": tbt}
 
 
+SHAS = {"closed": "c1", "placebo": "p1", "noise": "n1"}
+
+
+def _ctl(mode, vs, sha=None, **kw):
+    p = {"mode": mode, "decision_sha": sha or SHAS[mode]} | kw
+    return {"params": p, "vs_pi_e": vs}
+
+
 def test_window_verdict_rule():
     rng = np.random.default_rng(0)
-    base = {f"placebo{i}": {"params": {"mode": "placebo", "rate": 0.2}, "vs_pi_e": _vs(*rng.normal(0, 0.02, 4))}
-            for i in range(20)}
-    base |= {f"noise{i}": {"params": {"mode": "noise"}, "vs_pi_e": _vs(*rng.normal(0, 0.02, 4))} for i in range(20)}
-    head = {"params": {"mode": "closed", "horizon": "full", "plan_every": 1, "max_decisions": None,
-                       "future": "true"}, "deviation_frac": 0.2}
-    assert hr.window_verdict(base)["label"] == "missing"
-    assert hr.window_verdict(base | {"L": dict(head, vs_pi_e=_vs(-0.2, -0.2))})["label"] == "positive"
-    assert hr.window_verdict(base | {"L": dict(head, vs_pi_e=_vs(-0.2, -0.2, tbt=0.3))})["label"] != "positive"
-    assert hr.window_verdict(base | {"L": dict(head, vs_pi_e=_vs(0.2, -0.2))})["label"] == "negative"
-    assert hr.window_verdict(base | {"L": dict(head, vs_pi_e=_vs(0.0, 0.0))})["label"] == "null"
-    assert hr.window_verdict(base | {"L": dict(head, vs_pi_e=_vs(-0.2, 0.0))})["label"] == "inconclusive"
+    base = {f"placebo{i}": _ctl("placebo", _vs(*rng.normal(0, 0.02, 4)), rate=0.2) for i in range(20)}
+    base |= {f"noise{i}": _ctl("noise", _vs(*rng.normal(0, 0.02, 4)), noise_kind="jitter", noise_delta=0.005)
+             for i in range(20)}
+    head = {"params": {"mode": "closed", "horizon": "full", "plan_every": 1, "max_decisions": None, "future": "true",
+                       "score": "tail", "weight": 10.0, "decision_sha": "c1"}, "deviation_frac": 0.2}
+    V = lambda rows, **kw: hr.window_verdict(rows, SHAS, 0.005, **kw)  # noqa: E731
+    assert V(base)["label"] == "missing"
+    assert V(base | {"L": dict(head, vs_pi_e=_vs(-0.2, -0.2))})["label"] == "positive"
+    assert V(base | {"L": dict(head, vs_pi_e=_vs(-0.2, -0.2, tbt=0.3))})["label"] != "positive"
+    assert V(base | {"L": dict(head, vs_pi_e=_vs(0.2, -0.2))})["label"] == "negative"
+    assert V(base | {"L": dict(head, vs_pi_e=_vs(0.0, 0.0))})["label"] == "null"
+    assert V(base | {"L": dict(head, vs_pi_e=_vs(-0.2, 0.0))})["label"] == "inconclusive"
     few = {k: v for k, v in base.items() if k != "noise0"}
-    assert hr.window_verdict(few | {"L": dict(head, vs_pi_e=_vs(-0.2, -0.2))})["label"] == "missing"
+    assert V(few | {"L": dict(head, vs_pi_e=_vs(-0.2, -0.2))})["label"] == "missing"
+    # review G r4 finding 4: other noise kinds and stale-code controls are never pooled
+    L = {"L": dict(head, vs_pi_e=_vs(-0.03, -0.03))}
+    ref = V(base | L)
+    other = {f"tok{i}": _ctl("noise", _vs(0, 0), noise_kind="token") for i in range(20)}
+    stale = {f"old{i}": _ctl("placebo", _vs(-0.2, -0.2), sha="p0", rate=0.2) for i in range(5)}
+    got = V(base | L | other | stale)
+    assert got["label"] == ref["label"] and got["n_noise"] == 20 and got["n_placebo"] == 20
+    assert got["stale_controls"] == 5 and got["noise_by_kind"] == {"jitter:0.005": 20, "token:None": 20}
+    assert hr.window_verdict(base | L | other, SHAS)["label"] == "missing"  # two kinds, none named
+    stale_head = {"L0": dict(head, params=dict(head["params"], decision_sha="c0"), vs_pi_e=_vs(-0.2, -0.2))}
+    assert V(base | L | stale_head)["label"] == ref["label"]  # a closed row of older code is not a head
+    # finding 3: two weight arms; the verdict takes the pre-specified one
+    arm = {"L2": dict(head, params=dict(head["params"], weight=40.0), vs_pi_e=_vs(-0.2, -0.2))}
+    assert V(base | L | arm)["label"] == "missing"
+    assert V(base | L | arm, weight=40.0)["label"] == "positive" and V(base | L | arm, weight=10.0) == ref | {
+        "weight": 10.0}
+
+
+def test_weight_sweep_and_choice():
+    # pi_e = 0. c1: lower sum, worse E2E hinge (chosen at small w); c2: better hinge, higher sum
+    row = {"k": 1, "pe": 0, "h": {"full": {"0": {"sum": 100.0, "hinge": 1.0, "hinge_ttft": 0.5},
+                                           "1": {"sum": 90.0, "hinge": 1.2, "hinge_ttft": 0.5},
+                                           "2": {"sum": 103.0, "hinge": 0.9, "hinge_ttft": 0.5}}}}
+    sw = hr.weight_sweep([row, dict(row, k=2)], "full", mean_e2e=1.0)
+    g = sw["grid"]
+    assert g["25m"]["d_hinge"]["mean"] == pytest.approx(0.2) and g["25m"]["frac_hinge_worse"] == 1.0
+    assert g["100m"]["d_hinge"]["mean"] == pytest.approx(-0.1) and g["100m"]["frac_hinge_better"] == 1.0
+    assert sw["choice"] == {"label": "100m", "weight_m": 100.0, "weight": 100.0, "rule_met": True}
+    bad = {"k": 1, "pe": 0, "h": {"full": {"0": {"sum": 100.0, "hinge": 1.0, "hinge_ttft": 0.5},
+                                           "1": {"sum": 100.0, "hinge": 0.5, "hinge_ttft": 0.8}}}}
+    assert hr.weight_sweep([bad], "full", 1.0)["choice"]["rule_met"] is False  # tails trade TTFT for E2E
+
+
+def test_pilot_verdict():
+    w = lambda lab: {"verdict": {"label": lab}}  # noqa: E731
+    assert hr.pilot_verdict({i: w("positive") for i in range(4)})["claim"] == "headroom"
+    assert hr.pilot_verdict({0: w("null"), 1: w("negative"), 2: w("null"), 3: w("null")})["claim"] == "no headroom"
+    assert hr.pilot_verdict({0: w("positive"), 1: w("null"), 2: w("null"), 3: w("null")})["claim"] == "inconclusive"
+    assert hr.pilot_verdict({i: w("positive") for i in range(3)})["claim"] == "incomplete"
 
 
 def test_boot_ci():
     ci = hr.boot_ci([1.0, 2.0, 3.0, float("nan"), 4.0])
     assert ci["n"] == 4 and ci["mean"] == 2.5 and 1.0 <= ci["lo"] < 2.5 < ci["hi"] <= 4.0
     assert hr.boot_ci([])["mean"] is None
+    # serially correlated points: the block bootstrap CI is wider than the i.i.d. one
+    x = np.repeat(np.random.default_rng(0).normal(0, 1, 10), 20)
+    iid, blk = hr.boot_ci(x), hr.boot_ci(x, block=20)
+    assert blk["block"] == 20 and blk["mean"] == iid["mean"] and blk["hi"] - blk["lo"] > 2 * (iid["hi"] - iid["lo"])
+    assert hr.lag1(x) > 0.9 and hr.lag1([1.0, 1.0, 1.0]) is None
