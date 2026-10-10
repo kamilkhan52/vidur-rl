@@ -1,0 +1,67 @@
+{
+ "scenario": "l3_8b-8R-Tool-s1.0-w0+2500-p1",
+ "prefix_run_s": 8.838632125000004,
+ "reached": true,
+ "sim_time_at_fork": 255.99520889135403,
+ "events_prefix": 315383,
+ "decisions_prefix": 1499,
+ "inflight_at_fork": 40,
+ "outstanding_per_replica": [
+  3,
+  4,
+  2,
+  7,
+  7,
+  5,
+  7,
+  4
+ ],
+ "rss_before_fork_mb": 3607.734375,
+ "deepcopy_fork_s": 0.9326835420215502,
+ "rss_after_one_fork_mb": 3618.65625,
+ "os_fork_roundtrip_s": 0.007178541971370578,
+ "rollouts": [
+  {
+   "H": 16,
+   "advance_s": 0.07551954104565084,
+   "sim_advance_s": null,
+   "drain_s": 0.35616037499858066,
+   "n_scored": 16,
+   "p99_e2e_rollout_reqs": 8.905197138614232,
+   "mean_e2e_rollout_reqs": 3.080211952968245
+  },
+  {
+   "H": 64,
+   "advance_s": 0.28706179198343307,
+   "sim_advance_s": null,
+   "drain_s": 0.4027403329964727,
+   "n_scored": 64,
+   "p99_e2e_rollout_reqs": 21.771580122457607,
+   "mean_e2e_rollout_reqs": 4.847430616265544
+  },
+  {
+   "H": 256,
+   "advance_s": 1.1942988749942742,
+   "sim_advance_s": null,
+   "drain_s": 0.6477062500198372,
+   "n_scored": 256,
+   "p99_e2e_rollout_reqs": 41.39111523582399,
+   "mean_e2e_rollout_reqs": 11.174607014256345
+  }
+ ],
+ "os_fork_rollout_H64_total_s": 0.7484326249687001,
+ "os_fork_rollout_H64": {
+  "H": 64,
+  "advance_s": 0.33640008297516033,
+  "sim_advance_s": null,
+  "drain_s": 0.395922374969814,
+  "n_scored": 64,
+  "p99_e2e_rollout_reqs": 21.771580122457607,
+  "mean_e2e_rollout_reqs": 4.847430616265544
+ },
+ "rest_run_s": 7.242163332994096,
+ "events_per_s": 32096.624905019868,
+ "decisions_per_s_plain": 138.21836845899483,
+ "policy_ms_per_call": 0.024974472890608012,
+ "policy_share_of_wall": 0.0038826550831775985
+}

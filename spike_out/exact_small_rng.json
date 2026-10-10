@@ -1,0 +1,41 @@
+{
+ "scenario": "l3_8b-8R-Tool-s0.75-w0+600-p1",
+ "k": 300,
+ "unforked_s": 8.923942167020869,
+ "decisions_total": 600,
+ "fork_s": 0.6679453329998069,
+ "fork_time_sim_s": 42.076004380101935,
+ "orig_plus_fork_s": 18.797226124966983,
+ "counterfactual": {
+  "request_id": 299,
+  "policy_choice": 3,
+  "forced": 4,
+  "rows": 600,
+  "rows_differing": 342,
+  "differing_arrived_before_fork": 57,
+  "first_differing_arrival": 3.081038,
+  "p99_e2e_unforked": 68.39609927999999,
+  "p99_e2e_counterfactual": 70.42511532999998
+ },
+ "sha": {
+  "unforked": [
+   "480c146804085c26",
+   "de58e5e3e7540e77"
+  ],
+  "fork": [
+   "480c146804085c26",
+   "de58e5e3e7540e77"
+  ],
+  "orig_after_fork": [
+   "480c146804085c26",
+   "de58e5e3e7540e77"
+  ],
+  "counterfactual": [
+   "3397d700c78f7e65",
+   "f1a32a65280391b0"
+  ]
+ },
+ "fork_equals_unforked": true,
+ "orig_equals_unforked": true,
+ "rss_peak_mb": 3787.890625
+}
