@@ -8,13 +8,27 @@ supervised learning, split by training EPISODE (scenario), never by row:
                   16, 64, 256, 1024. Train EV rising while held-out EV stays flat = noise / non-transfer, not
                   missing capacity.
   noise ceiling   Gamma test (Stefansson et al., 1997): the intercept of semi-variance vs squared nearest-neighbour
-                  distance estimates the irreducible target variance given the features -> ceiling EV.
+                  distance estimates the irreducible target variance given the features -> ceiling EV. The estimate
+                  depends on the number of rows n (nearest neighbours get closer as n grows; on e413 the k = 10
+                  ceiling rose from 0.65 to 0.72 between 10k and 40k rows, review F_r1): the pooled value uses a 20k-row subsample, the
+                  within-episode value <= 8k rows per episode, so the two are not comparable with each other;
+                  `noise_n_curve` reports the pooled estimate at several n (including the within-episode n), and
+                  1 - gamma(1)/Var is a LOWER bound on the ceiling (gamma(1) over-estimates the noise variance).
   ablation        drop-one-feature-group (groups = the "# ---" headers in the design's replica_features).
   vs the rule     EV of models given (state-only), (state + "is the teacher's action"), (all features),
                   (all + teacher flag): does the per-replica feature set carry reward information beyond the rule's
                   choice? Plus a listwise classifier of the teacher's action (can the features reproduce the rule?)
-                  and the agreement of the fitted reward model's argmax with the rule.
-  data            held-out EV vs fraction of training rows (10 %..100 %) at the chosen width.
+                  and the agreement of the fitted reward model's argmax with the rule, on r (what the bandit
+                  maximised) and on r_out (outcome model, price excluded).
+  data            held-out EV vs fraction of training rows (10 %..100 %) at the chosen width. Rows are subsampled
+                  uniformly WITHIN the same training episodes, so a flat curve says more rows of these episodes do not
+                  help; it says nothing about adding episodes or workload diversity (the held-out-episode vs row-split
+                  gap is the evidence on that).
+
+Width selection: the width used for the ablation, beyond-rule, imitation and data-curve numbers is the narrowest one
+within 0.01 of the best held-out-episode EV on the SAME outer folds (no inner selection), so those numbers are
+optimistic by at most the spread of held-out EV across MLP widths (`width_selection.val_ev_spread`; <= 0.02 on
+both v3.1 finalists).
 
 Targets: r (as stored, what the bandit regressed) and, when the design ends with a deterministic zero-mean
 "externality price" feature that reward() subtracts, r_out = r + price[a] (the outcome part that has to be learned
@@ -40,6 +54,9 @@ FINALISTS = ["rl_loto_r2/e413fe9e193c", "rl_loto_synth_r1/d2cb78118623"]
 WIDTHS = [0, 16, 64, 256, 1024]  # 0 = linear (ridge)
 FRACTIONS = [0.1, 0.25, 0.5, 1.0]
 MIN_EPS_ROWS = 100  # fewest epsilon-explored rows for the beyond-rule test on those rows alone
+POOLED_N_MAX = 20000  # rows of the pooled Gamma test (the ceiling depends on it; see noise_n_curve)
+WITHIN_N_MAX = 8000  # rows per episode of the within-episode Gamma test
+NOISE_N_CURVE = (10000, 20000, 40000)  # pooled Gamma test row counts reported (those <= T)
 
 
 # ----------------------------------------------------------------------------- small pure helpers (tested)
@@ -190,8 +207,18 @@ def gamma_test(X, y, k=10, n_max=20000, seed=0):
     noise = float(max(b0, 0.0))
     return {"noise_var": noise, "noise_var_raw_intercept": float(b0), "gamma1": float(gamma[0]), "var_y": var_y,
             "ceiling_ev": 1.0 - noise / var_y if var_y > 0 else float("nan"),
-            "ceiling_ev_upper_from_gamma1": 1.0 - float(gamma[0]) / var_y if var_y > 0 else float("nan"),
+            # gamma(1) >= noise variance (it still contains the nearest-neighbour signal term), so this is a LOWER bound
+            # (renamed from ceiling_ev_upper_from_gamma1, a misnomer; read old files with ceiling_lower())
+            "ceiling_ev_lower_from_gamma1": 1.0 - float(gamma[0]) / var_y if var_y > 0 else float("nan"),
             "delta1": float(delta[0]), "slope": float(b1), "n": int(len(y)), "k": k}
+
+
+def ceiling_lower(noise):
+    """Lower bound 1 - gamma(1)/Var from a gamma_test() dict, also from files written before the key was renamed."""
+    if not noise:
+        return None
+    v = noise.get("ceiling_ev_lower_from_gamma1")
+    return noise.get("ceiling_ev_upper_from_gamma1") if v is None else v
 
 
 # ----------------------------------------------------------------------------- model fitting
@@ -425,17 +452,30 @@ def analyse_data(out, d, buf, eps, design, light=False, log=print):
     top = max(vals.values())
     best_w = min(w for w, v in vals.items() if v >= top - 0.01)
     out["best_width"] = best_w
+    mlp = [v for w, v in vals.items() if w > 0] or list(vals.values())
+    out["width_selection"] = {  # chosen on the outer (test) folds: bounds the optimism of the downstream numbers
+        "target": main_t, "rule": "narrowest width within 0.01 of the best held-out EV, on the same outer folds",
+        "val_ev_spread": float(max(mlp) - min(mlp)), "val_ev_by_width": {str(w): v for w, v in vals.items()}}
 
     # noise ceiling
-    out["noise"] = {tn: gamma_test(xa.astype(np.float64), y) for tn, y in targets.items()}
+    out["noise"] = {tn: gamma_test(xa.astype(np.float64), y, n_max=POOLED_N_MAX) for tn, y in targets.items()}
     out["noise_within_episode"] = {}
     for tn, y in targets.items():  # per-episode Gamma tests remove the episode-level shift
-        vs = [gamma_test(xa[lab == k].astype(np.float64), y[lab == k], n_max=8000) for k in np.unique(lab)
+        vs = [gamma_test(xa[lab == k].astype(np.float64), y[lab == k], n_max=WITHIN_N_MAX) for k in np.unique(lab)
               if (lab == k).sum() > 500]
         w = np.array([v["n"] for v in vs], float)
         out["noise_within_episode"][tn] = {"ceiling_ev_mean": float(np.average([v["ceiling_ev"] for v in vs],
                                                                                  weights=w)) if vs else None,
-                                           "n_episodes": len(vs)}
+                                           "n_episodes": len(vs),
+                                           "rows_per_episode_mean": float(w.mean()) if vs else None}
+    if not light:  # the pooled ceiling at several row counts (it grows with n), incl. the within-episode n
+        n_w = out["noise_within_episode"][main_t]["rows_per_episode_mean"]
+        ns = sorted({n for n in ([int(n_w)] if n_w else []) + list(NOISE_N_CURVE) if n <= T})
+        out["noise_n_curve"] = {"target": main_t, "points": {}}
+        for n in ns:
+            g_ = gamma_test(xa.astype(np.float64), targets[main_t], n_max=n)
+            out["noise_n_curve"]["points"][str(n)] = {"ceiling_ev": g_["ceiling_ev"],
+                                                      "ceiling_ev_lower_from_gamma1": g_["ceiling_ev_lower_from_gamma1"]}
     if light:
         out["seconds"] = round(time.time() - t0, 1)
         out["status"] = "ok (light)"
@@ -482,20 +522,26 @@ def analyse_data(out, d, buf, eps, design, light=False, log=print):
     xs, ys_ = xa[ht], targets[main_t][ht]
     fh = [f[ht] for f in folds]
     x3h, tah = x3[ht], ta[ht]
-    acc, agree = [], []
+    acc, agree = [], {tn: [] for tn in targets}
     for f, va in enumerate(fh):
         pred = fit_listwise(x3h[~va], tah[~va], x3h[va], seed=f)
         acc.append(float((pred == tah[va]).mean()))
         flat_tr = xa[ht][~va]
-        _, pall = fit_regressor(flat_tr, ys_[~va], x3h[va].reshape(-1, F), best_w, seed=f)
-        greedy = pall.reshape(-1, N).argmax(1)
-        agree.append(float((greedy == tah[va]).mean()))
+        for tn, y in targets.items():  # r = what the bandit regressed and maximised; r_out = outcome model
+            _, pall = fit_regressor(flat_tr, y[ht][~va], x3h[va].reshape(-1, F), best_w, seed=f)
+            greedy = pall.reshape(-1, N).argmax(1)
+            agree[tn].append(float((greedy == tah[va]).mean()))
+    by_t = {tn: float(np.mean(v)) for tn, v in agree.items()}
     out["teacher_imitation"] = {"listwise_val_acc": float(np.mean(acc)), "chance": 1.0 / N,
-                                "reward_model_argmax_eq_teacher": float(np.mean(agree))}
-    log(f"  {key} imitation {np.mean(acc):.3f}, reward-argmax agreement {np.mean(agree):.3f}")
+                                "reward_model_argmax_eq_teacher": by_t[main_t],  # main target (kept for old readers)
+                                "reward_model_argmax_target": main_t,
+                                "reward_model_argmax_eq_teacher_by_target": by_t}
+    log(f"  {key} imitation {np.mean(acc):.3f}, reward-argmax agreement "
+        + ", ".join(f"{tn} {v:.3f}" for tn, v in by_t.items()))
 
     # data sufficiency
     out["data_curve"] = {"target": main_t, "width": best_w,
+                         "note": "rows subsampled within the same training episodes (not fewer episodes)",
                          "points": {str(fr): cv_ev(xa, targets[main_t], folds, best_w, frac=fr)["val_ev"]
                                     for fr in FRACTIONS}}
     out["seconds"] = round(time.time() - t0, 1)
@@ -516,7 +562,12 @@ def to_markdown(res):
          "(4 folds); EV = explained variance on held-out episodes (median over folds; worst fold in brackets) "
          "unless marked train. "
          "`r` = stored reward (what the bandit regressed); `r_out` = r + price[a], the outcome part that is not "
-         "a known function of the features. Ceiling = 1 - Gamma-test noise / Var. "
+         "a known function of the features. Ceiling = 1 - Gamma-test noise / Var; it grows with the number of rows "
+         "used (pooled: a subsample of at most 20k rows; within episode: at most 8k rows per episode, so the two "
+         "columns are not comparable), and 1 - gamma(1)/Var is a lower bound on it. "
+         "The width used below the table is selected on the same held-out folds it is scored on (optimistic by at "
+         "most the EV spread across widths). The data-sufficiency curve subsamples rows within the same training "
+         "episodes: it does not say whether more episodes would help. "
          "Generated by `python -m evolve.analysis.rl_offline`.", ""]
     for key, c in res["candidates"].items():
         L += [f"## {key}", ""]
@@ -542,6 +593,22 @@ def to_markdown(res):
                      + f" | {fmt(rs['val_ev'])} | {fmt(c['noise'][tn]['ceiling_ev'])} | "
                        f"{fmt(c['noise_within_episode'][tn]['ceiling_ev_mean'])} |")
         L.append("")
+        nz = c["noise"][next(iter(c["noise"]))]
+        rpe = c["noise_within_episode"][next(iter(c["noise"]))].get("rows_per_episode_mean")
+        L += [f"Ceiling rows: pooled n = {nz.get('n')}, within episode "
+              + (f"{fmt(rpe, 0)} rows per episode on average" if rpe else f"at most {WITHIN_N_MAX} rows per episode")
+              + ". Lower bound 1 - gamma(1)/Var (pooled): "
+              + ", ".join(f"{tn} {fmt(ceiling_lower(v))}" for tn, v in c["noise"].items()) + "."]
+        if c.get("noise_n_curve"):
+            nc = c["noise_n_curve"]
+            L.append(f"Pooled ceiling vs rows used ({nc['target']}): " + ", ".join(
+                f"n = {n}: {fmt(v['ceiling_ev'])} (lower bound {fmt(ceiling_lower(v))})" for n, v in nc["points"].items())
+                + ".")
+        if c.get("width_selection"):
+            ws = c["width_selection"]
+            L.append(f"Width {c.get('best_width')} selected on the outer folds ({ws['target']}); held-out EV spread "
+                     f"across MLP widths {fmt(ws['val_ev_spread'])} bounds the selection optimism.")
+        L.append("")
         if "ablation" in c:
             ab = c["ablation"]
             L += [f"**Drop-one-group ablation** ({ab['target']}, width {ab['width']}, base held-out EV "
@@ -564,13 +631,20 @@ def to_markdown(res):
                   + (" (unconfounded: epsilon rows)." if str(b.get("rows", "")).startswith("epsilon")
                      else " (confounded by who acted)."), ""]
             ti = c["teacher_imitation"]
+            by_t = ti.get("reward_model_argmax_eq_teacher_by_target")
+            if by_t:
+                arg = "; ".join(f"on {tn} {fmt(v)}" + (" (what the learner maximised)" if tn == "r" else
+                                                        " (outcome model, price excluded)") for tn, v in by_t.items())
+            else:  # files written before both targets were reported: the main target only
+                arg = f"on {b['target']} {fmt(ti['reward_model_argmax_eq_teacher'])}"
             L += [f"Rule reproducible from the features: listwise classifier held-out accuracy "
                   f"{fmt(ti['listwise_val_acc'])} (chance {fmt(ti['chance'])}). Fitted reward model's argmax = "
-                  f"rule's action on {fmt(ti['reward_model_argmax_eq_teacher'])} of decisions.", ""]
+                  f"rule's action, share of decisions: {arg}.", ""]
         if "data_curve" in c:
             d = c["data_curve"]
             L += [f"**Data sufficiency** ({d['target']}, width {d['width']}): held-out EV at "
-                  + ", ".join(f"{int(100 * float(k))} % rows {fmt(v)}" for k, v in d["points"].items()) + ".", ""]
+                  + ", ".join(f"{int(100 * float(k))} % rows {fmt(v)}" for k, v in d["points"].items())
+                  + " (rows subsampled within the same training episodes; says nothing about adding episodes).", ""]
     return "\n".join(L) + "\n"
 
 

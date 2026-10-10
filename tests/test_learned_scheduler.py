@@ -10,7 +10,7 @@ import pytest
 
 from conftest import base_args, run_simulator
 from vidur.scheduler.global_scheduler.evolved_global_scheduler import PolicyError
-from vidur.scheduler.global_scheduler.learned_global_scheduler import resolve_config
+from vidur.scheduler.global_scheduler.learned_global_scheduler import resolve_config, rng_seeds
 
 ROOT = Path(__file__).resolve().parents[1]
 SEED_DESIGN = ROOT / "evolve" / "rl_designs" / "seed_ttft_bandit.py"
@@ -208,12 +208,18 @@ def test_each_decision_is_stored_once(conv_session_trace, tmp_path):
 
 # --------------------------------------------------------------------------- RL_LOGGING_SPEC (2026-10-10)
 
-# Digest of the DQN + teacher run below, computed with the learner as committed before the logging change (HEAD
-# 29b4dc9 + the v4 tree, code_version c16266a8ef49) on the Mac mini. Floating-point results depend on the torch /
-# numpy build, so the comparison is skipped on other versions; the log-on == log-off check always runs.
+# Digests of the runs below, computed with the learner as committed before the logging change (this repo's af87600 =
+# 7fb6d38^ for learned_global_scheduler.py; code_version c16266a8ef49) injected into the current tree, on the Mac mini.
+# The DQN + teacher digest is also what the v3 learner (1823e99) gives; the bandit digests are not (v3 stored early
+# completions twice), so they pin the store-once fix. Floating-point results depend on the torch / numpy build, so the
+# comparison is skipped on other versions; the log-on == log-off checks always run.
 GOLDEN_OFF = ("2.10.0", "1.26.4", "3e58176078ab8b9a8adefca297f3d3c26f91cfeba4eedb5520ac7a34cc8b840b")
 GOLDEN_CFG = dict(algorithm="dqn", beta=0.1, learning_starts=8, batch_size=8, teacher_mix=0.5, imitation_weight=1.0,
                   target_update=5)
+# seed_ttft_bandit (outcome reward), two episodes, the second reloading the first's network and replay buffer
+GOLDEN_BANDIT = ("2.10.0", "1.26.4", "6af7f650e4c84f2d29826bd99b805e5637cf2b40cad98449ee83bbc91d3985ba",
+                 "8b900b57558e89dd19ff5d5785dfff7de5b400998d643c2594c5be83978792d2")
+GOLDEN_BANDIT_CFG = dict(learning_starts=8, batch_size=8)
 TIMING_KEYS = ("train_seconds", "policy_seconds", "logging")
 
 
@@ -273,22 +279,104 @@ def test_logging_off_matches_golden_and_logging_is_observe_only(conv_session_tra
         assert d_off == GOLDEN_OFF[2], "log-off run differs from the pre-change learner"
 
 
+def test_bandit_two_episodes_match_golden_and_logging_is_observe_only(conv_session_trace, tmp_path):
+    import torch
+
+    digests = {}
+    for tag, extra in (("off", {}), ("on", dict(log=True, log_interval=3, log_trace_frac=0.5))):
+        d = tmp_path / tag
+        d.mkdir()
+        design = design_with(d, **GOLDEN_BANDIT_CFG, **extra)
+        c1, c2 = d / "e1.pt", d / "e2.pt"
+        run(conv_session_trace, d / "o1", design, ckpt_out=str(c1))
+        run(conv_session_trace, d / "o2", design, ckpt_in=str(c1), ckpt_out=str(c2))
+        digests[tag] = (_digest(c1), _digest(c2))
+    assert digests["on"] == digests["off"]  # also across the buffer reload with its .meta.npz sidecar
+    if (torch.__version__.split("+")[0], np.__version__) == GOLDEN_BANDIT[:2]:
+        assert digests["off"] == GOLDEN_BANDIT[2:], "log-off bandit run differs from the pre-change learner"
+
+
+def test_rng_seeds_streams():
+    """train_seed None keeps the legacy seeds; any train_seed (0 included) gives learner and teacher streams that
+    differ from each other, from the legacy streams and across training and scenario seeds."""
+    assert rng_seeds(None, 67) == (67, 68)  # legacy, including the teacher = seed + 1 quirk
+    legacy = {v for s in range(-5, 200) for v in rng_seeds(None, s)}
+    seen = set()
+    for ts in (0, 1, 2, 3, 4, 1000):
+        for sc in (0, 1, 4, 5, 67):
+            lr, tr = rng_seeds(ts, sc)
+            assert lr != tr and lr not in legacy and tr not in legacy
+            assert lr not in seen and tr not in seen
+            seen |= {lr, tr}
+    assert rng_seeds(3, 7) == rng_seeds(3, 7)
+
+
+def _trace_run(trace, d, train_seed, gen_seed="42"):
+    """One training run with jittered arrivals (so arrivals depend on the request generator seed) and the observe-only
+    decision trace; returns (stats, trace arrays, net)."""
+    import torch
+
+    d.mkdir()
+    ck = d / "net.pt"
+    cfg = dict(learning_starts=10**5, epsilon_start=0.5, epsilon_end=0.5, log=True)
+    if train_seed is not None:
+        cfg["train_seed"] = train_seed
+    run_simulator(base_args(
+        trace, d / "o", num_replicas=3, global_scheduler_config_type="learned",
+        learned_global_scheduler_config_policy_path=str(design_with(d, **cfg)),
+        learned_global_scheduler_config_mode="training",
+        learned_global_scheduler_config_checkpoint_out=str(ck),
+        trace_request_generator_config_arrival_jitter="3.0", trace_request_generator_config_seed=gen_seed))
+    st = json.loads(Path(str(ck) + ".stats.json").read_text())
+    t = np.load(str(ck) + ".trace.npz")
+    o = np.argsort(t["rid"])
+    tr = {"rid": t["rid"][o], "t": t["t"][o], "who": t["who"][o], "out_rid": np.sort(t["out_rid"])}
+    return st, tr, torch.load(ck, weights_only=False)["net"]
+
+
 def test_train_seed_seeds_the_learner_only(conv_session_trace, tmp_path):
     import torch
 
-    nets, decisions = [], []
-    for s in (1, 1, 2):
-        d = tmp_path / f"s{s}_{len(nets)}"
-        d.mkdir()
-        ck = d / "net.pt"
-        run(conv_session_trace, d / "o", design_with(d, learning_starts=10**5, train_seed=s), ckpt_out=str(ck))
-        nets.append(torch.load(ck, weights_only=False)["net"])
-        st = json.loads(Path(str(ck) + ".stats.json").read_text())
-        assert st["train_seed"] == s
-        decisions.append(st["decisions"])
-    same = all(torch.equal(nets[0][k], nets[1][k]) for k in nets[0])
-    diff = any(not torch.equal(nets[0][k], nets[2][k]) for k in nets[0])
-    assert same and diff and len(set(decisions)) == 1  # init follows train_seed; the workload is unchanged
+    runs = {}
+    for name, s in (("a1", 1), ("b1", 1), ("c2", 2), ("z0", 0), ("none", None)):
+        runs[name] = _trace_run(conv_session_trace, tmp_path / name, s)
+    other_sim = _trace_run(conv_session_trace, tmp_path / "gen43", None, gen_seed="43")[1]
+    for name, (st, _, _) in runs.items():
+        assert st.get("train_seed") == {"a1": 1, "b1": 1, "c2": 2, "z0": 0, "none": None}[name]
+    ref = runs["none"][1]
+    for name, (_, tr, _) in runs.items():  # the workload is the same: request ids and (jittered) arrival times
+        assert np.array_equal(tr["rid"], ref["rid"]) and np.array_equal(tr["out_rid"], ref["out_rid"])
+        assert np.array_equal(tr["t"], ref["t"]), name
+    assert not np.array_equal(other_sim["t"], ref["t"])  # the check has teeth: arrivals follow the generator seed
+    # exploration follows train_seed: same seed -> same explore decisions; different seed (or None) -> different
+    who = {n: (tr["who"] == 1) for n, (_, tr, _) in runs.items()}
+    assert who["a1"].sum() > 5
+    assert np.array_equal(who["a1"], who["b1"])
+    assert not np.array_equal(who["a1"], who["c2"])
+    assert not np.array_equal(who["z0"], who["none"])  # train_seed 0 is not the legacy stream
+    # network initialisation follows train_seed
+    nets = {n: net for n, (_, _, net) in runs.items()}
+    assert all(torch.equal(nets["a1"][k], nets["b1"][k]) for k in nets["a1"])
+    assert any(not torch.equal(nets["a1"][k], nets["c2"][k]) for k in nets["a1"])
     for bad in ({"train_seed": -1}, {"train_seed": 1.5}, {"train_seed": True}, {"log": 1}, {"log_trace_frac": 0.0}):
         with pytest.raises(PolicyError):
             resolve_config(bad)
+
+
+def test_manifest_identifies_the_learner(tmp_path, monkeypatch):
+    import hashlib
+
+    from evolve import rl_task
+
+    learner = ROOT / "vidur" / "scheduler" / "global_scheduler" / "learned_global_scheduler.py"
+    run_file = rl_task.run_design(str(SEED_DESIGN), tmp_path, {"train_seed": 3})
+    m = json.loads(rl_task.write_manifest(tmp_path, str(SEED_DESIGN), run_file, rl_task.SMOKE_EPISODES, None,
+                                          {"train_seed": 3}).read_text())
+    assert m["learner_sha256"] == hashlib.sha256(learner.read_bytes()).hexdigest()
+    assert m["design_sha256"] == hashlib.sha256(SEED_DESIGN.read_bytes()).hexdigest()
+    assert m["code_version"] and m["config"]["train_seed"] == 3
+    if m["git_commit"] is not None:  # a git checkout
+        assert len(m["git_commit"]) == 40 and isinstance(m["git_dirty"], bool)
+    monkeypatch.setattr(rl_task, "_git", lambda *a: None)  # no git: recorded as unknown, never fatal
+    p = rl_task.learner_provenance()
+    assert p["git_commit"] is None and p["git_dirty"] is None and p["learner_sha256"] == m["learner_sha256"]

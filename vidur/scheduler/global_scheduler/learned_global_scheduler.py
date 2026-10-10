@@ -89,8 +89,9 @@ DEFAULTS = {
     "persist_buffer": True,
     # --- run options (RL_LOGGING_SPEC; the harness sets them, a design normally does not) ---
     # Training seed separate from the scenario seed: when set, torch's initialisation of a fresh network and the
-    # learner's own RNGs (exploration, batch sampling, the teacher's ctx.rng) follow it instead of the scenario seed,
-    # so a new training seed does not change the arrivals. None = scenario seed (behaviour before 2026-10-10).
+    # learner's own RNGs (exploration, batch sampling, the teacher's ctx.rng; see rng_seeds) follow it together with
+    # the scenario seed, so a new training seed does not change the arrivals. None = scenario seed (behaviour before
+    # 2026-10-10).
     "train_seed": None,
     # Training logs beside the checkpoint (<ckpt>.updates.npz, <ckpt>.trace.npz, a "logging" block in the stats
     # JSON). Logging only observes: a run with log=True takes the same decisions and gradient steps as with False.
@@ -141,6 +142,28 @@ def resolve_config(user: Optional[dict]) -> dict:
               "epsilon_decay_decisions", "log_interval"):
         cfg[k] = int(cfg[k])
     return cfg
+
+
+def rng_seeds(train_seed: Optional[int], scenario_seed: int) -> Tuple[int, int]:
+    """Seeds of the learner's ``random.Random`` (exploration, batch sampling) and of the teacher's ``ctx.rng``.
+
+    train_seed None: (scenario seed, scenario seed + 1), the behaviour before train_seed existed, kept so that default
+    runs stay byte-identical. Known quirk of that legacy rule: the teacher stream of an episode with scenario seed s is
+    the learner stream of an episode with seed s + 1 (e.g. two episodes of one LOTO protocol); the streams are used
+    for different draws, so this correlates rather than repeats decisions.
+    train_seed set (0 included): both seeds are hashes of (tag, train_seed, scenario seed) with distinct tags, so the
+    learner and teacher streams differ from each other, from every train_seed=None stream (up to a 2**-64 collision)
+    and across episodes with different scenario seeds.
+    """
+    if train_seed is None:
+        return scenario_seed, scenario_seed + 1
+    import hashlib
+
+    def h(tag: str) -> int:
+        key = f"vidur-learned-rng/{tag}/{int(train_seed)}/{int(scenario_seed)}".encode()
+        return int.from_bytes(hashlib.sha256(key).digest()[:8], "big") | (1 << 64)  # >= 2**64: never a legacy seed
+
+    return h("learner"), h("teacher")
 
 
 @dataclass(frozen=True)
@@ -209,13 +232,11 @@ class LearnedGlobalScheduler(EvolvedGlobalScheduler):
         if self._teacher is not None and not hasattr(self._teacher, "choose"):
             raise PolicyError("teacher policy must define choose()")
         self._teacher_ctx = None
-        # Learner RNG seed: the scenario seed, or (train_seed set) a mix of the training seed and the scenario seed, so
-        # episodes with different scenario seeds still draw different exploration streams.
-        rseed = gs.seed if self._cfg["train_seed"] is None else self._cfg["train_seed"] * 1_000_003 + gs.seed
+        rseed, tseed = rng_seeds(self._cfg["train_seed"], gs.seed)
         if self._teacher is not None:
             from vidur.scheduler.global_scheduler.evolved_global_scheduler import PolicyContext
 
-            self._teacher_ctx = PolicyContext(random.Random(rseed + 1), len(self._replica_ids))
+            self._teacher_ctx = PolicyContext(random.Random(tseed), len(self._replica_ids))
         self._rng = random.Random(rseed)
         self._log = self._cfg["log"]
         self._who = 0

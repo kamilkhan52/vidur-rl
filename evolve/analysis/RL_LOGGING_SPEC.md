@@ -15,7 +15,7 @@ must be behaviour-preserving when off (golden set byte-identical). `[h]` = harne
 |---|---|---|
 | `train_seed` separate from the scenario seed | [v]+[h] | Today `vidur/main.py` calls `set_seeds(config.seed)`, so torch initialisation, exploration and the teacher RNG all follow the *scenario* seed: a new training seed changes the arrivals. Add `learned_global_scheduler_config_train_seed` (default `None` = current behaviour); when set, the learner calls `torch.manual_seed(train_seed)` before `_init_net` and seeds its `random.Random` from it. The harness passes it per run. |
 | ≥ 5 training seeds for every finalist and every key ablation | [h] | `rl_task.train(..., train_seed=s)`; directory `training/<id>/seed<s>/`. Report mean ± CI across seeds, never the best seed. |
-| Run manifest | [h] | `training/<id>/manifest.json`: code_version, design sha256, CONFIG after `resolve_config`, teacher path + sha, episode list (tags, seeds), train_seed, host, torch/numpy versions, prediction-bundle key. |
+| Run manifest | [h] | `training/<id>/manifest.json`: code_version, learner sha256 (the learner is excluded from code_version), git commit + dirty flags, design sha256, CONFIG after `resolve_config`, teacher path + sha, episode list (tags, seeds), train_seed, host, torch/numpy versions, prediction-bundle key. |
 
 ## 1. Per gradient update (aggregated per logging interval, e.g. every 200 updates)
 
@@ -79,9 +79,9 @@ line; the original design file and hash are untouched and both hashes go into th
 
 | Item | Status | Where |
 |---|---|---|
-| `train_seed` | done, learner-local | `_init_net` calls `torch.manual_seed(train_seed)` before building a fresh net; the learner RNG (exploration, batch sampling) and the teacher's `ctx.rng` use `train_seed * 1000003 + scenario seed` (episodes keep distinct streams). The design's own `ctx.rng` and the simulator still follow the scenario seed, so arrivals are unchanged (smoke check: identical `request_arrived_at`). |
+| `train_seed` | done, learner-local | `_init_net` calls `torch.manual_seed(train_seed)` before building a fresh net; the learner RNG (exploration, batch sampling) and the teacher's `ctx.rng` are seeded by `rng_seeds(train_seed, scenario seed)`: sha256 of (tag, train_seed, scenario seed) with tags `learner` / `teacher`, so for any train_seed (0 included) the two streams differ from each other, from every train_seed=None stream and across episodes (review F_r1; the first version, `train_seed * 1000003 + seed`, gave train_seed 0 the default streams; no run used it). train_seed None keeps the legacy seeds (scenario seed, scenario seed + 1) for byte-identity, with a known quirk: the teacher stream of an episode with scenario seed s is the learner stream of an episode with seed s + 1. The design's own `ctx.rng` and the simulator still follow the scenario seed, so arrivals are unchanged (test: identical request ids and jittered arrival times across train seeds; explore decisions equal for equal seeds, different otherwise, train_seed 0 vs None included). |
 | ≥ 5 seeds | hook | `rl_task.train_seeds(design, dir, seeds)` -> `dir/seed<s>/`, sequential. Not yet run for any finalist. |
-| Manifest | done | `<work_dir>/manifest.json` when any option is on (`rl_task.write_manifest`), bundle added after episode 0. |
+| Manifest | done | `<work_dir>/manifest.json` when any option is on (`rl_task.write_manifest`), bundle added after episode 0. Includes `rl_task.learner_provenance()`: `learner_sha256`, `rl_task_sha256`, `git_commit`, `git_dirty` (tracked files modified), `git_learner_dirty` (None without git). The same block is returned by `train()` as `learner_provenance` whatever the options, so archive rows (`result.training`) carry it for default runs too. |
 | §1 per-update | done except entropy/KL | `<ckpt>.updates.npz`: loss total/TD/imitation (mean, p95), grad norm (mean, p95, max) and clip fraction, TD error mean/sd/p5/p50/p95, Q mean, target mean, Q spread (std across replicas) and top-2 gap, batch EV, target syncs and drift, replay age, buffer fill, lr, ε, teacher_mix, imitation weight. Entropy/KL: n/a (no PPO/softmax policy in the learner). |
 | §2 per-episode | done | stats JSON gets an additive `logging` block (only with `log=True`): `buffer_start`, `buffer_rows_added`, `buffer_end` (slots `(start + j) % capacity`, exact after a wrap), who-acted counts, decision/features/act latency (p50/p99/mean/max µs), file row counts; `train_seed` key when set. Episode tag, scenario seed and train seed are in the manifest and the returned log rows. |
 | Held-out greedy eval per checkpoint | hook, off by default | `train(heldout=[Scenario...])` -> `<ckpt>.heldout.json` (P99 E2E/TTFT/TPOT/TBT, mean E2E). One simulation per scenario and episode; tested on one 200-request window. |
@@ -98,7 +98,9 @@ reference was itself deterministic on a rerun). (2) Same with `log=True`: identi
 and new files. (3) `tests/test_learned_scheduler.py::test_logging_off_matches_golden_and_logging_is_observe_only`
 checks a digest of a tiny DQN+teacher run against the pre-change learner (torch 2.10.0 / numpy 1.26.4; skipped on
 other builds) and log on == log off. (4) `train_seed`: same seed twice identical, a different seed changes the
-network, arrivals unchanged.
+network and the explore decisions, arrivals unchanged. (5) `test_bandit_two_episodes_match_golden_and_logging_is_observe_only`:
+seed_ttft_bandit, two episodes with a buffer reload, digests equal to the pre-change learner (af87600) and log on ==
+log off; the v3 learner gives different bandit digests (double store), so this test pins the store-once fix.
 
 **Left.** Run the ≥ 5-seed protocol for finalists; decide the probe set and held-out windows for real runs (cost:
 about 3 short simulations per episode); a design-level reward-components hook; entropy/KL once a softmax/PPO learner
