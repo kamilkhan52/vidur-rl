@@ -308,6 +308,27 @@ _VERSION_EXCLUDE = {
 _VERSION: Dict[str, str] = {}
 
 
+_BUNDLE_SHA: Dict[str, str] = {}
+
+
+def bundle_fingerprint(bundle_key: str) -> str:
+    """'<bundle key>:<first 12 hex of the bundle file's sha256>'. Two runs with equal fingerprints used the same
+    prediction table byte for byte; forests retrained on another machine give the same key but a different sha."""
+    if bundle_key not in _BUNDLE_SHA:
+        p = REPO / "cache" / f"prediction_bundle_{bundle_key}.pkl"
+        _BUNDLE_SHA[bundle_key] = file_sha(p)[:12] if p.exists() else "missing"
+    return f"{bundle_key}:{_BUNDLE_SHA[bundle_key]}"
+
+
+def provenance() -> dict:
+    """Library and host versions recorded next to results (not hashed into code_version, so that caches from
+    machines with different library builds can still be pooled after the golden set shows them byte-identical)."""
+    import platform
+    import sklearn
+    return {"code_version": code_version(), "python": platform.python_version(), "numpy": np.__version__,
+            "pandas": pd.__version__, "sklearn": sklearn.__version__, "host": platform.node()}
+
+
 def code_version() -> str:
     """Content hash of the simulator + harness files that determine a run's outcome.
 
@@ -324,6 +345,10 @@ def code_version() -> str:
             )
             files = [f for f in files if f not in _VERSION_EXCLUDE]
             files += ["scripts/tail_metrics.py"]
+            # v4: the profiling data the predictor trains on (a replaced profile CSV must invalidate baselines).
+            files += sorted(
+                str((Path(d) / f).relative_to(REPO)).replace(os.sep, "/")
+                for d, _, names in os.walk(REPO / "data" / "profiling") for f in names if f.endswith(".csv"))
             h = hashlib.sha256()
             for f in files:
                 h.update(f.encode())
@@ -375,8 +400,13 @@ def run_one(scheduler: str, sc: Scenario, policy: Optional[str] = None, timeout:
     """Simulate one scenario; return the tail summary or a failure record. Never raises."""
     trace_csv = window_csv(sc)
     n_expected = len(pd.read_csv(trace_csv, usecols=["arrived_at"]))
+    keep = os.environ.get("EVOLVE_KEEP_DIR")  # v4: keep per-request outputs (request_metrics.csv, token gaps)
     with tempfile.TemporaryDirectory(prefix="evolve_") as tmp:
-        out_dir = Path(tmp) / "out"
+        who = scheduler if not policy else f"{Path(policy).stem}_{file_sha(Path(policy))[:8]}"
+        out_dir = (Path(keep) / code_version() / sc.tag / who) if keep else Path(tmp) / "out"
+        if keep and out_dir.exists():
+            import shutil
+            shutil.rmtree(out_dir)
         cmd = (launcher or []) + sim_command(scheduler, policy, sc, trace_csv, out_dir, extra)
         t0 = time.time()
         try:
@@ -391,6 +421,8 @@ def run_one(scheduler: str, sc: Scenario, policy: Optional[str] = None, timeout:
         if not files:
             return {"ok": False, "reason": "no request_metrics.csv", "wall_s": wall}
         df = pd.read_csv(files[0])
+        info_files = list(out_dir.rglob("predictor_info.json"))
+        info = json.loads(info_files[0].read_text()) if info_files else {}
         gaps_file = files[0].parent / "token_gaps.npz"
         gaps = np.load(gaps_file) if gaps_file.exists() else None
         gap, gap_req = (gaps["gap"], gaps["request_id"]) if gaps is not None else (None, None)
@@ -410,6 +442,8 @@ def run_one(scheduler: str, sc: Scenario, policy: Optional[str] = None, timeout:
                   "p99_tbt": float(np.percentile(g, 99)), "p999_tbt": float(np.percentile(g, 99.9)),
                   "mean_tbt": float(g.mean()), "n_tbt": int(len(g))})
     s.update({"ok": True, "completed": completed, "scored": len(df), "wall_s": wall})
+    if info:
+        s.update({"bundle": bundle_fingerprint(info["bundle_key"]), "clamp_hits": info.get("clamp_hits", {})})
     return s
 
 
@@ -491,6 +525,9 @@ def score(candidate: Dict[Scenario, dict], base: dict, baselines=DEFAULT_BASELIN
     rows, per_s = [], []
     penalty = 0.0
     for sc, res in candidate.items():
+        bundles = {r["bundle"] for r in [res] + [base[(b, sc)] for b in baselines] if r.get("bundle")}
+        if len(bundles) > 1:
+            raise ValueError(f"{sc.tag}: runs used different prediction bundles {sorted(bundles)}")
         s = 0.0
         for m in (m for m in ("e2e", "ttft", "tpot", "tbt") if w.get(m)):
             best = min(base[(b, sc)][f"p99_{m}"] for b in baselines)

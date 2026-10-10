@@ -42,6 +42,8 @@ class SklearnExecutionTimePredictor(BaseExecutionTimePredictor):
             cache_config=cache_config,
         )
         os.makedirs(self._config.cache_dir, exist_ok=True)
+        # Lookups outside the profiled table, clamped to its edge (per table); reported in predictor_info.json.
+        self.clamp_hits: Dict[str, int] = {}
 
         # These overheads are only for GQA models
         self._attention_prefill_batching_overhead_fraction = (
@@ -830,6 +832,10 @@ class SklearnExecutionTimePredictor(BaseExecutionTimePredictor):
             items.append(f"{k}={v}")
         return hashlib.sha256(";".join(items).encode("utf-8")).hexdigest()[:16]
 
+    def provenance(self) -> Dict[str, Any]:
+        """Which prediction table this run used, and how often lookups fell outside it (clamped to its edge)."""
+        return {"bundle_key": self._bundle_key(), "clamp_hits": dict(self.clamp_hits)}
+
     def _predict_from_models(self) -> Dict[str, Any]:
         mode = self._config.cache_mode
         bundle = f"{self._config.cache_dir}/prediction_bundle_{self._bundle_key()}.pkl"
@@ -944,6 +950,7 @@ class SklearnExecutionTimePredictor(BaseExecutionTimePredictor):
             )
             if clamped_key in predictions:
                 key = clamped_key
+                self.clamp_hits["attn_decode"] = self.clamp_hits.get("attn_decode", 0) + 1
             # else: let it raise KeyError as before for truly unexpected shapes
 
         return predictions[key] * (
@@ -971,6 +978,7 @@ class SklearnExecutionTimePredictor(BaseExecutionTimePredictor):
                 min(batch.prefill_agg_kv_cache_size, self._attn_prefill_max_kv),
                 min(batch.prefill_agg_chunk_size, self._attn_prefill_max_chunk),
             )
+            self.clamp_hits["attn_prefill"] = self.clamp_hits.get("attn_prefill", 0) + 1
 
         return predictions[key] * (
             1
