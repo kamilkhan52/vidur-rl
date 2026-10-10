@@ -395,6 +395,44 @@ def test_repo_policies_pass_module_scan(path):
     assert sf._module_state_issues(load_policy(str(ev.REPO / path), require_router=False)) == []
 
 
+HARMLESS = {  # E r4 minor 2: stores of module constants into locals/ctx.state are not aliases of shared objects
+    "local_item_const": """
+        INELIGIBLE = 1e30
+        def choose(request, replicas, ctx):
+            costs = [0.0] * len(replicas)
+            costs[0] = INELIGIBLE
+            return costs.index(min(costs))
+        """,
+    "ctx_state_const": """
+        INIT = 0.5
+        def choose(request, replicas, ctx):
+            ctx.state["n"] = ctx.state.get("n", 0) + 1
+            ctx.state["ewma"] = INIT
+            return 0
+        """,
+    "local_dict_math": """
+        import math
+        def choose(request, replicas, ctx):
+            d = {}
+            d["k"] = math.pi
+            d["j"] = d["k"]
+            return 0
+        """,
+}
+
+
+@pytest.mark.parametrize("case", sorted(HARMLESS))
+def test_harmless_stores_pass_module_scan(tmp_path, case):
+    assert sf._module_state_issues(_load(tmp_path, case, HARMLESS[case])) == []
+
+
+def test_reviewed_candidate_passes_module_scan():
+    f = ev.REPO / "evolve/runs/t4_local_r3/programs/33c06df4220e.py"
+    if not f.exists():
+        pytest.skip("candidate not present")
+    assert sf._module_state_issues(load_policy(str(f), require_router=False)) == []
+
+
 def _views(*outstanding):
     return [types.SimpleNamespace(outstanding_requests=o) for o in outstanding]
 

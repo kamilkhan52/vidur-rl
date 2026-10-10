@@ -20,6 +20,11 @@ live values.
 
 Learned (RL) schedulers are not forkable (``fork`` raises ``NotImplementedError``): see ``_unforkable_reason``.
 
+Known blind spot of the module-state checks: state in a nested class, in a method's ``__dict__`` or in a callable
+class attribute, mutated through ``self`` or a function parameter, is invisible to both the static scan and the
+fingerprint, so in-process forks of such a policy would share it silently (no repo policy does this; process-isolated
+``os.fork`` rollouts are not affected, as module state is per process there).
+
 Forced decisions: see ``override_next_decision`` (and ``cancel_override``). ``os.fork`` rollouts: call
 ``after_os_fork(h)`` first thing in the child (CPython reseeds the global ``random`` in every child; sim_fork restores
 it automatically through ``os.register_at_fork``, the helper is the explicit safeguard).
@@ -252,6 +257,18 @@ def _decorator_issue(d, where: str) -> Optional[str]:
     return None if name in _SAFE_DECORATORS else f"{where}: decorator @{name}"
 
 
+def _plain_targets(t) -> List[ast.Name]:
+    """Names bound by an assignment target: a bare name, or the names of a tuple/list/starred unpacking, but not
+    names inside an attribute or item target (``costs[i] = X`` binds nothing)."""
+    if isinstance(t, ast.Name):
+        return [t]
+    if isinstance(t, ast.Starred):
+        return _plain_targets(t.value)
+    if isinstance(t, (ast.Tuple, ast.List)):
+        return [x for e in t.elts for x in _plain_targets(e)]
+    return []
+
+
 def _function_issues(fn, module_names: set, in_class: bool = False) -> List[str]:
     out = []
     loc = fn.name if hasattr(fn, "name") else "lambda"
@@ -279,7 +296,7 @@ def _function_issues(fn, module_names: set, in_class: bool = False) -> List[str]
             r = _root_name(node.value) if isinstance(node.value, (ast.Name, ast.Attribute, ast.Subscript)) else None
             if r is not None and r in module_names and r not in params:
                 tg = node.targets if isinstance(node, ast.Assign) else [node.target]
-                shared |= {x.id for t in tg for x in ast.walk(t) if isinstance(x, ast.Name)}
+                shared |= {x.id for t in tg for x in _plain_targets(t)}
     if in_class and fn.args.args and any(ast.unparse(d) == "classmethod" for d in fn.decorator_list):
         shared.add(fn.args.args[0].arg)
     for node in ast.walk(fn):
@@ -733,7 +750,9 @@ def override_next_decision(h: SimHandle, choice_for_first: Optional[int], policy
       trimmed to ``min(len, outstanding)``, then exactly ``n`` appended at the pick) and the entry is moved to ``a``;
     - ``policy_state="independent"``, accepted only for policies in ``_INDEPENDENT_POLICIES`` (source sha256 of
       policies whose state update was reviewed to be independent of the pick: claude_r1, completion_r2,
-      t4_70b_8b92). As a second guard the call's change must not involve the pick: no new or changed int equal to
+      t4_70b_8b92); the allowlist is the real protection. As a best-effort second guard the call's change must not
+      involve the pick (Python ints and mutable sequences only; numpy ints, floats, strings, dict keys and rebuilt
+      tuples are not checked): no new or changed int equal to
       the pick anywhere in ``ctx.state`` (a ``{session: replica}`` map, a last-pick scalar, a pick history), and no
       changed entry at the pick's index of a mutable sequence of num_replicas entries at any depth;
     - a policy with an empty ``ctx.state`` before and after the call.
