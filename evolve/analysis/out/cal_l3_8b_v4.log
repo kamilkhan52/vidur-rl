@@ -1,0 +1,25 @@
+warm-up l3_8b-8R-Tool-s0.5-full-p1 True  wall 102s
+l3_8b-8R-Tool-s0.5-full-p1 lor True p99_e2e 1268.438 p99_ttft 1257.955 p99_tpot 0.128 p99_tbt 0.229 prefill_hit_ratio 0.359  wall 187s
+l3_8b-8R-Tool-s0.5-full-p1 sticky_lor True p99_e2e 1162.162 p99_ttft 1134.845 p99_tpot 0.130 p99_tbt 0.233 prefill_hit_ratio 0.436  wall 199s
+l3_8b-8R-Tool-s0.5-full-p1 lop_uncached True p99_e2e 1145.968 p99_ttft 1131.946 p99_tpot 0.128 p99_tbt 0.231 prefill_hit_ratio 0.364  wall 236s
+l3_8b-8R-Tool-s0.65-full-p1 lor True p99_e2e 686.370 p99_ttft 660.404 p99_tpot 0.129 p99_tbt 0.229 prefill_hit_ratio 0.361  wall 187s
+l3_8b-8R-Tool-s0.65-full-p1 sticky_lor True p99_e2e 457.496 p99_ttft 420.607 p99_tpot 0.130 p99_tbt 0.233 prefill_hit_ratio 0.439  wall 196s
+l3_8b-8R-Tool-s0.65-full-p1 lop_uncached True p99_e2e 618.877 p99_ttft 588.534 p99_tpot 0.127 p99_tbt 0.233 prefill_hit_ratio 0.365  wall 239s
+l3_8b-8R-Tool-s0.75-full-p1 lor True p99_e2e 345.264 p99_ttft 331.589 p99_tpot 0.129 p99_tbt 0.230 prefill_hit_ratio 0.361  wall 185s
+l3_8b-8R-Tool-s0.75-full-p1 sticky_lor True p99_e2e 116.951 p99_ttft 66.894 p99_tpot 0.125 p99_tbt 0.218 prefill_hit_ratio 0.443  wall 195s
+l3_8b-8R-Tool-s0.75-full-p1 lop_uncached True p99_e2e 252.005 p99_ttft 216.985 p99_tpot 0.126 p99_tbt 0.225 prefill_hit_ratio 0.369  wall 237s
+l3_8b-8R-Tool-s1.0-full-p1 lor True p99_e2e 62.795 p99_ttft 38.343 p99_tpot 0.096 p99_tbt 0.177 prefill_hit_ratio 0.362  wall 215s
+l3_8b-8R-Tool-s1.0-full-p1 sticky_lor True p99_e2e 61.606 p99_ttft 44.740 p99_tpot 0.095 p99_tbt 0.162 prefill_hit_ratio 0.443  wall 240s
+l3_8b-8R-Tool-s1.0-full-p1 lop_uncached True p99_e2e 58.248 p99_ttft 19.970 p99_tpot 0.100 p99_tbt 0.183 prefill_hit_ratio 0.375  wall 269s
+l3_8b-8R-Conv-s0.5-full-p1 lor True p99_e2e 1422.630 p99_ttft 1391.503 p99_tpot 0.139 p99_tbt 0.238 prefill_hit_ratio 0.061  wall 161s
+l3_8b-8R-Conv-s0.5-full-p1 sticky_lor True p99_e2e 1116.703 p99_ttft 1086.757 p99_tpot 0.141 p99_tbt 0.240 prefill_hit_ratio 0.170  wall 156s
+l3_8b-8R-Conv-s0.5-full-p1 lop_uncached True p99_e2e 1366.017 p99_ttft 1335.884 p99_tpot 0.141 p99_tbt 0.239 prefill_hit_ratio 0.063  wall 193s
+l3_8b-8R-Conv-s0.65-full-p1 lor True p99_e2e 882.365 p99_ttft 854.651 p99_tpot 0.141 p99_tbt 0.238 prefill_hit_ratio 0.063  wall 166s
+l3_8b-8R-Conv-s0.65-full-p1 sticky_lor True p99_e2e 628.473 p99_ttft 587.587 p99_tpot 0.142 p99_tbt 0.240 prefill_hit_ratio 0.170  wall 157s
+l3_8b-8R-Conv-s0.65-full-p1 lop_uncached True p99_e2e 825.718 p99_ttft 800.866 p99_tpot 0.139 p99_tbt 0.238 prefill_hit_ratio 0.065  wall 192s
+l3_8b-8R-Conv-s0.75-full-p1 lor True p99_e2e 552.768 p99_ttft 521.577 p99_tpot 0.142 p99_tbt 0.239 prefill_hit_ratio 0.060  wall 165s
+l3_8b-8R-Conv-s0.75-full-p1 sticky_lor True p99_e2e 257.068 p99_ttft 210.339 p99_tpot 0.141 p99_tbt 0.243 prefill_hit_ratio 0.168  wall 156s
+l3_8b-8R-Conv-s0.75-full-p1 lop_uncached True p99_e2e 471.431 p99_ttft 438.719 p99_tpot 0.139 p99_tbt 0.237 prefill_hit_ratio 0.064  wall 175s
+l3_8b-8R-Conv-s1.0-full-p1 lor True p99_e2e 90.385 p99_ttft 48.508 p99_tpot 0.123 p99_tbt 0.198 prefill_hit_ratio 0.060  wall 145s
+l3_8b-8R-Conv-s1.0-full-p1 sticky_lor True p99_e2e 83.664 p99_ttft 46.164 p99_tpot 0.112 p99_tbt 0.179 prefill_hit_ratio 0.170  wall 150s
+l3_8b-8R-Conv-s1.0-full-p1 lop_uncached True p99_e2e 79.893 p99_ttft 27.150 p99_tpot 0.121 p99_tbt 0.200 prefill_hit_ratio 0.067  wall 155s

@@ -12,9 +12,11 @@ The defaults (QUEUE_W = 1, ..., the untuned constants) are always evaluated firs
   python -m evolve.analysis.tune_baselines --family mooncake --stage search3b --budget 125 --run-dir evolve/runs/tune_mooncake
 """
 import argparse
+import concurrent.futures as cf
 import json
 import math
 import re
+import threading
 from pathlib import Path
 
 import numpy as np
@@ -86,6 +88,7 @@ def main():
     ap.add_argument("--budget", type=int, default=125, help="candidate evaluations, defaults included")
     ap.add_argument("--workers", type=int, default=8)
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--parallel", type=int, default=1, help="ES candidates evaluated at once (each uses --workers)")
     ap.add_argument("--run-dir", required=True)
     a = ap.parse_args()
 
@@ -102,19 +105,26 @@ def main():
             done[json.dumps(r["params"], sort_keys=True)] = r
     scenarios = ev.STAGES[a.stage]
 
+    lock = threading.Lock()
+    counter = [len(done)]
+
     def score(params: dict) -> float:
         key = json.dumps(params, sort_keys=True)
-        if key in done:
-            return done[key]["fitness"]
-        path = run / "candidates" / f"{a.family}_{len(done):04d}.py"
+        with lock:
+            if key in done:
+                return done[key]["fitness"]
+            n = counter[0]
+            counter[0] += 1
+        path = run / "candidates" / f"{a.family}_{n:04d}.py"
         path.write_text(render(template, params))
-        res = ev.evaluate_policy(str(path), scenarios, workers=a.workers, baselines=ev.BAR_V2,
+        res = ev.evaluate_policy(str(path), scenarios, workers=a.workers, baselines=ev.BAR_V4,
                                  objective=a.objective)
         rec = {"params": params, "fitness": res["combined_score"], "valid": res.get("valid", False),
                "file": str(path), "code_version": res.get("code_version")}
-        done[key] = rec
-        with log.open("a") as f:
-            f.write(json.dumps(rec) + "\n")
+        with lock:
+            done[key] = rec
+            with log.open("a") as f:
+                f.write(json.dumps(rec) + "\n")
         print(f"{path.name} {params} fitness {rec['fitness']:+.4f}", flush=True)
         return rec["fitness"]
 
@@ -123,7 +133,9 @@ def main():
 
     defaults = {k: space[k][3] for k in names}
     score(defaults)
-    ask_tell(a.budget - 1, len(names), lambda pop: [score(params_of(u)) for u in pop], seed=a.seed)
+    ev.ensure_baselines(scenarios, ev.BAR_V4, a.workers)  # once, before candidates run in parallel
+    with cf.ThreadPoolExecutor(max_workers=a.parallel) as ex:
+        ask_tell(a.budget - 1, len(names), lambda pop: list(ex.map(lambda u: score(params_of(u)), pop)), seed=a.seed)
     best = max(done.values(), key=lambda r: r["fitness"])
     (run / "best.json").write_text(json.dumps(best, indent=2))
     print(f"best {best['params']} fitness {best['fitness']:+.4f} ({len(done)} evaluations)")
