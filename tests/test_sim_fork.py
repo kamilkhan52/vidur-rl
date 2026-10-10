@@ -147,7 +147,9 @@ def test_forced_decisions(ref, tmp_path):
     # Counterfactual by construction: the policy itself picks `a` for the first request (its _select returns a
     # after running as usual, so its rng draws are unchanged); no override.
     c = o.fork(str(tmp_path / "C"))
-    mod = gs._policy
+    mod = load_policy(POLICY)  # c's own module instance: patching the shared one would (rightly) invalidate the family
+    c.sim._scheduler._policy = mod
+    c.family, c.policy_fp = {"forked": False}, sf._module_fingerprint(mod)
     orig, calls = mod._select, []
 
     def select_a(*args, **kw):
@@ -318,6 +320,39 @@ STATEFUL = {
             _seen.append(1)
             return 0
         """,
+    "classmethod_counter": """
+        class _T:
+            n = 0
+            @classmethod
+            def bump(cls):
+                cls.n += 1
+        def choose(request, replicas, ctx):
+            _T.bump()
+            return 0
+        """,
+    "alias_store": """
+        class _C:
+            n = 0
+        def choose(request, replicas, ctx):
+            c = _C
+            c.n += 1
+            return 0
+        """,
+    "alias_function_dict": """
+        def choose(request, replicas, ctx):
+            f = choose
+            f.__dict__["calls"] = f.__dict__.get("calls", 0) + 1
+            return 0
+        """,
+    "class_via_instance": """
+        class _C:
+            n = 0
+            def bump(self):
+                type(self).n += 1
+        def choose(request, replicas, ctx):
+            _C().bump()
+            return 0
+        """,
     "function_attribute": """
         def choose(request, replicas, ctx):
             choose.calls = getattr(choose, "calls", 0) + 1
@@ -369,7 +404,7 @@ def test_reconcile_requires_an_exact_mechanism(tmp_path):
     ctx = types.SimpleNamespace(num_replicas=4, state={})
 
     # SGLang: the prefix index is unchanged at its own pick (hashes already indexed there), but forcing replica 0
-    # would have indexed them at 0. "Unchanged" is not exact: raise; and the per-replica index refuses "independent".
+    # would have indexed them at 0. "Unchanged" is not exact: raise; and it is not a reviewed "independent" policy.
     sglang = load_policy(str(ev.REPO / "evolve/policies/systems/sglang_cache_aware.py"))
     ctx.state = {"sglang_index": [set(), {1, 2}, set(), set()]}
     before = copy.deepcopy(ctx.state)
@@ -380,13 +415,28 @@ def test_reconcile_requires_an_exact_mechanism(tmp_path):
     clean = _load(tmp_path, "nostate", "def choose(request, replicas, ctx):\n    return 0\n")
     ctx.state = {}
     sf._reconcile(clean, {}, req, _views(0, 0, 0, 0), 1, 0, ctx, "auto")  # no state anywhere: exact
-    ctx.state = {"sessions": {5: (1.0, 7)}}  # pick-independent (claude_r1-like), asserted by the caller
-    sf._reconcile(clean, {"sessions": {}}, req, _views(0, 0, 0, 0), 1, 0, ctx, "independent")
+    ctx.extra = 1  # state on a ctx attribute (outside ctx.state) is never reconciled
+    with pytest.raises(NotImplementedError, match="ctx attributes"):
+        sf._reconcile(clean, {}, req, _views(0, 0, 0, 0), 1, 0, ctx, "auto")
+    del ctx.extra
+    with pytest.raises(NotImplementedError, match="ctx attributes"):  # present before the call only
+        sf._reconcile(clean, {}, req, _views(0, 0, 0, 0), 1, 0, ctx, "auto", {"last_pick": 1})
+
+    # "independent": only for reviewed policies (allowlist by source sha256)
+    ctx.state = {"sessions": {5: (1.0, 7)}}
+    with pytest.raises(NotImplementedError, match="accepted only for reviewed policies"):
+        sf._reconcile(clean, {"sessions": {}}, req, _views(0, 0, 0, 0), 1, 0, ctx, "independent")
     with pytest.raises(NotImplementedError):
         sf._reconcile(clean, {"sessions": {}}, req, _views(0, 0, 0, 0), 1, 0, ctx, "auto")
-    ctx.state = {"per_replica_ewma": [0.0, 1.0, 0.0, 0.0]}
-    with pytest.raises(NotImplementedError, match="independent"):
-        sf._reconcile(clean, {}, req, _views(0, 0, 0, 0), 1, 0, ctx, "independent")
+    claude = load_policy(str(ev.REPO / "evolve/finalists/claude_r1_76be082eb0f5.py"))
+    sf._reconcile(claude, {"sessions": {}}, req, _views(0, 0, 0, 0), 1, 0, ctx, "independent")
+    # early session ids look like replica indices (E r3 nit): no false refusal
+    ctx.state = {"sessions": {0: (0.0, 900), 1: (0.5, 1200), 2: (1.0, 4000), 3: (1.5, 800)}}
+    sf._reconcile(claude, {"sessions": {0: (0.0, 900), 1: (0.5, 1200), 2: (1.0, 4000)}}, req,
+                  _views(0, 0, 0, 0), 1, 0, ctx, "independent")
+    ctx.state = {"sessions": {5: (1.0, 7)}, "affinity": {5: 1}}  # second guard: a value equal to the pick
+    with pytest.raises(NotImplementedError, match="involves the pick"):
+        sf._reconcile(claude, {"sessions": {}, "affinity": {}}, req, _views(0, 0, 0, 0), 1, 0, ctx, "independent")
 
     hooked = _load(tmp_path, "hooked", """
         def choose(request, replicas, ctx):
@@ -398,6 +448,26 @@ def test_reconcile_requires_an_exact_mechanism(tmp_path):
     ctx.state = {"idx": [set(), {1, 2}, set(), set()]}
     sf._reconcile(hooked, {}, req, _views(0, 0, 0, 0), 1, 0, ctx, "auto")
     assert ctx.state["forced"] == (1, 0)
+
+
+def test_pick_dependent_change_guard():
+    pick, num = 1, 4
+    cases = {  # E r3 major: state shapes whose update records the pick (each before -> after)
+        "mooncake_burst": ((0.0, [set(), set(), set(), set()]), (0.0, [set(), {7}, set(), set()])),
+        "nested_per_replica": ({"q": [0, 0, 0, 0]}, {"q": [0, 5, 0, 0]}),
+        "session_affinity": ({}, {12: 1}),
+        "last_pick": (0, 1),
+        "global_fifo": ([(0, 300)], [(0, 300), (1, 700)]),
+        "pick_history": (deque([0], maxlen=16), deque([0, 1], maxlen=16)),
+        "replica_set": (set(), {1}),
+    }
+    for name, (old, new) in cases.items():
+        assert sf._pick_dependent_change({"k": old}, {"k": new}, pick, num), name
+    # pick-independent updates (claude_r1 / completion_r2 / t4_70b shapes) pass
+    assert sf._pick_dependent_change({"sessions": {1: (0.5, 800)}}, {"sessions": {1: (2.0, 900), 3: (2.0, 50)}},
+                                     pick, num) is None
+    assert sf._pick_dependent_change({}, {"session_prompt": {1: 900.0}, "scarcity_ewma": 0.3}, pick, num) is None
+    assert sf._pick_dependent_change({"prompt_ewma": 1.0}, {"prompt_ewma": 1.5}, pick, num) is None
 
 
 TAIL4 = (ev.REPO / "evolve/finalists/tail4_ni.py").read_text()
@@ -476,3 +546,77 @@ def test_sglang_forced_decision_raises(tmp_path):
     override_next_decision(h, (rec["policy_choice"] + 1) % SC.replicas)
     with pytest.raises(NotImplementedError, match="cannot force"):
         h.run(lambda x: x.decisions >= 3)
+
+
+def test_module_state_change_after_fork_is_caught(tmp_path):
+    # Module state mutated through a path the static scan does not see, starting only after t = 30 s: the fork at
+    # decision 2 is allowed, and the change is caught when a run of the family returns.
+    pol = tmp_path / "lazy.py"
+    pol.write_text(textwrap.dedent("""
+        class _C:
+            n = 0
+        def choose(request, replicas, ctx):
+            if ctx.now > 30.0:
+                type.__setattr__(_C, "n", _C.n + 1)
+            loads = [r.outstanding_requests for r in replicas]
+            return loads.index(min(loads))
+        """))
+    mod = load_policy(str(pol))
+    assert not sf._module_state_issues(mod)
+    argv = ev.sim_command("evolved", str(pol), SC, ev.window_csv(SC), tmp_path / "L",
+                          ["--no-metrics_config_store_plots"])[3:]
+    h = build_simulator(argv)
+    assert h.run_to_decision(2)
+    f = h.fork()
+    with pytest.raises(RuntimeError, match="changed its module-level state during a run"):
+        f.run(lambda x: x.decisions >= 12)
+    with pytest.raises(NotImplementedError, match="changed its module-level state"):
+        h.fork()
+    # a forced decision is refused too once the module state differs from the build's
+    req = types.SimpleNamespace(num_prefill_tokens=7)
+    ctx = types.SimpleNamespace(num_replicas=4, state={})
+    with pytest.raises(NotImplementedError, match="changed since the handle was built"):
+        sf._reconcile(h.sim._scheduler._policy, {}, req, _views(0, 0, 0, 0), 1, 0, ctx, "auto", {}, h.policy_fp)
+
+
+def test_os_fork_inside_run_callback_keeps_global_rng(tmp_path):
+    import hashlib
+    import json
+    import os
+    import pickle
+    import random
+
+    h = _build(tmp_path / "O")
+    seen = {}
+
+    def cb(x):
+        if x.at_decision() and x.decisions == 4:
+            seen["parent"] = hashlib.sha256(pickle.dumps(random.getstate())).hexdigest()
+            r, w = os.pipe()
+            pid = os.fork()
+            if pid == 0:
+                os.close(r)
+                try:
+                    raw = hashlib.sha256(pickle.dumps(random.getstate())).hexdigest()
+                    sf.after_os_fork(x)
+                    out = {"raw": raw, "restored": hashlib.sha256(pickle.dumps(random.getstate())).hexdigest(),
+                           "rec": None}
+                    rec = {}
+                    override_next_decision(x, None, record=rec)
+                    out["cancel"] = [sf.cancel_override(x), sf.cancel_override(x)]
+                    override_next_decision(x, 0, record=rec)
+                    with os.fdopen(w, "w") as fw:
+                        json.dump(out, fw)
+                finally:
+                    os._exit(0)
+            os.close(w)
+            with os.fdopen(r) as fr:
+                seen["child"] = json.load(fr)
+            os.waitpid(pid, 0)
+            return True
+        return False
+
+    assert h.run(cb)
+    c = seen["child"]
+    assert c["raw"] == seen["parent"] == c["restored"]  # restored automatically (register_at_fork) and by the helper
+    assert c["cancel"] == [True, False]
