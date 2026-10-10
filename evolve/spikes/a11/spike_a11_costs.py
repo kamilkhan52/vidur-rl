@@ -12,7 +12,7 @@ import numpy as np
 
 from evolve import evaluate as ev
 from evolve.sim_fork import build_simulator, override_next_decision
-from evolve.spike_a11 import argv_for
+from evolve.spikes.a11.spike_a11 import argv_for
 
 
 def rss_now_mb():
