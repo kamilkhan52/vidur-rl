@@ -43,3 +43,20 @@ def test_es_finds_the_optimum_of_a_quadratic():
     hist = ask_tell(120, 2, lambda pop: [-float(((u - target) ** 2).sum()) for u in pop], seed=0)
     best = max(hist, key=lambda x: x[1])[0]
     assert len(hist) == 120 and np.abs(best - target).max() < 0.05
+
+
+def test_install_writes_the_frozen_policy(tmp_path, monkeypatch):
+    import json
+    from evolve import evaluate as ev
+    from evolve.analysis import tune_baselines as tb
+    monkeypatch.setattr(ev, "TUNED", tmp_path / "tuned")
+    run = tmp_path / "run"
+    run.mkdir()
+    params = {"PREFILL_SCALE": 2.5, "TEMPERATURE": 0.0}
+    rec = {"params": params, "fitness": 0.01, "valid": True, "file": "x", "code_version": ev.code_version()}
+    (run / "best.json").write_text(json.dumps(rec))
+    (run / "history.jsonl").write_text(json.dumps(rec) + "\n")
+    out = tb.install("dynamo", run)
+    assert out.name == "dynamo_kv_cost_tuned_best.py"
+    assert "PREFILL_SCALE = 2.5" in out.read_text()
+    load_policy(str(out))

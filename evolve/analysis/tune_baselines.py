@@ -10,6 +10,10 @@ The defaults (QUEUE_W = 1, ..., the untuned constants) are always evaluated firs
 
   python -m evolve.analysis.tune_baselines --family dynamo --stage search3b --budget 125 --run-dir evolve/runs/tune_dynamo
   python -m evolve.analysis.tune_baselines --family mooncake --stage search3b --budget 125 --run-dir evolve/runs/tune_mooncake
+
+After both runs, freeze the winners into the bar (this creates bar "v4t" in evolve.evaluate):
+
+  python -m evolve.analysis.tune_baselines --family dynamo --run-dir evolve/runs/tune_dynamo --install
 """
 import argparse
 import concurrent.futures as cf
@@ -80,6 +84,21 @@ def ask_tell(budget: int, dim: int, evaluate, seed: int = 0, lam: int = 0):
     return hist
 
 
+def install(family: str, run: Path) -> Path:
+    """Write run/best.json's constants into evolve/policies/tuned/<template>_best.py, with provenance in a header."""
+    template_path, space = FAMILIES[family]
+    best = json.loads((run / "best.json").read_text())
+    n = sum(1 for _ in (run / "history.jsonl").open())
+    if best["code_version"] != ev.code_version():
+        raise SystemExit(f"best.json was scored under code_version {best['code_version']}, not {ev.code_version()}")
+    header = (f"# Frozen by evolve.analysis.tune_baselines --install from {run}/best.json: fitness {best['fitness']:+.4f} "
+              f"after {n} evaluations,\n# code_version {best['code_version']}, params {best['params']}.\n")
+    out = ev.TUNED / f"{template_path.stem}_best.py"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(header + render(template_path.read_text(), best["params"]))
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--family", required=True, choices=sorted(FAMILIES))
@@ -90,7 +109,11 @@ def main():
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--parallel", type=int, default=1, help="ES candidates evaluated at once (each uses --workers)")
     ap.add_argument("--run-dir", required=True)
+    ap.add_argument("--install", action="store_true", help="freeze run-dir/best.json into evolve/policies/tuned/")
     a = ap.parse_args()
+    if a.install:
+        print(f"wrote {install(a.family, Path(a.run_dir))}")
+        return
 
     template_path, space = FAMILIES[a.family]
     template = template_path.read_text()
