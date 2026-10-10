@@ -33,3 +33,9 @@ Not yet reviewed: `evolve/rl_plan/` (headroom pilot; agent still running, uncomm
 - 2026-10-10 G round 2: changes requested (3 major: pure time cutoff blind to later arrivals -> T+drain default; summary key lacks headroom/sim_fork sha; len-600 sweep cannot separate horizons -> open-loop horizon selection; 2 minor). Fixer resumed.
 - 2026-10-10 E round 4: approve with minors (l3_48a0 rollouts: forks byte-identical, forced = self-chosen, 104 real overrides raise nothing). Stop rule met. Final minor (alias false refusal) + docs being applied.
 - 2026-10-10 G round 3: changes requested on method (drain bias; open-loop agreement inflated by truncation; no CIs/noise floor/placebo). Decision: headline = full horizon; proxies validated against it; stats added. Fixer resumed. a11 notes updated.
+- 2026-10-10 New finding (from the G fixer): RequestView.prefix_hashes exposes the full block_hash_ids, whose length is
+  (prefill + decode) // block_size in v4 traces, so routers could infer output length. Finalists (incl. l3_48a0) never
+  read it; system baselines use it only for prefix matching (output ids are row-unique). Kamil chose to fix now as
+  v4.1 (bundled with the approved A fixes): router-visible hashes cut to prompt blocks, table digest folded into
+  code_version. Alpine v4 tuning/bars/gen70 jobs cancelled; v4 baselines superseded on merge. v4.1 build running on
+  branch v4.1-sim-fixes; then a review round on the v4.1 delta, recompute baselines, restart tuning.
