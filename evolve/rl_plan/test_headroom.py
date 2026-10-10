@@ -6,7 +6,11 @@
 - parent consistency: after lookahead deviations (children forked first), the continued parent equals a fresh run
   with the same forced decision sequence;
 - scoring on a constructed case with a known answer, censoring, the decision record;
-- sampled futures leak no true output length; fork failures are reported and every child is reaped.
+- censoring probe (review G r2): a pure time cutoff at T = tau_e cannot see the routed request's or later arrivals'
+  E2E tail; T+drain censors nothing and bounds the censored scores from above;
+- one child serving several horizons (grandchild drains) scores each exactly as a single-horizon rollout;
+- open-loop horizon selection runs and resumes; an interrupted closed loop resumes to the uninterrupted result;
+- resampled output lengths leak no true length; fork failures are reported and every child is reaped.
 All on Conv 4R s1.5 w6000+200 p1 (~8 s per full run)."""
 
 import filecmp
@@ -62,11 +66,11 @@ def test_neutral_loop_and_score_output_matches_run_one(plain, tmp_path):
     for k, v in r.items():
         if k != "wall_s":
             assert s[k] == v or (v != v and s[k] != s[k]), k  # NaN == NaN
-    hz = hr.Horizon.parse("T=10")
+    hz = hr.Horizon.parse("T=10+drain")
     hr.closed_loop(SC, hz, _plan(s), s["cut"], tmp_path / "B", tmp_path / "b.jsonl", workers=2,
                    max_decisions=10, candidates="pe")
     _same_outputs(d, tmp_path / "B")
-    rows = [json.loads(x) for x in open(tmp_path / "b.jsonl")]
+    rows = [json.loads(x) for x in open(tmp_path / "b.jsonl")][1:]  # after the header
     assert len(rows) == 10 and all(x["chosen"] == x["pe"] and x["decided_by"] == "keep" for x in rows)
 
 
@@ -99,19 +103,19 @@ def test_deviation_path_equals_policy_choosing_it(plain, tmp_path):
     assert not filecmp.cmp(_csv(d), _csv(tmp_path / "B"), shallow=False)  # the deviation changed the run
 
 
-def test_parent_continues_like_fresh_forced_run(plain, tmp_path):
+def _worst(by, pe, plan):  # always deviate (to the worst-scoring other replica): exercises the parent path
+    best, info = hr.select_candidate(by, pe, plan)
+    other = max((c for c in by if c != pe), key=lambda c: info["scores"][c])
+    return other, dict(info, decided_by="test")
+
+
+def test_parent_continues_like_fresh_forced_run_and_resumes(plain, tmp_path):
     _, s = plain
-
-    def worst(by, pe, plan):  # always deviate (to the worst-scoring other replica): exercises the parent path
-        best, info = hr.select_candidate(by, pe, plan)
-        other = max((c for c in by if c != pe), key=lambda c: info["scores"][c])
-        return other, dict(info, decided_by="test")
-
-    hz = hr.Horizon.parse("T=5")
+    hz = hr.Horizon.parse("T=5+drain")
     info = hr.closed_loop(SC, hz, _plan(s), s["cut"], tmp_path / "L", tmp_path / "l.jsonl", workers=2,
-                          max_decisions=3, chooser=worst)
+                          max_decisions=3, chooser=_worst)
     assert info["planned"] == 3 and info["deviations"] == 3
-    forced = {x["k"]: x["chosen"] for x in map(json.loads, open(tmp_path / "l.jsonl"))}
+    forced = {x["k"]: x["chosen"] for x in list(map(json.loads, open(tmp_path / "l.jsonl")))[1:]}
 
     f = build_simulator(hr.argv_for(SC, tmp_path / "F"))
     while f.next_decision():
@@ -122,6 +126,78 @@ def test_parent_continues_like_fresh_forced_run(plain, tmp_path):
             f.run(lambda x, n=f.decisions: x.decisions > n)
     f.write_output()
     _same_outputs(tmp_path / "L", tmp_path / "F")
+
+    # interrupted at the 3rd planned decision (after 2 were logged), then resumed: same as uninterrupted
+    calls = [0]
+
+    def crash(by, pe, plan):
+        calls[0] += 1
+        if calls[0] == 3:
+            raise KeyboardInterrupt
+        return _worst(by, pe, plan)
+    log = tmp_path / "r.jsonl"
+    with pytest.raises(KeyboardInterrupt):
+        hr.closed_loop(SC, hz, _plan(s), s["cut"], tmp_path / "R1", log, workers=2, max_decisions=3, chooser=crash)
+    with open(log, "a") as fh:
+        fh.write('{"k": 99, "trunc')  # a partial line from a crash mid-write is dropped
+    info = hr.closed_loop(SC, hz, _plan(s), s["cut"], tmp_path / "R2", log, workers=2, max_decisions=3,
+                          chooser=_worst)
+    assert info["replayed"] == 2 and info["planned"] == 3 and info["deviations"] == 3
+    _same_outputs(tmp_path / "L", tmp_path / "R2")
+    with pytest.raises(SystemExit, match="other parameters"):
+        hr.closed_loop(SC, hz, _plan(s), s["cut"], tmp_path / "R3", log, workers=2, header={"horizon": "other"})
+
+
+def test_censoring_probe(plain, tmp_path):
+    """At T = tau_e with a pure cutoff, the routed request's and later arrivals' E2E hinge is identically 0; with
+    +drain nothing is censored, the affected set is the same and every score term is >= the censored one."""
+    _, s = plain
+    plan = _plan(s)
+    h = build_simulator(hr.argv_for(SC, tmp_path))
+    assert h.run_to_decision(K)
+    hz = [hr.Horizon("time", s["p99_e2e"], drain=False), hr.Horizon("time", s["p99_e2e"], drain=True)]
+    res = hr.evaluate_candidates(h, list(range(SC.replicas)), hz, plan, workers=2)
+    assert sum(r["h"][0]["n_unfinished"] for r in res) > 0  # the probe censors something
+    for r in res:
+        cen, dr = r["h"]
+        assert cen["post_hinge"] == 0.0 and cen["routed_e2e"] <= s["p99_e2e"]
+        assert dr["n"] == cen["n"] and dr["n_unfinished"] == 0 and not dr["routed_censored"]
+        for k in ("sum", "hinge", "hinge_ttft", "post_hinge", "routed_e2e"):
+            assert dr[k] >= cen[k] - 1e-9, k
+
+
+def test_nested_horizons_equal_single_rollouts(plain, tmp_path):
+    _, s = plain
+    plan = _plan(s)
+    h = build_simulator(hr.argv_for(SC, tmp_path))
+    assert h.run_to_decision(K)
+    hz = [hr.Horizon.parse(x) for x in ("H=8", "T=10+drain", "T=10", "full")]
+    multi = hr.evaluate_candidates(h, [None, 1], hz, plan, workers=2)
+    for j, x in enumerate(hz):
+        single = hr.evaluate_candidates(h, [None, 1], [x], plan, workers=2)
+        for a, b in zip(multi, single):
+            ta, tb = dict(a["h"][j]), dict(b["h"][0])
+            ta.pop("cpu_s"), tb.pop("cpu_s")
+            assert ta == tb, x.label
+    assert multi[0]["h"][3]["n"] > multi[0]["h"][1]["n"]  # full covers more arrivals than 10 s
+
+
+def test_open_loop_selection_and_resume(plain, tmp_path):
+    _, s = plain
+    plan = _plan(s)
+    hz = [hr.Horizon.parse("H=8"), hr.Horizon.parse("T=10+drain")]
+    ref = hr.Horizon.parse("full")
+    log = tmp_path / "o.jsonl"
+    st = hr.open_loop(SC, hz, ref, plan, s["cut"], log, workers=2, every=20, max_points=2)
+    assert st["_run"]["points"] == 2 and set(st) == {"H8", "T10s+drain", "full", "_run"}
+    assert st["full"]["top1_agree"] == 1.0 and st["full"]["ref_gain_mean"] >= max(st[x]["ref_gain_mean"]
+                                                                                   for x in ("H8", "T10s+drain"))
+    for x in ("H8", "T10s+drain"):
+        assert 0 <= st[x]["pair_sign_agree"] <= 1 and st[x]["standalone_cpu_s_per_decision"] > 0
+    n_lines = len(log.read_text().splitlines())
+    st2 = hr.open_loop(SC, hz, ref, plan, s["cut"], log, workers=2, every=20, max_points=2)  # resume: no new rows
+    assert len(log.read_text().splitlines()) == n_lines
+    assert {k: v for k, v in st2.items() if k != "_run"} == {k: v for k, v in st.items() if k != "_run"}
 
 
 def _req(arr, done=None, prefill=None, total=10, processed=0, prefill_tokens=5):
@@ -160,14 +236,17 @@ def test_scoring_constructed_case():
 
 
 def test_horizon_parse():
-    assert hr.Horizon.parse("T=1x").resolve(95.0) == hr.Horizon("time", 95.0)
+    assert hr.Horizon.parse("T=1x").resolve(95.0) == hr.Horizon("time", 95.0, drain=False)
+    assert hr.Horizon.parse("T=1x+drain").resolve(95.0) == hr.Horizon("time", 95.0, drain=True)
+    assert hr.Horizon.parse("T=1x+drain").label == "T1x+drain" and hr.Horizon.parse("T=20").label == "T20s"
     assert hr.Horizon.parse("H=64") == hr.Horizon("decisions", 64)
-    for bad in ("T=0", "H=0", "X=3", "H=1.5", "T="):
+    assert hr.Horizon.parse("full").label == "full"
+    for bad in ("T=0", "H=0", "X=3", "H=1.5", "T=", "T=+drain", "T=inf", "T=ax"):
         with pytest.raises(ValueError):
             hr.Horizon.parse(bad)
 
 
-def test_sampled_futures_hide_true_lengths(tmp_path):
+def test_resampled_lengths_hide_true_lengths(tmp_path):
     h = build_simulator(hr.argv_for(SC, tmp_path))
     assert h.run_to_decision(K)
     f = h.fork()
@@ -239,3 +318,5 @@ def test_summary_reuse_refuses_other_setups(tmp_path):
     # lookahead rows are keyed by every parameter
     base = {"horizon": "T1x", "score": "tail", "future": "true", "max_decisions": None, "weight": 1.0}
     assert hr._row_key(base) != hr._row_key(dict(base, max_decisions=5)) != hr._row_key(dict(base, weight=2.0))
+    assert hr._row_key(dict(base, code_sha=hr.CODE_SHA)) != hr._row_key(dict(base, code_sha={"headroom": "x"}))
+    assert set(hr.CODE_SHA) == {"headroom", "sim_fork"}
