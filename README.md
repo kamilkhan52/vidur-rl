@@ -120,3 +120,9 @@ trademarks or logos is subject to and must follow
 [Microsoft's Trademark & Brand Guidelines](https://www.microsoft.com/en-us/legal/intellectualproperty/trademarks/usage/general).
 Use of Microsoft trademarks or logos in modified versions of this project must not cause confusion or imply Microsoft sponsorship.
 Any use of third-party trademarks or logos are subject to those third-party's policies.
+
+## Fork policy (vidur-rl)
+
+This fork branched from upstream Vidur at commit `25e0082` (tag `base-upstream-25e0082`). Upstream `main` later
+reverted that commit; it lacks our bug fixes and scheduler code. **Never merge or rebase onto upstream `main`.**
+The `upstream` remote is fetch-only. Trace provenance and checksums: `data/TRACES.md`.
