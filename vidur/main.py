@@ -1,4 +1,9 @@
+import os
 import sys
+
+# Plots are only saved to files. A GUI backend (macOS default) can hang in AppKit initialisation when the
+# simulator runs as a background subprocess (seen 2026-10-10), so never open one.
+os.environ.setdefault("MPLBACKEND", "Agg")
 
 from vidur.config import SimulationConfig
 from vidur.simulator import Simulator
