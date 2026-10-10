@@ -240,6 +240,8 @@ def main():
                     help="extra seed program file (repeatable), e.g. an earlier finalist")
     ap.add_argument("--objective", choices=sorted(ev.OBJECTIVES), default="balanced",
                     help="tail objective (weights on P99 E2E/TTFT/TPOT); see evaluate.OBJECTIVES")
+    ap.add_argument("--bar", default="v2", choices=sorted(ev.BARS),
+                    help="with --protocol v2: the bar fitness is computed against (v4t = v4 + tuned Mooncake/Dynamo)")
     ap.add_argument("--search-stage", default=None, choices=sorted(ev.STAGES),
                     help="router v2: search on this evaluate.STAGES set instead of SEARCH_V2 (e.g. cal70)")
     ap.add_argument("--task", choices=["router", "rl"], default="router",
@@ -257,7 +259,7 @@ def main():
     stage1 = SMOKE if a.scenarios == "smoke" else ev.STAGE1
     if a.task == "router" and a.protocol == "v2":
         global BASELINES, NO_DEFAULT_SEEDS
-        BASELINES = ev.BAR_V2
+        BASELINES = ev.BARS[a.bar]
         NO_DEFAULT_SEEDS = True
         if a.scenarios != "smoke":
             stage1 = ev.SEARCH_V2
@@ -273,7 +275,8 @@ def main():
                 ).replace("122,752 KV-cache tokens", "525,920 KV-cache tokens")
             elif models == {"l3_8b"}:
                 proposer.system_prompt = proposer.system_prompt.replace(
-                    "Llama-2-7b replicas (A100,", "Meta-Llama-3-8B replicas (A100, grouped-query attention,"
+                    "Llama-2-7b replicas (A100,", "Llama-3.1-8B replicas (A100, Meta-Llama-3-8B performance profile, "
+                    "128K context, grouped-query attention,"
                 ).replace("122,752 KV-cache tokens", "483,328 KV-cache tokens")
     run(Path(a.run_dir), a.iterations, a.batch, a.workers, proposer.propose, stage1=stage1,
         launcher=launcher, seed=a.seed, max_cost_usd=a.max_cost_usd, task=a.task, objective=a.objective,
