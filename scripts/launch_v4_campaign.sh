@@ -71,7 +71,7 @@ submit_chain() {  # name, links, extra env
   local name=$1 links=$2 env=$3 prev="" dep
   # One baseline cache per run avoids write races. It is seeded from the tuning run's cache on Alpine, which holds
   # the BAR_V4 baselines on search3b; each run then computes the two tuned members itself (20 simulations).
-  run ssh alpine "mkdir -p $R/evolve/evcache_$name && cp -n $R/evolve/evcache_tune_dynamo/baselines.json $R/evolve/evcache_$name/"
+  run ssh alpine "mkdir -p $R/evolve/evcache_$name && cp -n $R/evolve/evcache_tune_mooncake_v41/baselines.json $R/evolve/evcache_$name/"
   for i in $(seq 1 "$links"); do
     # AFTER=<jobid>: the first link waits for that Alpine job to succeed (e.g. the job installing extra tuned controls).
     if [ -z "$prev" ] && [ -n "${AFTER:-}" ]; then dep="--dependency=afterok:$AFTER"; else dep=${prev:+--dependency=afterany:$prev}; fi
