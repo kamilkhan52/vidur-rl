@@ -249,8 +249,7 @@ STEP B (status report 2026-10-10, section 4: a planner with less foresight; the 
     done
   done
   # when all 4 chains are done:
-  python -m evolve.rl_plan.headroom --mode gate --n-futures 4 --out evolve/rl_plan/out/b41_tool_w4000,\\
-  evolve/rl_plan/out/b41_tool_w6000,evolve/rl_plan/out/b41_conv_w4000,evolve/rl_plan/out/b41_conv_w6000
+  python -m evolve.rl_plan.headroom --mode gate --n-futures 4 --out evolve/rl_plan/out/b41_tool_w4000,evolve/rl_plan/out/b41_tool_w6000,evolve/rl_plan/out/b41_conv_w4000,evolve/rl_plan/out/b41_conv_w6000
 
 Usage (each window: open loop, closed loop at the open loop's weight, then placebo and noise; then the pilot):
   .venv/bin/python -m evolve.rl_plan.headroom --mode openloop --trace Tool --out evolve/rl_plan/out/v4_tool_w0
@@ -2126,7 +2125,8 @@ def main(argv=None):
         common["thresholds_from"] = {"windows": t_from["src"]["windows"]} | {
             k: t_from["src"][k] for k in ("tau_e", "tau_f", "tpot_ref")}
     if w_from:
-        common["weight_from"] = {k: w_from["src"][k] for k in ("windows", "weights", "weight_labels")}
+        common["weight_from"] = {k: w_from["src"][k] for k in ("windows", "weights", "weight_labels",
+                                                                 "weight_fallback", "weight_rule")}
     shas = {m: decision_sha(m) for m in ("closed", "placebo", "noise")}
     failed = False
 
