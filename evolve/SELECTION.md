@@ -122,3 +122,16 @@ Notes:
 4. At most 3 finalists per method.
 5. RL primary finalist: the online-lookahead planner (compute per decision stated; not deployable at serving time);
    the distilled network is reported as the deployable RL policy.
+
+## Amendment 2026-10-11 (bar membership)
+
+- **Bar for v4.1 search, selection and test:** the ten default routers (BAR_V4) plus every installed tuned control
+  (`evolve/policies/tuned/*_best*.py`): tuned Dynamo (its tuned constants equal the defaults) and three tuned Mooncake
+  versions (tuning seeds 0, 1, 2; 125 evaluations each; same objective, search3b, fitness against BAR_V4).
+- **Simulator:** v4.1, `code_version` cbeb5161f046.
+- **Results seen when this was written:**
+  - validation-set scores of π_e and seed-0 tuned Mooncake against BAR_V4;
+  - the v4.1 headroom pilot verdict;
+  - no v4.1 search results and no test-set results.
+- **RL claims:** claim (a) (vs the bar) and claim (b) (vs the evolved primary finalist) are separate. (b) does not
+  require (a).
