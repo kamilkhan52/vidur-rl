@@ -100,7 +100,8 @@ def install(family: str, run: Path) -> Path:
         raise SystemExit(f"best.json was scored under code_version {best['code_version']}, not {ev.code_version()}")
     header = (f"# Frozen by evolve.analysis.tune_baselines --install from {run.name}/best.json: fitness {best['fitness']:+.4f} "
               f"after {n} evaluations,\n# code_version {best['code_version']}, params {best['params']}.\n")
-    out = ev.TUNED / f"{template_path.stem}_best.py"
+    seed = json.loads((run / "meta.json").read_text()).get("seed", 0) if (run / "meta.json").exists() else 0
+    out = ev.TUNED / f"{template_path.stem}_best{'' if seed == 0 else f'_s{seed}'}.py"  # one file per tuning seed
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(header + render(template_path.read_text(), best["params"]))
     return out

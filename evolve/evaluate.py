@@ -165,12 +165,13 @@ BAR_V2 = DEFAULT_BASELINES + tuple(
 # constants join after evolve/analysis/tune_baselines.py has run on search3b (added before the first v4 search).
 BAR_V4 = BAR_V2 + tuple(f"policy:{REPO / 'evolve' / 'policies' / 'floor' / n}.py"
                         for n in ("p2c_outstanding", "p2c_kv", "jsq_kv"))
-# Named bars for the search driver (--bar). "v4t" (BAR_V4 + tuned Mooncake/Dynamo) is added once tuning has run.
+# Named bars for the search driver (--bar). "v4t" = BAR_V4 + every installed tuned control in evolve/policies/tuned/
+# (*_best.py for seed 0, *_best_s<k>.py for further seeds; SELECTION.md: all tuned Mooncake versions join the bar).
+# It is added once both seed-0 controls exist.
 BARS = {"v2": BAR_V2, "v4": BAR_V4}
 TUNED = REPO / "evolve" / "policies" / "tuned"
 if all((TUNED / f).exists() for f in ("dynamo_kv_cost_tuned_best.py", "mooncake_min_ttft_tuned_best.py")):
-    BARS["v4t"] = BAR_V4 + tuple(f"policy:{TUNED / f}" for f in ("dynamo_kv_cost_tuned_best.py",
-                                                                    "mooncake_min_ttft_tuned_best.py"))
+    BARS["v4t"] = BAR_V4 + tuple(f"policy:{f}" for f in sorted(TUNED.glob("*_best*.py")))
 # Final test set (2026-10-07): the held-out set has been used to choose among policies, so final claims are
 # made on fresh draws evaluated once, for frozen finalists only. Same shape as HELDOUT_V2: Tool/Conv p6-p8,
 # Synth p4-p6, 16R likewise.

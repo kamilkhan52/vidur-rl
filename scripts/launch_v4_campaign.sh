@@ -13,6 +13,7 @@
 #   scripts/launch_v4_campaign.sh            # submit
 #   DRY=1 scripts/launch_v4_campaign.sh      # print what would run; opens no ssh connection
 #   RESUME=1 scripts/launch_v4_campaign.sh   # add chains to runs that already have an archive
+#   AFTER=<jobid> scripts/launch_v4_campaign.sh  # first links wait for that Alpine job (afterok), e.g. a tuned-control install
 # Refuses to submit when: the tuned policies were frozen under another code_version; Alpine's tree at $R has another
 # code_version than the Mac (checked BEFORE anything is copied: syncing hashed code into a tree that running jobs use
 # would change their simulator mid-run; sync deliberately, with no jobs running from $R, then re-run); a job of the
@@ -72,7 +73,8 @@ submit_chain() {  # name, links, extra env
   # the BAR_V4 baselines on search3b; each run then computes the two tuned members itself (20 simulations).
   run ssh alpine "mkdir -p $R/evolve/evcache_$name && cp -n $R/evolve/evcache_tune_dynamo/baselines.json $R/evolve/evcache_$name/"
   for i in $(seq 1 "$links"); do
-    dep=${prev:+--dependency=afterany:$prev}
+    # AFTER=<jobid>: the first link waits for that Alpine job to succeed (e.g. the job installing extra tuned controls).
+    if [ -z "$prev" ] && [ -n "${AFTER:-}" ]; then dep="--dependency=afterok:$AFTER"; else dep=${prev:+--dependency=afterany:$prev}; fi
     cmd="cd $R && sbatch --parsable $dep --cpus-per-task=22 --mem=88G --time=04:00:00 --job-name=${name}_$i \
       --export=ALL,REPO_DIR=$R,RUN_DIR=$R/evolve/runs/$name,EVOLVE_CACHE_DIR=$R/evolve/evcache_$name,PROTOCOL=v2,BAR=v4t,\
 SEARCH_STAGE=search3b,OBJECTIVE=tail4,ITERATIONS=60,BATCH=2,WORKERS=10,SEED_POLICY='$SEEDS',$env \

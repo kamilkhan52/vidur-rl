@@ -231,3 +231,19 @@ def test_meta_mismatch_names_the_differing_keys(tmp_path, monkeypatch):
     monkeypatch.setattr(sys, "argv", ["tb", "--family", "dynamo", "--budget", "5", "--run-dir", str(run)])
     with pytest.raises(SystemExit, match=r"'seed': \(7, 0\).*start a new --run-dir"):
         tb.main()
+
+
+def test_install_names_files_by_seed(tmp_path, monkeypatch):
+    import json
+    from evolve import evaluate as ev
+    from evolve.analysis import tune_baselines as tb
+    monkeypatch.setattr(ev, "TUNED", tmp_path / "tuned")
+    for seed, name in ((0, "mooncake_min_ttft_tuned_best.py"), (2, "mooncake_min_ttft_tuned_best_s2.py")):
+        run = tmp_path / f"run{seed}"
+        run.mkdir()
+        rec = {"params": {"QUEUE_W": 0.5, "LEN_QUAD": 0.1, "KV_W": 0.01}, "fitness": 0.01, "valid": True,
+               "code_version": ev.code_version()}
+        (run / "best.json").write_text(json.dumps(rec))
+        (run / "history.jsonl").write_text(json.dumps(rec) + "\n")
+        (run / "meta.json").write_text(json.dumps({"seed": seed}))
+        assert tb.install("mooncake", run).name == name
