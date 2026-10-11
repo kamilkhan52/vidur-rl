@@ -197,6 +197,61 @@ row); every mode resumes from its log or reuses its finished rows, so a job pick
 A job that finds everything complete exits in a few minutes. Two such chains at once stay within 22 CPUs. Conv's
 per-rollout cost is unmeasured (the cost table is Tool's): check it from the first open-loop points.
 
+STEP B (status report 2026-10-10, section 4: a planner with less foresight; the pilot's method otherwise unchanged).
+- Sampled output lengths averaged over 4 futures per decision (``--future sampled-lengths --n-futures 4``,
+  ``closed_loop_crn``): each candidate's score is its mean over the same 4 futures (common random numbers: one set per
+  decision for all candidates, new futures at every decision, ``future_seeds``); lengths are drawn as in the sampled
+  mode above (trace outside the window; in-flight requests conditioned on the tokens they have generated); arrivals
+  true. ``--n-futures 1`` (default) runs the pilot's code (``closed_loop``) unchanged.
+- Settings transferred from the pilot windows of the same trace, nothing from the planned window
+  (``--thresholds-from``, ``--tail-weight-from``, ``transfer_settings``): tau_e, tau_f (and the ``remaining``-censor
+  TPOT reference) = the mean of their in-process pi_e rows; w = the mean of the pre-specified weights of the windows
+  whose weight rule was met (a ``tails`` fallback is excluded; all-fallback keeps the fallback), in seconds.
+  ``resolve_settings`` then never reads the window's own thresholds or open-loop row, and refuses ``--tail-weight``
+  and the open loop. v4.1 values: Tool tau_e 98.40 s, tau_f 36.97 s, w = 1,774 s (w0's 100m; w2000 fell back to
+  ``tails`` and is excluded); Conv tau_e
+  144.83 s, tau_f 77.78 s, w = 2,336 s (mean of 100m = 3,789 s and 25m = 884 s). Every B row's params carry
+  ``n_futures``, ``thresholds_from`` and ``weight_from`` (source windows and values); default runs add none of these
+  keys, so their row keys, log headers and per-mode shas are unchanged (``test_default_keys_unchanged``).
+- New windows: ``--start 4000`` and ``--start 6000`` (len 2000) of Tool (23,608 requests after the capacity filter)
+  and Conv (12,031), 8R s0.75 p1; warm-up cut unchanged (first 20 % of the window's own arrival span). No open loop.
+- Controls per window: 20 noise runs (as in the pilot) and 20 placebo runs at the B row's own deviation rate
+  (``--mode placebo`` with the B flags takes it from ``b_head_rows``).
+- Gate to C (``--mode gate --n-futures 4 --out <the 4 dirs>``, ``gate_verdict``; prints JSON with every clause and
+  ``gate``: pass / fail / incomplete / invalid_windows): geometric-mean P99 E2E gain >= 5 % over the 4 windows (each
+  L against its single unjittered pi_e run); pooled one-sided p < 0.025 for that gain against noise (the pilot's
+  pooled statistic on the pairwise noise reference) AND against placebo (the same statistic with the window's 20
+  placebo runs as the reference; ``pooled_test``); TTFT, TPOT and TBT: no pooled one-sided worsening against noise
+  at p < 0.025. On the pilot's own data (for orientation): E2E gain 8.9 %, p(noise) and p(placebo) = 0, worsening p
+  0.99 / 0.94 / 0.94: it would pass.
+- Cost. Smoke (Mac mini, lightly loaded, 2026-10-11; Tool w4000, the first decision after the cut, K = 4, 32
+  rollouts to the window end, ``--workers 1``): 174 CPU-s (5.4 per rollout), 3.5 min for the whole run including
+  pi_e. Rollouts shrink about linearly to 0 at the window end, so the window mean is about half: ~87 CPU-s per
+  decision, ~1,600 decisions, ~39 CPU-h per window on that Mac. On Alpine the pilot's ``full`` loop measured 57-70
+  CPU-s per decision with 8 rollouts (about 2.7x the Mac's per-rollout cost), so B, at 4x the rollouts, needs
+  ~230-280 CPU-s per decision: ~105-130 CPU-h per window, ~470 CPU-h for the 4 windows, plus ~1 CPU-h of controls
+  per window. At 8 rollouts at once that is ~14-17 h of wall time per window: 4-5 links of 4 h (8 queued for slack).
+- Alpine (one chain per window, 4 chains, 10 CPUs each, ``--workers 8`` = 4 batches of 8 rollouts per decision;
+  jobs resume from the log, so a link that finds everything done exits in minutes; the pilot summaries must be at
+  ``$P``; ship ``cache/prediction_bundle_8e6e78e985b87b2a.pkl`` so ``meta`` matches the pilot's, which
+  ``transfer_settings`` checks). Directory lists are space-separated (``--export`` splits on commas)::
+
+  cd $REPO; P=evolve/rl_plan/out
+  for W in Tool:tool:4000 Tool:tool:6000 Conv:conv:4000 Conv:conv:6000; do
+    IFS=: read TR T S <<< "$W"; jid=
+    H="python -m evolve.rl_plan.headroom --trace $TR --start $S --workers 8 --future sampled-lengths \\
+      --n-futures 4 --thresholds-from $P/v41_${T}_w0 $P/v41_${T}_w2000 \\
+      --tail-weight-from $P/v41_${T}_w0 $P/v41_${T}_w2000 --out evolve/rl_plan/out/b41_${T}_w$S"
+    for i in $(seq 8); do
+      jid=$(sbatch --parsable ${jid:+--dependency=afterany:$jid} --cpus-per-task=10 --mem=48G --time=04:00:00 \\
+        --job-name=hb_${T}_w$S --export=ALL,REPO_DIR=$REPO,CMD="$H --mode closed && $H --mode placebo && \\
+        $H --mode noise" scripts/submit_python_job.sbatch)
+    done
+  done
+  # when all 4 chains are done:
+  python -m evolve.rl_plan.headroom --mode gate --n-futures 4 --out evolve/rl_plan/out/b41_tool_w4000,\\
+  evolve/rl_plan/out/b41_tool_w6000,evolve/rl_plan/out/b41_conv_w4000,evolve/rl_plan/out/b41_conv_w6000
+
 Usage (each window: open loop, closed loop at the open loop's weight, then placebo and noise; then the pilot):
   .venv/bin/python -m evolve.rl_plan.headroom --mode openloop --trace Tool --out evolve/rl_plan/out/v4_tool_w0
   .venv/bin/python -m evolve.rl_plan.headroom --trace Tool --out evolve/rl_plan/out/v4_tool_w0
@@ -865,6 +920,126 @@ def closed_loop(sc, hz: Horizon, plan: Plan, cut, out_dir, log_path, workers=4, 
             "cpu_s_children": cpu, "cpu_s_per_decision": cpu / max(n_planned, 1)}
 
 
+# ------------------------------------------------------------------ step B: K sampled futures per decision
+# ``closed_loop`` is frozen: its source is hashed into the pilot's closed-loop ``decision_sha`` (log headers, row
+# keys), so the K-future loop is a separate function; with K = 1 the CLI keeps using ``closed_loop``.
+
+def future_seeds(n: int, k: int) -> List[int]:
+    """The K sampled futures' seeds at the decision after ``n`` decisions: future 0 is the single-future seed of
+    ``closed_loop``'s sampled mode (1000003 n + 7), future j adds j; distinct across decisions while K < 1000003."""
+    return [1000003 * n + 7 + j for j in range(k)]
+
+
+_AVG = ("sum", "hinge", "hinge_ttft", "post_hinge", "routed_e2e")
+
+
+def mean_terms(ts: List[dict]) -> dict:
+    """One candidate's rollout terms averaged over futures: the score terms and audit E2Es by their mean (a scalar
+    score is linear in the terms, so the score of the mean = the mean score), ``routed_censored`` if any,
+    ``n_unfinished`` the max, ``cpu_s`` the sum; the affected set size ``n`` must agree (arrivals are true)."""
+    if len({t["n"] for t in ts}) != 1:
+        raise RuntimeError(f"sampled futures disagree on the affected set: {[t['n'] for t in ts]}")
+    out = {k: sum(t[k] for t in ts) / len(ts) for k in _AVG}
+    out.update({"n": ts[0]["n"], "n_unfinished": max(t["n_unfinished"] for t in ts),
+                "routed_censored": any(t["routed_censored"] for t in ts), "cpu_s": sum(t["cpu_s"] for t in ts),
+                "horizon": ts[0]["horizon"]})
+    return out
+
+
+def evaluate_futures(h, cands, hz: Horizon, plan: Plan, workers: int, timeout: float, samples: list):
+    """Every candidate under every sampled future (``samples``: one ``(seed, pool, cap)`` per future; common random
+    numbers: the same K futures for every candidate), ``workers`` children at a time. Returns pi_e's choice, the
+    per-candidate terms averaged over the futures (``mean_terms``) and the per-future terms (list of candidate ->
+    terms)."""
+    fns = [lambda c=c, s=s: child_rollouts(h, c, [hz], plan, s, timeout) for s in samples for c in cands]
+    res = _run_children(fns, workers, timeout)
+    R = len(cands)
+    groups = [res[i * R:(i + 1) * R] for i in range(len(samples))]
+    for g in groups:
+        _check_consistent(g, 1)
+    if len({r["policy_choice"] for r in res}) != 1:
+        raise RuntimeError(f"pi_e's choice differs between sampled futures: {[r['policy_choice'] for r in res]}")
+    pe = res[0]["policy_choice"]
+    per = [_by(g, 0, pe) for g in groups]
+    return pe, {c: mean_terms([p[c] for p in per]) for c in per[0]}, per
+
+
+def closed_loop_crn(sc, hz: Horizon, plan: Plan, cut, out_dir, log_path, workers=4, n_futures=4,
+                    max_decisions=None, candidates="all", child_timeout=1800.0, chooser=None, plan_every=1,
+                    header=None):
+    """``closed_loop`` with sampled output lengths averaged over ``n_futures`` futures per decision (step B): each
+    candidate's score is the mean over the same K futures (``future_seeds``; different at every decision), output
+    lengths resampled as in ``--future sampled-lengths`` (``resample_outputs``: in-flight requests conditioned on the
+    tokens they have generated; pool = the trace outside the window), arrivals true. Logs per candidate the averaged
+    terms, the mean score and each future's score (``score_k``) and per decision the seeds. With K = 1 the decisions
+    and outputs equal ``closed_loop(future="sampled-lengths")`` (test). Resume and replay as in ``closed_loop``."""
+    if hz.rel:
+        raise ValueError("resolve a relative time horizon first")
+    if n_futures < 1:
+        raise ValueError("n_futures must be >= 1")
+    if plan.score not in ("tail", "sum", "hinge"):
+        raise ValueError("averaging over futures needs a scalar score (linear in the rollout terms)")
+    chooser = chooser or select_candidate
+    logged = read_log(log_path, header if header is not None else {"horizon": hz.label, "n_futures": n_futures})
+    h = build_simulator(argv_for(sc, out_dir))
+    pool, cap = output_pool(sc), ev.max_request_tokens(sc)
+    n_planned = n_dev = n_eligible = n_replayed = 0
+    decided, cpu = {}, 0.0
+    t0 = time.time()
+    keys = ("sum", "hinge", "hinge_ttft", "post_hinge", "routed_e2e", "routed_censored", "n_unfinished", "cpu_s")
+    with open(log_path, "a") as log:
+        while h.next_decision():
+            req = h.sim._scheduler._request_queue[0]
+            n = h.decisions
+            skip = req.arrived_at < cut or (max_decisions is not None and n_planned >= max_decisions)
+            if not skip:
+                n_eligible += 1
+                skip = (n_eligible - 1) % plan_every != 0
+            if skip:
+                h.run(lambda x: x.decisions > n)
+                continue
+            k = n + 1
+            if k in logged:  # resume: replay the logged decision
+                row = logged[k]
+                rec = apply_decision(h, row["chosen"])
+                if rec["policy_choice"] != row["pe"] or row["t"] != req.arrived_at:
+                    raise SystemExit(f"resume diverged at decision {k}: pi_e chose {rec['policy_choice']} for the "
+                                     f"request arriving at {req.arrived_at}; the log says {row['pe']} at {row['t']}")
+                best, pe, info = row["chosen"], row["pe"], row
+                n_replayed += 1
+                cpu += row.get("cpu_s", 0.0)
+            else:
+                c0 = _cpu_children()
+                cands = list(range(sc.replicas)) if candidates == "all" else [None]
+                seeds = future_seeds(n, n_futures)
+                pe, by, per = evaluate_futures(h, cands, hz, plan, workers, child_timeout,
+                                               [(s, pool, cap) for s in seeds])
+                best, info = chooser(by, pe, plan)
+                rec = apply_decision(h, best)
+                if rec["policy_choice"] != pe or rec["executed"] != best:
+                    raise RuntimeError(f"parent decision {k}: pi_e chose {rec['policy_choice']} (children: {pe}), "
+                                       f"executed {rec['executed']} (wanted {best})")
+                dc = _cpu_children() - c0
+                cpu += dc
+                cand = {str(c): {x: by[c][x] for x in keys}
+                        | {"score": info["scores"][c],
+                           "score_k": [sum(score_parts(p[c], plan).values()) for p in per]} for c in sorted(by)}
+                row = {"k": k, "t": req.arrived_at, "pe": pe, "chosen": best, "decided_by": info["decided_by"],
+                       "gain": info.get("gain"), "term_gain": info.get("term_gain"), "cands": cand,
+                       "n_aff": by[pe]["n"], "seeds": seeds, "cpu_s": dc, "wall": time.time() - t0}
+                log.write(json.dumps(row) + "\n")
+                log.flush()
+            n_planned += 1
+            n_dev += best != pe
+            decided[info["decided_by"]] = decided.get(info["decided_by"], 0) + 1
+    if n_replayed != len(logged):
+        raise SystemExit(f"{log_path}: {len(logged) - n_replayed} logged decisions were not reached on replay")
+    h.write_output()
+    return {"planned": n_planned, "deviations": n_dev, "deviation_frac": n_dev / max(n_planned, 1),
+            "decided_by": decided, "replayed": n_replayed, "wall_s_session": time.time() - t0,
+            "cpu_s_children": cpu, "cpu_s_per_decision": cpu / max(n_planned, 1), "n_futures": n_futures}
+
+
 # ------------------------------------------------------------------ controls: placebo and noise
 
 def placebo_run(sc, rate: float, seed: int, cut, out_dir, plan_every=1) -> dict:
@@ -1446,6 +1621,262 @@ def pilot_verdict(summaries: dict, noise_delta: float = NOISE_DELTA, future: str
             "effect_size_ruled_out_pct": bound}
 
 
+# ------------------------------------------------------------------ step B: transferred settings and the gate
+
+def _split_dirs(items) -> List[str]:
+    """Directories from CLI items, each space-separated or comma-separated."""
+    return [d for x in (items or []) for d in str(x).split(",") if d]
+
+
+def transfer_settings(dirs, sc, meta: dict, future: str = "true") -> dict:
+    """Step B's settings, transferred from other windows of the same trace (the pilot windows): pi_e's P99 E2E and
+    TTFT thresholds (and mean TPOT, used only by ``--censor remaining``) = the mean of those windows' in-process pi_e
+    rows, and the tail weight = the mean of their pre-specified weights (``weight_status``: the open-loop choice the
+    pilot's closed loop ran at), in absolute seconds, so nothing about the planned window enters. Refuses a window
+    that is not the same setup (``meta`` except ``scenario``), not the same trace and configuration as ``sc``, overlaps
+    the planned window, or lacks a current weight choice. Returns the means and their provenance per window."""
+    dirs = list(dirs)
+    if not dirs:
+        raise SystemExit("transfer: no source directories")
+    src = {"windows": [], "tau_e": [], "tau_f": [], "tpot_ref": [], "weights": [], "weight_labels": []}
+    psha = post_sha()
+    for d in dirs:
+        p = Path(d) / "summary.json"
+        if not p.exists():
+            raise SystemExit(f"transfer: {p} not found")
+        summ = json.loads(p.read_text())
+        if summ.get("format") != FORMAT:
+            raise SystemExit(f"transfer: {p} is not format {FORMAT}")
+        m = summ.get("meta", {})
+        diff = sorted(k for k in set(m) | set(meta) if k != "scenario" and m.get(k) != meta.get(k))
+        if diff:
+            raise SystemExit(f"transfer: {p} is another setup ({', '.join(diff)} differ)")
+        tag = m.get("scenario", "")
+        start = next((int(x[1:].split("+")[0]) for x in tag.split("-") if x.startswith("w") and "+" in x), None)
+        if start is None or replace(sc, window_start=start).tag != tag:
+            raise SystemExit(f"transfer: {p} is window {tag!r}, not a window of {sc.tag!r}'s trace and configuration")
+        if abs(start - sc.window_start) < sc.window_len:
+            raise SystemExit(f"transfer: {tag} overlaps the planned window {sc.tag}: nothing may come from it")
+        if tag in src["windows"]:
+            raise SystemExit(f"transfer: {tag} given twice")
+        rows = summ["rows"]
+        pe = rows.get("pi_e")
+        if not pe:
+            raise SystemExit(f"transfer: {p} has no pi_e row")
+        status, ch = weight_status(rows, future, psha)
+        if status != "ok":
+            raise SystemExit(f"transfer: {tag}: no pre-specified weight ({status}: {ch})")
+        src["windows"].append(tag)
+        src["tau_e"].append(pe["p99_e2e"])
+        src["tau_f"].append(pe["p99_ttft"])
+        src["tpot_ref"].append(pe["mean_tpot"])
+        src["weights"].append(ch["weight"])
+        src["weight_labels"].append(ch["label"])
+        src.setdefault("weight_fallback", []).append(bool(ch.get("fallback")))
+    mean = lambda k: float(np.mean(src[k]))  # noqa: E731
+    # A window whose weight rule fell back to "tails" found no qualifying weight; its sentinel (effectively infinite)
+    # weight must not be averaged with a real one (Kamil's decision 2026-10-11): use the windows that met the rule,
+    # and the fallback only if none did.
+    real = [w for w, fb in zip(src["weights"], src["weight_fallback"]) if not fb]
+    weight = float(np.mean(real)) if real else mean("weights")
+    src["weight_rule"] = "mean of rule-met windows" if real and len(real) < len(src["weights"]) else "mean of all"
+    return {"tau_e": mean("tau_e"), "tau_f": mean("tau_f"), "tpot_ref": mean("tpot_ref"), "weight": weight,
+            "src": src}
+
+
+def resolve_settings(mode: str, score: str, tail_weight: Optional[str], pe: dict, rows: dict, future: str,
+                     psha: str, w_from: Optional[dict] = None, t_from: Optional[dict] = None):
+    """The plan's thresholds and tail weight, and the window's own pre-specified weight ``w_pre`` (None when not
+    consulted). Without transfers: the pilot's behaviour (thresholds from this window's pi_e; ``--tail-weight auto``
+    from this window's open-loop row). With ``w_from`` / ``t_from`` (``transfer_settings``): those values, and the
+    window's own are never read; a weight given another way, the open loop (which computes its settings from its own
+    window) and a non-tail score are refused. Returns (dict(tau_e, tau_f, tpot_ref, weight), w_pre)."""
+    if (w_from or t_from) and mode == "openloop":
+        raise SystemExit("transferred settings (--thresholds-from / --tail-weight-from) are for closed, placebo and "
+                         "noise runs; the open loop computes its settings from its own window")
+    if w_from is not None:
+        if tail_weight is not None:
+            raise SystemExit("--tail-weight-from fixes the weight: --tail-weight (own-window or explicit) refused")
+        if score != "tail":
+            raise SystemExit("--tail-weight-from needs --score tail")
+        weight, w_pre = w_from["weight"], None
+    else:
+        w_pre = None if mode == "openloop" else chosen_weight(rows, future, psha)
+        wspec = tail_weight or ("auto" if mode == "closed" else "25m")
+        if wspec == "auto" and mode == "openloop":
+            raise SystemExit("--tail-weight auto is the closed loop's; the open loop chooses it")
+        if wspec == "auto":
+            if score == "tail" and w_pre is None:
+                raise SystemExit("--tail-weight auto: no complete open-loop row in this --out; run --mode openloop "
+                                 "first (it pre-specifies the weight) or pass --tail-weight")
+            weight = w_pre["weight"] if w_pre else 25.0 * pe["mean_e2e"]
+        else:
+            weight = parse_weight(wspec, pe["mean_e2e"])
+    if t_from is not None:
+        th = {k: t_from[k] for k in ("tau_e", "tau_f", "tpot_ref")}
+    else:
+        th = {"tau_e": pe["p99_e2e"], "tau_f": pe["p99_ttft"], "tpot_ref": pe["mean_tpot"]}
+    return dict(th, weight=weight), w_pre
+
+
+def b_windows() -> list:
+    """Step B's 4 windows: requests 4,000-6,000 and 6,000-8,000 of Tool and Conv, 8R s0.75 p1."""
+    return sorted(ev.Scenario(t, 8, 0.75, s, 2000, 1, model="l3_8b").tag for t in ("Tool", "Conv") for s in (4000, 6000))
+
+
+GATE_MIN_GAIN = 0.05  # geometric-mean P99 E2E gain over the windows
+GATE_ALPHA = 0.025  # one-sided, per pooled test
+
+
+def b_head_rows(rows: dict, sha: Optional[str], n_futures: int, weight: Optional[float] = None,
+                future: str = "sampled-lengths") -> list:
+    """Step B's closed rows: as ``head_rows`` (full horizon, tail score, no ``--max-decisions``, plan every
+    decision, the given closed-loop ``decision_sha``) but with sampled futures, ``n_futures`` futures per decision
+    and both settings transferred (``thresholds_from`` and ``weight_from`` in the params)."""
+    out = []
+    for v in rows.values():
+        p = _params(v)
+        if (p.get("mode") == "closed" and p.get("horizon") == "full" and p.get("plan_every") == 1
+                and p.get("max_decisions") is None and p.get("future") == future and p.get("score") == "tail"
+                and p.get("n_futures", 1) == n_futures and p.get("thresholds_from") and p.get("weight_from")
+                and (sha is None or p.get("decision_sha") == sha)
+                and (weight is None or abs(p.get("weight", float("nan")) - weight) <= 1e-9 * max(1.0, weight))):
+            out.append(v)
+    return out
+
+
+def b_inputs(rows: dict, shas: dict, noise_delta: Optional[float], n_futures: int) -> dict:
+    """``verdict_inputs`` for a step-B window: its one B head row (``b_head_rows``), placebo runs at ITS deviation
+    rate, noise runs of one kind, current shas only; N = the pairwise noise reference. The control selection is
+    ``verdict_inputs``'s own, run on a view of the rows in which the B head stands as the only closed row."""
+    heads = b_head_rows(rows, shas.get("closed"), n_futures)
+    if len(heads) != 1:
+        return {"missing": f"{len(heads)} step-B closed rows (full horizon, sampled lengths, {n_futures} futures, "
+                f"transferred settings, current code)"}
+    view = {k: v for k, v in rows.items() if _params(v).get("mode") != "closed"}
+    view["__b_head__"] = dict(heads[0], params=dict(heads[0]["params"], future="true"))
+    inp = verdict_inputs(view, shas, noise_delta, None)
+    if "head" in inp:
+        inp["head"] = heads[0]
+    return inp
+
+
+def pooled_test(windows: list, metrics=METRICS4, max_enum: int = 200_000, draws: int = 100_000) -> dict:
+    """``pooled_stat``'s statistic for any of the four metrics, with both one-sided p-values: per window
+    z_w = (L_w - median R_w) / s(R_w) (s = IQR / 1.349) against a reference R_w (the pairwise noise reference, or the
+    placebo runs), Z = sum_w z_w, null = the sum of one leave-one-out draw of R per window (exact enumeration up to
+    ``max_enum`` combinations, else ``draws`` seeded draws; the same draws as ``pooled_stat``). ``p_low`` = P(null <=
+    Z) (an improvement), ``p_high`` = P(null >= Z) (a worsening). Equal to ``pooled_stat`` on E2E and TTFT (test)."""
+    out = {}
+    for m in metrics:
+        key = f"log_p99_{m}"
+        zs, nulls = [], []
+        for L, Rw in windows:
+            x = np.array([r[key] for r in Rw], float)
+            s = _robust_scale(x)
+            if not s > 0:
+                out[m] = {"error": "a window's reference runs have zero spread"}
+                break
+            zs.append((L[key] - np.median(x)) / s)
+            loo = []
+            for j in range(len(x)):
+                rest = np.delete(x, j)
+                sr = _robust_scale(rest)
+                loo.append((x[j] - np.median(rest)) / sr if sr > 0 else 0.0)
+            nulls.append(np.array(loo))
+        else:
+            if int(np.prod([len(a) for a in nulls])) <= max_enum:
+                tot = np.zeros(1)
+                for a in nulls:
+                    tot = np.add.outer(tot, a).ravel()
+            else:
+                rng = np.random.default_rng(0)
+                tot = sum(a[rng.integers(len(a), size=draws)] for a in nulls)
+            Z = float(sum(zs))
+            out[m] = {"Z": Z, "z": [float(z) for z in zs],
+                      **{f"q{p:g}": float(np.percentile(tot, p)) for p in (2.5, 5, 50, 95, 97.5)},
+                      "p_low": float(np.mean(tot <= Z)), "p_high": float(np.mean(tot >= Z)), "n_null": int(len(tot))}
+    return out
+
+
+def gate_verdict(summaries: dict, noise_delta: float = NOISE_DELTA, n_futures: int = 4,
+                 min_gain: float = GATE_MIN_GAIN, alpha: float = GATE_ALPHA) -> dict:
+    """Step B's gate to C (status report 2026-10-10, section 4), from the 4 B windows' summaries (name -> summary):
+    - ``e2e_gain``: geometric-mean P99 E2E gain over the windows >= ``min_gain`` (5 %), each window's change L
+      measured against its single unjittered pi_e run (``vs_pi_e``);
+    - ``e2e_vs_noise``: pooled one-sided significance of the E2E gain against noise, p_low < ``alpha`` (0.025)
+      (``pooled_test`` on the pairwise noise reference: the pilot's pre-registered pooled statistic);
+    - ``e2e_vs_placebo``: the same against placebo (``pooled_test`` with each window's >= 20 placebo runs at the B
+      run's own deviation rate as the reference), p_low < ``alpha``;
+    - ``not_worse``: for TTFT, TPOT and TBT no one-sided pooled worsening against noise, i.e. p_high >= ``alpha``.
+    ``pass`` = all clauses. Refuses (``invalid_windows``) any other window set, more than one setup or a stale
+    ``code_version``; ``incomplete`` when a window lacks its B row (``b_head_rows``: K = ``n_futures``, settings
+    transferred from the pilot windows of the same trace) or its 20 noise / 20 placebo runs. Stored labels are not
+    read; everything is recomputed from the rows."""
+    metas = [dict(s.get("meta", {})) for s in summaries.values()]
+    tags = sorted(m.get("scenario") for m in metas)
+    if tags != b_windows():
+        return {"gate": "invalid_windows", "reason": "not the 4 step-B windows", "got": tags, "expected": b_windows()}
+    if len({json.dumps({k: v for k, v in m.items() if k != "scenario"}, sort_keys=True) for m in metas}) != 1:
+        return {"gate": "invalid_windows", "reason": "the windows differ in setup (meta other than scenario)"}
+    cv = ev.code_version()
+    if metas[0].get("code_version") != cv:
+        return {"gate": "invalid_windows", "reason": f"code_version {metas[0].get('code_version')} is not the "
+                f"current {cv}"}
+    shas = {"closed": decision_sha("closed_crn" if n_futures > 1 else "closed"), "placebo": decision_sha("placebo"),
+            "noise": decision_sha("noise")}
+    pilot = pilot_windows()
+    per, noise_in, placebo_in, reasons = {}, [], [], []
+    for summ in summaries.values():
+        tag = summ["meta"]["scenario"]
+        inp = b_inputs(summ["rows"], shas, noise_delta, n_futures)
+        if "missing" in inp:
+            per[tag] = {"status": "missing", "reason": inp["missing"]}
+            reasons.append(f"{tag}: {inp['missing']}")
+            continue
+        p = inp["head"]["params"]
+        trace = tag.split("-")[2]
+        want = sorted(t for t in pilot if t.split("-")[2] == trace)
+        src = {k: sorted(p[k]["windows"]) for k in ("thresholds_from", "weight_from")}
+        if any(v != want for v in src.values()):
+            per[tag] = {"status": "wrong_transfer", "reason": f"settings from {src}, expected {want}"}
+            reasons.append(f"{tag}: settings not transferred from the pilot windows {want}: {src}")
+            continue
+        per[tag] = {"status": "ok", "L": {m: inp["L"][f"log_p99_{m}"] for m in METRICS4}, "rate": inp["rate"],
+                    "n_placebo": len(inp["P"]), "n_noise": len(inp["N_raw"]), "n_futures": p.get("n_futures", 1),
+                    "weight": p["weight"], "tau_e": p["tau_e"], "tau_f": p["tau_f"], "transferred_from": src}
+        noise_in.append((inp["L"], inp["N"]))
+        placebo_in.append((inp["L"], inp["P"]))
+    out = {"gate": "incomplete", "windows": per, "reasons": reasons, "n_futures": n_futures,
+           "min_gain": min_gain, "alpha": alpha, "noise_delta": noise_delta, "gate_sha": gate_sha()}
+    if len(noise_in) != 4:
+        return out
+    gm = float(np.mean([L["log_p99_e2e"] for L, _ in noise_in]))
+    nz = pooled_test(noise_in, METRICS4)
+    pl = pooled_test(placebo_in, ("e2e",))
+    if any("error" in v for v in list(nz.values()) + list(pl.values())):
+        out.update(gate="incomplete", pooled_noise=nz, pooled_placebo=pl)
+        reasons.append("a pooled test is not computable")
+        return out
+    clauses = {"e2e_gain": {"gm_log": gm, "gain_pct": float(-100 * math.expm1(gm)), "min_pct": 100 * min_gain,
+                            "ok": bool(-math.expm1(gm) >= min_gain)},
+               "e2e_vs_noise": {"p": nz["e2e"]["p_low"], "ok": bool(nz["e2e"]["p_low"] < alpha)},
+               "e2e_vs_placebo": {"p": pl["e2e"]["p_low"], "ok": bool(pl["e2e"]["p_low"] < alpha)},
+               "not_worse": {m: {"p_worse": nz[m]["p_high"], "ok": bool(nz[m]["p_high"] >= alpha)}
+                             for m in ("ttft", "tpot", "tbt")}}
+    ok = (clauses["e2e_gain"]["ok"] and clauses["e2e_vs_noise"]["ok"] and clauses["e2e_vs_placebo"]["ok"]
+          and all(v["ok"] for v in clauses["not_worse"].values()))
+    out.update(gate="pass" if ok else "fail", clauses=clauses, pooled_noise=nz, pooled_placebo=pl)
+    return out
+
+
+def gate_sha() -> str:
+    """The step-B gate's post-processing source (recorded in its output; not part of ``post_sha``, so adding the
+    gate re-keys no pilot row)."""
+    return _src_sha([b_head_rows, b_inputs, verdict_inputs, pooled_test, _robust_scale, gate_verdict, vs_pi_e]) + \
+        hashlib.sha256(repr((GATE_MIN_GAIN, GATE_ALPHA, NOISE_CENTRE)).encode()).hexdigest()[:4]
+
+
 # ------------------------------------------------------------------ summary with provenance
 
 def _src_sha(objs) -> str:
@@ -1457,12 +1888,13 @@ def _src_sha(objs) -> str:
 
 def decision_sha(mode: str = "closed") -> str:
     """What a ``mode``'s log or run depends on, per mode (review G r4: control code must not orphan closed logs):
-    the rollout, forcing, sampling and scoring core plus that mode's loop (closed, openloop) or run code (placebo,
-    noise), plus sim_fork.py."""
+    the rollout, forcing, sampling and scoring core plus that mode's loop (closed, ``closed_crn`` = step B's K-future
+    loop, openloop) or run code (placebo, noise), plus sim_fork.py."""
     core = [argv_for, Horizon, Plan, request_costs, rollout_terms, score_parts, select_candidate, _inflight,
             _next_time, apply_decision, output_pool, _draw, generated_tokens, fit_hashes, resample_outputs, _due,
             horizon_terms, child_rollouts, evaluate_candidates, _by]
     parts = {"closed": core + [closed_loop],
+             "closed_crn": core + [future_seeds, mean_terms, evaluate_futures, closed_loop_crn],
              "openloop": core + [jitter_arrivals, jitter_future, open_loop],
              "placebo": [argv_for, apply_decision, placebo_run],
              "noise": [argv_for, jitter_arrivals, noise_run]}
@@ -1560,7 +1992,7 @@ def parse_weight(spec: str, mean_e2e: float) -> float:
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("--mode", default="closed", choices=("closed", "openloop", "placebo", "noise", "pilot"))
+    ap.add_argument("--mode", default="closed", choices=("closed", "openloop", "placebo", "noise", "pilot", "gate"))
     ap.add_argument("--trace", default="Tool")
     ap.add_argument("--replicas", type=int, default=8)
     ap.add_argument("--scale", type=float, default=0.75)
@@ -1585,21 +2017,44 @@ def main(argv=None):
     ap.add_argument("--censor", default="elapsed", choices=("elapsed", "remaining"), help="pure T=<t> only")
     ap.add_argument("--min-gain", type=float, default=0.0, help="score gain a deviation needs (scalar scores)")
     ap.add_argument("--future", default="true", choices=("true", "sampled-lengths"))
+    ap.add_argument("--n-futures", type=int, default=1, help="closed, --future sampled-lengths: average each "
+                    "candidate's score over this many sampled futures (common to all candidates; step B: 4). "
+                    "placebo: take the rate from the closed row with this many futures. gate: the B rows' K")
+    ap.add_argument("--thresholds-from", nargs="+", metavar="DIR", help="step B: pi_e's P99 E2E/TTFT thresholds "
+                    "(and mean TPOT) = the mean of these windows' pi_e rows (same trace, other windows), not this "
+                    "window's")
+    ap.add_argument("--tail-weight-from", nargs="+", metavar="DIR", help="step B: the tail weight = the mean of "
+                    "these windows' pre-specified weights (absolute seconds); refuses --tail-weight")
     ap.add_argument("--workers", type=int, default=4)
     ap.add_argument("--child-timeout", type=float, default=3600.0, help="seconds per batch of rollout children")
     ap.add_argument("--max-decisions", type=int)
     ap.add_argument("--plan-every", type=int, default=1, help="closed/placebo: plan every K-th decision "
                     "(another question)")
     ap.add_argument("--skip-baselines", action="store_true")
-    ap.add_argument("--out", required=True, help="output directory (pilot: the 4 windows' directories, "
+    ap.add_argument("--out", required=True, help="output directory (pilot, gate: the 4 windows' directories, "
                     "comma-separated)")
     a = ap.parse_args(argv)
     if a.mode == "pilot":
         wins = {d: json.loads((Path(d) / "summary.json").read_text()) for d in a.out.split(",") if d}
         print(json.dumps({"pilot": pilot_verdict(wins, a.noise_delta, a.future)}, indent=1))
         return
+    if a.mode == "gate":
+        wins = {d: json.loads((Path(d) / "summary.json").read_text()) for d in a.out.split(",") if d}
+        print(json.dumps({"gate": gate_verdict(wins, a.noise_delta, a.n_futures)}, indent=1))
+        return
     if not a.noise_delta > 0:
         raise SystemExit("--noise-delta must be > 0")
+    if a.n_futures < 1:
+        raise SystemExit("--n-futures must be >= 1")
+    if a.n_futures > 1 and (a.future != "sampled-lengths" or a.mode == "openloop" or a.score == "lex"):
+        raise SystemExit("--n-futures > 1 needs --future sampled-lengths, a scalar score and the closed loop "
+                         "(or placebo/noise, to find its row)")
+    step_b = a.n_futures != 1 or bool(a.thresholds_from) or bool(a.tail_weight_from)
+    if a.mode == "openloop" and (a.thresholds_from or a.tail_weight_from):  # early; resolve_settings checks again
+        raise SystemExit("transferred settings are for closed, placebo and noise runs; the open loop computes its "
+                         "settings from its own window")
+    if a.tail_weight_from and a.tail_weight:
+        raise SystemExit("--tail-weight-from fixes the weight: --tail-weight (own-window or explicit) refused")
     default_h = "full" if a.mode == "closed" else "H=64,T=0.5x+drain,T=1x+drain,T=2x+drain,T=1x"
     horizons = [Horizon.parse(s) for s in (a.horizon or default_h).split(",") if s.strip()]
     sc = ev.Scenario(a.trace, a.replicas, a.scale, a.start, a.len, a.p, model=a.model)
@@ -1652,23 +2107,26 @@ def main(argv=None):
             raise SystemExit("the in-process pi_e run differs from evaluate.run_one's; the fork path is not the "
                              "harness's simulation")
     pe = rows["pi_e"]
+    # step B: settings transferred from other windows (refused for the open loop and with --tail-weight)
+    t_from = transfer_settings(_split_dirs(a.thresholds_from), sc, meta) if a.thresholds_from else None
+    w_from = transfer_settings(_split_dirs(a.tail_weight_from), sc, meta) if a.tail_weight_from else None
     # the pre-specified weight, once the open loop has run (the open-loop mode itself refreshes it below)
-    w_pre = None if a.mode == "openloop" else chosen_weight(rows, a.future, psha)
-    wspec = a.tail_weight or ("auto" if a.mode == "closed" else "25m")
-    if wspec == "auto" and a.mode == "openloop":
-        raise SystemExit("--tail-weight auto is the closed loop's; the open loop chooses it")
-    if wspec == "auto":
-        if a.score == "tail" and w_pre is None:
-            raise SystemExit("--tail-weight auto: no complete open-loop row in this --out; run --mode openloop first "
-                             "(it pre-specifies the weight) or pass --tail-weight")
-        weight = w_pre["weight"] if w_pre else 25.0 * pe["mean_e2e"]
-    else:
-        weight = parse_weight(wspec, pe["mean_e2e"])
-    plan = Plan(a.score, pe["p99_e2e"], pe["p99_ttft"], weight, a.censor, pe["mean_tpot"], a.min_gain)
+    st, w_pre = resolve_settings(a.mode, a.score, a.tail_weight, pe, rows, a.future, psha, w_from, t_from)
+    weight = st["weight"]
+    plan = Plan(a.score, st["tau_e"], st["tau_f"], weight, a.censor, st["tpot_ref"], a.min_gain)
+    crn = a.mode == "closed" and a.n_futures > 1
     common = {"score": a.score, "future": a.future, "weight": weight if a.score == "tail" else None,
               "min_gain": a.min_gain, "tau_e": plan.tau_e, "tau_f": plan.tau_f, "tpot_ref": plan.tpot_ref,
               "censor": a.censor, "cut": pe["cut"], "policy_sha": meta["policy_sha"],
-              "decision_sha": decision_sha(a.mode)}
+              "decision_sha": decision_sha("closed_crn" if crn else a.mode)}
+    # provenance, only when used (default runs keep their keys and log headers)
+    if a.n_futures != 1:
+        common["n_futures"] = a.n_futures
+    if t_from:
+        common["thresholds_from"] = {"windows": t_from["src"]["windows"]} | {
+            k: t_from["src"][k] for k in ("tau_e", "tau_f", "tpot_ref")}
+    if w_from:
+        common["weight_from"] = {k: w_from["src"][k] for k in ("windows", "weights", "weight_labels")}
     shas = {m: decision_sha(m) for m in ("closed", "placebo", "noise")}
     failed = False
 
@@ -1710,14 +2168,26 @@ def main(argv=None):
                 print(f"{key}: already in {summ_path}, reused")
                 continue
             with tempfile.TemporaryDirectory() as tmp:  # a complete log replays without new rollouts
-                info = closed_loop(sc, hz_abs, plan, pe["cut"], tmp, out / f"{key}.jsonl", a.workers, a.future,
-                                   a.max_decisions, child_timeout=a.child_timeout, plan_every=a.plan_every,
-                                   header=params)
+                if crn:
+                    info = closed_loop_crn(sc, hz_abs, plan, pe["cut"], tmp, out / f"{key}.jsonl", a.workers,
+                                           a.n_futures, a.max_decisions, child_timeout=a.child_timeout,
+                                           plan_every=a.plan_every, header=params)
+                else:
+                    info = closed_loop(sc, hz_abs, plan, pe["cut"], tmp, out / f"{key}.jsonl", a.workers, a.future,
+                                       a.max_decisions, child_timeout=a.child_timeout, plan_every=a.plan_every,
+                                       header=params)
                 store(key, params, info, score_output(tmp, sc))
             print(json.dumps({key: rows.get(key)}, indent=1))
     else:
         rate = a.rate
-        if a.mode == "placebo" and rate is None:  # the same head the verdict uses
+        if a.mode == "placebo" and rate is None and step_b:  # B: the B row's own deviation rate (as the gate)
+            sha = decision_sha("closed_crn" if a.n_futures > 1 else "closed")
+            heads = b_head_rows(rows, sha, a.n_futures, weight if a.score == "tail" else None, a.future)
+            if len(heads) != 1:
+                raise SystemExit(f"--rate needed: {len(heads)} step-B closed rows (full horizon, {a.future}, "
+                                 f"{a.n_futures} futures, transferred settings, weight {weight:.6g}, current code)")
+            rate = heads[0]["deviation_frac"]
+        elif a.mode == "placebo" and rate is None:  # the same head the verdict uses
             heads = head_rows(rows, shas["closed"], w_pre["weight"] if w_pre else None, a.plan_every)
             if len(heads) != 1:
                 raise SystemExit(f"--rate needed: {len(heads)} closed full-horizon rows (current code, true future, "

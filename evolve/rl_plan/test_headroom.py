@@ -19,7 +19,10 @@
   pooled statistic; the pilot verdict recomputes labels and checks the windows; the tails tie-break;
 - review G r6: the weight rule and the cross-fitted gain are mechanisms, not gates (synthetic true-null pilots reach
   "no headroom", true positives "headroom"); data-based bounds; centred noise band; the below-band-and-worse case is
-  not negative; one setup across windows.
+  not negative; one setup across windows;
+- step B: K sampled futures are common to all candidates and averaged, K = 1 reproduces the single-future sampled
+  closed loop, the K-future loop resumes; transferred thresholds and weight are used and own-window settings refused;
+  the pilot's shas and row keys are unchanged; the gate's clauses on synthetic windows.
 All on Conv 4R s1.5 w6000+200 p1 (~8 s per full run)."""
 
 import filecmp
@@ -699,3 +702,212 @@ def test_boot_ci():
     iid, blk = hr.boot_ci(x), hr.boot_ci(x, block=20)
     assert blk["block"] == 20 and blk["mean"] == iid["mean"] and blk["hi"] - blk["lo"] > 2 * (iid["hi"] - iid["lo"])
     assert hr.lag1(x) > 0.9 and hr.lag1([1.0, 1.0, 1.0]) is None
+
+
+# ------------------------------------------------------------------ step B (K sampled futures, transfer, gate)
+
+def test_futures_crn_and_average(plain, tmp_path):
+    """K futures: every candidate sees the same K sampled futures (each equal to a single-future rollout with that
+    seed), the candidate's terms are their mean, and the futures differ."""
+    _, s = plain
+    plan = _plan(s)
+    h = build_simulator(hr.argv_for(SC, tmp_path))
+    assert h.run_to_decision(K)
+    pool, cap = hr.output_pool(SC), ev.max_request_tokens(SC)
+    seeds = hr.future_seeds(h.decisions, 2)
+    assert seeds[0] == 1000003 * h.decisions + 7 and len(set(seeds + hr.future_seeds(h.decisions + 1, 2))) == 4
+    hz = hr.Horizon.parse("T=10+drain")
+    samples = [(x, pool, cap) for x in seeds]
+    pe, mean, per = hr.evaluate_futures(h, [None, 1], hz, plan, 2, 600, samples)
+    assert len(per) == 2 and set(mean) == set(per[0]) == {pe, 1}
+    strip = lambda t: {k: v for k, v in t.items() if k != "cpu_s"}  # noqa: E731
+    for j, smp in enumerate(samples):  # CRN: the same future j for every candidate
+        single = hr._by(hr.evaluate_candidates(h, [None, 1], [hz], plan, 2, sample=smp), 0, pe)
+        assert {c: strip(t) for c, t in single.items()} == {c: strip(t) for c, t in per[j].items()}
+    for c in mean:
+        for k in hr._AVG:
+            assert mean[c][k] == pytest.approx((per[0][c][k] + per[1][c][k]) / 2)
+        assert mean[c]["n"] == per[0][c]["n"] == per[1][c]["n"]
+    assert any(per[0][c]["sum"] != per[1][c]["sum"] for c in mean)  # the futures differ
+    one = hr.mean_terms([per[0][1]])  # K = 1: the terms themselves
+    assert all(one[k] == per[0][1][k] for k in hr._AVG)
+
+
+def test_closed_loop_crn_k1_equals_sampled_mode_and_resumes(plain, tmp_path):
+    _, s = plain
+    plan, hz = _plan(s), hr.Horizon.parse("T=5+drain")
+    a = hr.closed_loop(SC, hz, plan, s["cut"], tmp_path / "A", tmp_path / "a.jsonl", workers=2,
+                       future="sampled-lengths", max_decisions=3, chooser=_worst)
+    b = hr.closed_loop_crn(SC, hz, plan, s["cut"], tmp_path / "B", tmp_path / "b.jsonl", workers=2, n_futures=1,
+                           max_decisions=3, chooser=_worst)
+    _same_outputs(tmp_path / "A", tmp_path / "B")
+    ra = [json.loads(x) for x in open(tmp_path / "a.jsonl")][1:]
+    rb = [json.loads(x) for x in open(tmp_path / "b.jsonl")][1:]
+    assert a["deviations"] == b["deviations"] == 3
+    for x, y in zip(ra, rb):
+        assert (x["k"], x["pe"], x["chosen"]) == (y["k"], y["pe"], y["chosen"])
+        assert {c: v["score"] for c, v in x["cands"].items()} == {c: v["score"] for c, v in y["cands"].items()}
+        assert y["seeds"] == [1000003 * (x["k"] - 1) + 7]
+    # K = 2: the decision is the argmin of the mean score over the two futures (default chooser)
+    log = tmp_path / "c.jsonl"
+    c = hr.closed_loop_crn(SC, hz, plan, s["cut"], tmp_path / "C", log, workers=2, n_futures=2, max_decisions=2)
+    rows = [json.loads(x) for x in open(log)][1:]
+    assert c["planned"] == 2 and c["n_futures"] == 2 and len(rows) == 2
+    for r in rows:
+        assert len(r["seeds"]) == 2
+        for v in r["cands"].values():
+            assert len(v["score_k"]) == 2 and v["score"] == pytest.approx(np.mean(v["score_k"]))
+        sc_ = {int(k): v["score"] for k, v in r["cands"].items()}
+        assert r["chosen"] == (r["pe"] if r["decided_by"] == "keep" else min(sc_, key=sc_.get))
+    c2 = hr.closed_loop_crn(SC, hz, plan, s["cut"], tmp_path / "C2", log, workers=2, n_futures=2, max_decisions=2)
+    assert c2["replayed"] == 2
+    _same_outputs(tmp_path / "C", tmp_path / "C2")
+    with pytest.raises(ValueError, match="scalar"):
+        hr.closed_loop_crn(SC, hz, hr.Plan("lex"), s["cut"], tmp_path / "D", tmp_path / "d.jsonl")
+
+
+def _pilot_dir(root, start, weight, tau, label="100m", meta=None, sc=SC):
+    """A minimal pilot window directory: summary with pi_e and a current open-loop row carrying a weight choice."""
+    d = Path(root) / f"w{start}"
+    d.mkdir()
+    tag = hr.replace(sc, window_start=start).tag
+    rows = {"pi_e": {"p99_e2e": tau, "p99_ttft": tau / 2, "mean_tpot": tau / 1000, "mean_e2e": tau / 5},
+            "ol": {"params": {"mode": "openloop", "max_points": None, "future": "true",
+                              "decision_sha": hr.decision_sha("openloop")}, "post_sha": hr.post_sha(),
+                   "stats": {"full": {"weight_choice": {"label": label, "weight": weight, "rule_met": True}}}}}
+    m = {"scenario": tag, "code_version": "cv", "bundle": "b"} | (meta or {})
+    (d / "summary.json").write_text(json.dumps({"format": hr.FORMAT, "meta": m, "rows": rows}))
+    return str(d)
+
+
+def test_transferred_settings_used_and_own_window_refused(tmp_path):
+    meta = {"scenario": SC.tag, "code_version": "cv", "bundle": "b"}
+    d0, d1 = _pilot_dir(tmp_path, 0, 100.0, 90.0), _pilot_dir(tmp_path, 2000, 300.0, 110.0, label="tails")
+    x = hr.transfer_settings(hr._split_dirs([f"{d0},{d1}"]), SC, meta)
+    assert (x["tau_e"], x["tau_f"], x["weight"]) == (100.0, 50.0, 200.0) and x["tpot_ref"] == pytest.approx(0.1)
+    assert x["src"]["windows"] == [hr.replace(SC, window_start=0).tag, hr.replace(SC, window_start=2000).tag]
+    assert x["src"]["weight_labels"] == ["100m", "tails"]
+    # this window's own pi_e and open-loop choice differ: with transfers they are never used
+    own_pe = {"p99_e2e": 50.0, "p99_ttft": 20.0, "mean_tpot": 0.05, "mean_e2e": 10.0}
+    (tmp_path / "own").mkdir()
+    own_rows = json.loads(Path(_pilot_dir(tmp_path / "own", 6000, 999.0, 50.0), "summary.json").read_text())["rows"]
+    psha = hr.post_sha()
+    st, w_pre = hr.resolve_settings("closed", "tail", None, own_pe, own_rows, "true", psha, x, x)
+    assert st == {"tau_e": 100.0, "tau_f": 50.0, "tpot_ref": x["tpot_ref"], "weight": 200.0} and w_pre is None
+    st0, w0 = hr.resolve_settings("closed", "tail", None, own_pe, own_rows, "true", psha)  # pilot behaviour
+    assert st0 == {"tau_e": 50.0, "tau_f": 20.0, "tpot_ref": 0.05, "weight": 999.0} and w0["weight"] == 999.0
+    st1, _ = hr.resolve_settings("closed", "tail", None, own_pe, own_rows, "true", psha, None, x)  # thresholds only
+    assert st1["tau_e"] == 100.0 and st1["weight"] == 999.0
+    for wspec in ("auto", "25m", "5.0"):  # own-window or explicit weight with a transferred one: refused
+        with pytest.raises(SystemExit, match="refused"):
+            hr.resolve_settings("closed", "tail", wspec, own_pe, own_rows, "true", psha, x, x)
+    with pytest.raises(SystemExit, match="open loop"):
+        hr.resolve_settings("openloop", "tail", None, own_pe, own_rows, "true", psha, None, x)
+    with pytest.raises(SystemExit, match="auto"):  # pilot behaviour: closed auto without an open-loop row
+        hr.resolve_settings("closed", "tail", None, own_pe, {}, "true", psha)
+    # sources that would leak or do not match are refused
+    with pytest.raises(SystemExit, match="overlaps"):
+        hr.transfer_settings([_pilot_dir(tmp_path, 6100, 1.0, 1.0)], SC, meta)
+    with pytest.raises(SystemExit, match="another setup"):
+        hr.transfer_settings([_pilot_dir(tmp_path, 4000, 1.0, 1.0, meta={"bundle": "x"})], SC, meta)
+    other = hr.replace(SC, trace="Tool")
+    with pytest.raises(SystemExit, match="not a window"):
+        hr.transfer_settings([_pilot_dir(tmp_path, 3000, 1.0, 1.0, sc=other)], SC, meta)
+    nochoice = _pilot_dir(tmp_path, 5000, 1.0, 1.0)
+    summ = json.loads(Path(nochoice, "summary.json").read_text())
+    summ["rows"]["ol"]["stats"]["full"]["weight_choice"] = None
+    Path(nochoice, "summary.json").write_text(json.dumps(summ))
+    with pytest.raises(SystemExit, match="no pre-specified weight"):
+        hr.transfer_settings([nochoice], SC, meta)
+    # the CLI refuses bad combinations before any simulation
+    for argv in (["--mode", "openloop", "--thresholds-from", d0], ["--tail-weight-from", d0, "--tail-weight", "5"],
+                 ["--n-futures", "4"], ["--n-futures", "0"]):
+        with pytest.raises(SystemExit):
+            hr.main(argv + ["--out", str(tmp_path / "cli")])
+    assert not (tmp_path / "cli").exists()
+
+
+def test_default_keys_unchanged():
+    """Step B adds code without re-keying the pilot: the per-mode decision shas and post_sha of the pilot's stored
+    rows are still current (checked against the Alpine summaries when present)."""
+    shas = {m: hr.decision_sha(m) for m in ("closed", "closed_crn", "openloop", "placebo", "noise")}
+    assert len(set(shas.values())) == 5
+    d = ev.REPO / "evolve/rl_plan/out_alpine/v41_tool_w0/summary.json"
+    if not d.exists():
+        pytest.skip("pilot summaries not present")
+    rows = json.loads(d.read_text())["rows"]
+    seen = set()
+    for k, v in rows.items():
+        p = hr._params(v)
+        if p.get("mode") in ("closed", "openloop", "placebo", "noise"):
+            assert p["decision_sha"] == shas[p["mode"]] and v["post_sha"] == hr.post_sha(), k
+            assert hr._row_key(p) == k
+            seen.add(p["mode"])
+    assert seen == {"closed", "openloop", "placebo", "noise"}
+
+
+def test_pooled_test_matches_pooled_stat():
+    rng = np.random.default_rng(5)
+    Ns = [[_vs(*rng.normal(0, 0.02, 4)) for _ in range(20)] for _ in range(4)]
+    for L in (_vs(0.0, 0.0), _vs(-0.03, 0.01, 0.05, -0.02)):
+        a, b = hr.pooled_stat([(L, N) for N in Ns]), hr.pooled_test([(L, N) for N in Ns])
+        for m in ("e2e", "ttft"):
+            assert all(a[m][k] == b[m][k] for k in ("Z", "z", "q2.5", "q5", "q50", "q95", "q97.5", "p_low", "n_null"))
+    big = [[_vs(*rng.normal(0, 0.02, 4)) for _ in range(380)] for _ in range(4)]  # sampled null, same draws
+    a, b = hr.pooled_stat([(_vs(0.01, 0.0), N) for N in big]), hr.pooled_test([(_vs(0.01, 0.0), N) for N in big])
+    assert a["e2e"]["p_low"] == b["e2e"]["p_low"] and b["e2e"]["n_null"] == 100_000
+    worse = hr.pooled_test([(_vs(0.0, 0.0, 0.08, 0.0), N) for N in Ns])
+    assert worse["tpot"]["p_high"] < 0.025 < worse["tbt"]["p_high"] and worse["tpot"]["p_low"] > 0.9
+
+
+def _bwindow(tag, L, seed=0, rate=0.03, p_off=0.0, transfer=True, n_noise=20, p_rate=None, k=4):
+    rng = np.random.default_rng(seed)
+    sh = {m: hr.decision_sha(m) for m in ("closed_crn", "placebo", "noise")}
+    rows = {f"placebo{i}": _ctl("placebo", _vs(*(rng.normal(0, 0.02, 4) + p_off)), sha=sh["placebo"],
+                                rate=p_rate if p_rate is not None else rate) for i in range(20)}
+    rows |= {f"noise{i}": _ctl("noise", _vs(*rng.normal(0, 0.02, 4)), sha=sh["noise"], noise_kind="jitter",
+                               noise_delta=hr.NOISE_DELTA) for i in range(n_noise)}
+    trace = tag.split("-")[2]
+    src = transfer if isinstance(transfer, list) else [t for t in hr.pilot_windows() if t.split("-")[2] == trace]
+    p = {"mode": "closed", "horizon": "full", "plan_every": 1, "max_decisions": None, "future": "sampled-lengths",
+         "score": "tail", "weight": 100.0, "tau_e": 90.0, "tau_f": 40.0, "n_futures": k,
+         "decision_sha": sh["closed_crn"]}
+    if transfer:
+        p |= {"thresholds_from": {"windows": src}, "weight_from": {"windows": src}}
+    rows["B"] = {"params": p, "deviation_frac": rate, "vs_pi_e": _vs(*L)}
+    rows["verdict"] = {"label": "missing"}
+    return {"meta": {"scenario": tag, "code_version": CV, "bundle": "b"}, "rows": rows}
+
+
+def test_gate_verdict(cv):
+    tags = hr.b_windows()
+    assert len(tags) == 4 and all("w4000+2000" in t or "w6000+2000" in t for t in tags)
+    G = lambda ws, **kw: hr.gate_verdict({t: w for t, w in zip(tags, ws)}, **kw)  # noqa: E731
+    mk = lambda L, **kw: [_bwindow(t, L, seed=i, **kw) for i, t in enumerate(tags)]  # noqa: E731
+    v = G(mk((-0.10, 0.0, 0.0, 0.0)))
+    assert v["gate"] == "pass", v
+    assert v["clauses"]["e2e_gain"]["gain_pct"] == pytest.approx(100 * (1 - math.exp(-0.1)))
+    assert v["clauses"]["e2e_vs_noise"]["p"] < 0.025 and v["clauses"]["e2e_vs_placebo"]["p"] < 0.025
+    assert all(w["n_futures"] == 4 and w["n_placebo"] == 20 and w["n_noise"] == 20 for w in v["windows"].values())
+    small = G(mk((-0.03, 0.0, 0.0, 0.0)))  # significant but below 5 %
+    assert small["gate"] == "fail" and not small["clauses"]["e2e_gain"]["ok"]
+    assert small["clauses"]["e2e_vs_noise"]["ok"]
+    plc = G(mk((-0.10, 0.0, 0.0, 0.0), p_off=-0.1))  # random overrides gain as much: placebo clause fails
+    assert plc["gate"] == "fail" and not plc["clauses"]["e2e_vs_placebo"]["ok"] and plc["clauses"]["e2e_vs_noise"]["ok"]
+    for j, m in ((1, "ttft"), (2, "tpot"), (3, "tbt")):
+        L = [-0.10, 0.0, 0.0, 0.0]
+        L[j] = 0.08
+        w = G(mk(tuple(L)))
+        assert w["gate"] == "fail" and not w["clauses"]["not_worse"][m]["ok"]
+        assert all(w["clauses"]["not_worse"][x]["ok"] for x in ("ttft", "tpot", "tbt") if x != m)
+    # incomplete: too few noise runs, placebo at another rate, own-window settings, settings from the wrong windows
+    ws = mk((-0.10, 0.0, 0.0, 0.0))
+    assert G(ws[:3] + [_bwindow(tags[3], (-0.1, 0, 0, 0), n_noise=19)])["gate"] == "incomplete"
+    assert G(ws[:3] + [_bwindow(tags[3], (-0.1, 0, 0, 0), p_rate=0.05)])["gate"] == "incomplete"
+    assert G(ws[:3] + [_bwindow(tags[3], (-0.1, 0, 0, 0), transfer=False)])["gate"] == "incomplete"
+    wrong = G(ws[:3] + [_bwindow(tags[3], (-0.1, 0, 0, 0), transfer=hr.pilot_windows()[:2])])
+    assert wrong["gate"] == "incomplete" and wrong["windows"][tags[3]]["status"] == "wrong_transfer"
+    assert G(ws, n_futures=1)["gate"] == "incomplete"  # the rows are K = 4
+    assert hr.gate_verdict({t: _bwindow(t, (0, 0, 0, 0)) for t in hr.pilot_windows()})["gate"] == "invalid_windows"
+    old = [dict(w, meta=dict(w["meta"], code_version="old")) for w in ws]
+    assert G(old)["gate"] == "invalid_windows"
