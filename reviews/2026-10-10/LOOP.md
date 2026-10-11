@@ -52,3 +52,4 @@ Not yet reviewed: `evolve/rl_plan/` (headroom pilot; agent still running, uncomm
 - 2026-10-10 G round 7: runs may launch; 1 major post-processing fix (pairwise noise reference: coverage 88% -> 95%, true-null 'no headroom' 51% -> 77%, false 'headroom' 0 in ~2000 null pilots) + minors. Fixer resumed.
 - 2026-10-10 G round-7 fix e153a6c (pairwise noise reference). Headroom pilot launched on Alpine on v4.1: 4 chains x 8 links (10 CPUs, 4 h), windows Tool/Conv x start 0/2000, out evolve/rl_plan/out/v41_*; last jobs 33743599/607/615/623. Round 8 (strict) running on post-processing.
 - 2026-10-10 G round 8: approve with minors (stop rule met). Null-rate statements aligned to ~70 %. Optional pooled-null refinement and 'single negative window' caveat noted for the write-up. ALL CHUNKS DONE.
+- 2026-10-11 Step B (headroom planner with sampled lengths, K=4): review B_step_r1 approve with minors; minors fixed (1183084); launched on Alpine.
