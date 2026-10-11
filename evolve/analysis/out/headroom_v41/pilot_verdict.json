@@ -1,0 +1,289 @@
+{
+ "pilot": {
+  "claim": "inconclusive",
+  "windows": {
+   "l3_8b-8R-Tool-s0.75-w0+2000-p1": {
+    "label": "null",
+    "weight": "100m",
+    "rule_met": true,
+    "fallback": false,
+    "gain_xfit": {
+     "n": 166,
+     "mean": 584.0877519987043,
+     "lo": 312.3925520509641,
+     "hi": 881.9501587664845,
+     "block": 20
+    },
+    "mechanism": "(ii) per-decision tail gains exist (gain_xfit) but do not reach window P99 beyond the bound",
+    "ruled_out": {
+     "e2e": {
+      "log": -0.12061031172000433,
+      "pct": -11.362069607344345
+     },
+     "ttft": {
+      "log": -0.13855800894856932,
+      "pct": -12.938725352576858
+     }
+    },
+    "detectable_pct": {
+     "e2e": -7.400941037316898,
+     "ttft": -10.470140844466759
+    },
+    "clauses": {
+     "zero_in_noise_band": {
+      "e2e": true,
+      "ttft": true
+     },
+     "below_noise": {
+      "e2e": false,
+      "ttft": false
+     },
+     "better": {
+      "e2e": false,
+      "ttft": false
+     },
+     "worse": {
+      "e2e": false,
+      "ttft": false
+     },
+     "within": {
+      "e2e": true,
+      "ttft": true
+     },
+     "pace_ok": {
+      "tpot": true,
+      "tbt": true
+     },
+     "pace_limit": {
+      "tpot": 0.06400197490435616,
+      "tbt": 0.048859544005325994
+     }
+    }
+   },
+   "l3_8b-8R-Tool-s0.75-w2000+2000-p1": {
+    "label": "inconclusive",
+    "weight": "tails",
+    "rule_met": false,
+    "fallback": true,
+    "gain_xfit": {
+     "n": 167,
+     "mean": 1456461453.1694098,
+     "lo": -1760252515.902142,
+     "hi": 4050095170.120945,
+     "block": 20
+    },
+    "mechanism": null,
+    "ruled_out": {
+     "e2e": {
+      "log": -0.2353662900090715,
+      "pct": -20.971867554661998
+     },
+     "ttft": {
+      "log": -0.14975957549929103,
+      "pct": -13.908506341130389
+     }
+    },
+    "detectable_pct": {
+     "e2e": -10.992005495605927,
+     "ttft": -18.272232074656078
+    },
+    "clauses": {
+     "zero_in_noise_band": {
+      "e2e": true,
+      "ttft": true
+     },
+     "below_noise": {
+      "e2e": true,
+      "ttft": false
+     },
+     "better": {
+      "e2e": true,
+      "ttft": false
+     },
+     "worse": {
+      "e2e": false,
+      "ttft": false
+     },
+     "within": {
+      "e2e": false,
+      "ttft": true
+     },
+     "pace_ok": {
+      "tpot": true,
+      "tbt": true
+     },
+     "pace_limit": {
+      "tpot": 0.11128164994964973,
+      "tbt": 0.0968665074704541
+     }
+    }
+   },
+   "l3_8b-8R-Conv-s0.75-w0+2000-p1": {
+    "label": "inconclusive",
+    "weight": "100m",
+    "rule_met": true,
+    "fallback": false,
+    "gain_xfit": {
+     "n": 163,
+     "mean": 3153.994723412919,
+     "lo": 1709.9137820024073,
+     "hi": 4680.944301984127,
+     "block": 20
+    },
+    "mechanism": null,
+    "ruled_out": {
+     "e2e": {
+      "log": -0.2053420204647842,
+      "pct": -18.56312619999052
+     },
+     "ttft": {
+      "log": -0.2312223770656502,
+      "pct": -20.643702379373245
+     }
+    },
+    "detectable_pct": {
+     "e2e": -6.905357134652163,
+     "ttft": -8.50217926734984
+    },
+    "clauses": {
+     "zero_in_noise_band": {
+      "e2e": true,
+      "ttft": true
+     },
+     "below_noise": {
+      "e2e": true,
+      "ttft": true
+     },
+     "better": {
+      "e2e": false,
+      "ttft": true
+     },
+     "worse": {
+      "e2e": false,
+      "ttft": false
+     },
+     "within": {
+      "e2e": false,
+      "ttft": false
+     },
+     "pace_ok": {
+      "tpot": true,
+      "tbt": true
+     },
+     "pace_limit": {
+      "tpot": 0.06364095681177927,
+      "tbt": 0.06282935216706385
+     }
+    }
+   },
+   "l3_8b-8R-Conv-s0.75-w2000+2000-p1": {
+    "label": "inconclusive",
+    "weight": "25m",
+    "rule_met": true,
+    "fallback": false,
+    "gain_xfit": {
+     "n": 161,
+     "mean": 280.9854358209257,
+     "lo": 19.34392821248605,
+     "hi": 558.6118978740094,
+     "block": 20
+    },
+    "mechanism": null,
+    "ruled_out": {
+     "e2e": {
+      "log": -0.14718843470104537,
+      "pct": -13.686868180042755
+     },
+     "ttft": {
+      "log": -0.19212753476927952,
+      "pct": -17.479838011780426
+     }
+    },
+    "detectable_pct": {
+     "e2e": -6.983212811377154,
+     "ttft": -11.501790407424206
+    },
+    "clauses": {
+     "zero_in_noise_band": {
+      "e2e": true,
+      "ttft": true
+     },
+     "below_noise": {
+      "e2e": true,
+      "ttft": false
+     },
+     "better": {
+      "e2e": true,
+      "ttft": false
+     },
+     "worse": {
+      "e2e": false,
+      "ttft": false
+     },
+     "within": {
+      "e2e": false,
+      "ttft": true
+     },
+     "pace_ok": {
+      "tpot": true,
+      "tbt": true
+     },
+     "pace_limit": {
+      "tpot": 0.05049023532998655,
+      "tbt": 0.05897346717513596
+     }
+    }
+   }
+  },
+  "pooled": {
+   "e2e": {
+    "Z": -10.960877407810218,
+    "z": [
+     -0.9943092329530641,
+     -2.6065432545014895,
+     -5.588151889318342,
+     -1.7718730310373207
+    ],
+    "q2.5": -4.667298365843067,
+    "q5": -3.930413213999012,
+    "q50": -0.00409396619219804,
+    "q95": 3.9317119190877112,
+    "q97.5": 4.6471906646376375,
+    "p_low": 0.0,
+    "n_null": 100000,
+    "bound_log": -0.1352415736648871,
+    "bound_pct": -12.649512957479022,
+    "detectable_log": -0.03565542446168661,
+    "detectable_pct": -3.5027257794911932
+   },
+   "ttft": {
+    "Z": -4.600195740053482,
+    "z": [
+     -0.44924359051714713,
+     0.4088470715921769,
+     -3.541458685312788,
+     -1.0183405358157236
+    ],
+    "q2.5": -3.736661996592215,
+    "q5": -3.1446617259564413,
+    "q50": -0.0042219982318068006,
+    "q95": 3.136153659946256,
+    "q97.5": 3.7245744476291414,
+    "p_low": 0.00773,
+    "n_null": 100000,
+    "bound_log": -0.12209562732044661,
+    "bound_pct": -11.493627181702252,
+    "detectable_log": -0.04956264754777037,
+    "detectable_pct": -4.835446199034861
+   }
+  },
+  "reasons": [
+   "labels ['null', 'inconclusive', 'inconclusive', 'inconclusive']",
+   "pooled Z below its null 5 % quantile, or not computable"
+  ],
+  "effect_size_ruled_out_pct": {
+   "e2e": -12.649512957479022,
+   "ttft": -11.493627181702252
+  }
+ }
+}

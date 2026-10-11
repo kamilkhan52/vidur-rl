@@ -196,3 +196,7 @@ archive/*/untracked/
 evolve/.cache/
 evolve/runs/
 scratch
+
+# per-run caches and bulky experiment logs (summaries are committed under evolve/analysis/out/)
+evolve/.cache_v4/
+evolve/rl_plan/out*/
