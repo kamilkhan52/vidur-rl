@@ -1,8 +1,8 @@
 # SELECTION.md: pre-registered selection and test protocol (v4 campaign)
 
-Status: **DRAFT 2026-10-10, not yet in force.** It comes into force when Kamil approves it and it is committed,
-which must happen before the first v4 held-out run. After that, change it only by appending a dated amendment that
-says which results had already been seen at that time. Never edit earlier text.
+Status: **IN FORCE from 2026-10-10** (Kamil's decisions in §8, committed before any v4/v4.1 held-out run of a
+searched policy; the campaign simulator is v4.1, `code_version` cbeb5161f046). From now on, change it only by
+appending a dated amendment that says which results had already been seen at that time. Never edit earlier text.
 
 Scope: the v4 simulator campaign for both contributions, the evolved router (workstream D) and the RL router
 (workstream E), on the T1 headline deployment: Llama-3.1-8B TP1 on A100, 8 or 16 replicas, using the
@@ -68,12 +68,16 @@ Notes:
   - Checkpoint and hyperparameter selection use heldout3 learning curves only.
   - Freeze **at most 3 finalists** in total: the best planning-based finalist, the best distilled or fast finalist,
     and the best model-free control.
-  - An RL finalist is the deployable policy as frozen. If it runs online lookahead, its compute budget per decision
-    is fixed at the freeze and reported.
-- **Primary finalist per method:** the frozen finalist with the best heldout3 tail4 fitness, with ties broken by
-  better heldout3 P99 E2E. It is recorded in a dated amendment **before** test3b is opened.
-- **Joint freeze:** both methods are frozen together and tested on test3b in one run. If RL is not ready, the
-  evolved finalists are tested alone. Any later policy, RL included, is tested on test3c and reported as frozen later.
+  - An RL finalist is the policy as frozen. If it runs online lookahead, its compute budget per decision is fixed at
+    the freeze and reported, and it is labelled not deployable at serving time. Planners use sampled (never true)
+    output lengths.
+- **Primary finalist per method:** for evolved, the frozen finalist with the best heldout3 tail4 fitness, with ties
+  broken by better heldout3 P99 E2E. For RL, the online-lookahead (planning) finalist is primary (Kamil, 2026-10-10);
+  the distilled network is reported alongside as the deployable RL policy. Both are recorded in a dated amendment
+  **before** test3b is opened.
+- **Joint freeze:** no fixed date; it happens when RL is ready (Kamil, 2026-10-10). The evolved finalists are frozen
+  when their search ends and stay untested until then; both methods are then tested on test3b in one run. Any policy
+  frozen after test3b is opened is tested on test3c and reported as frozen later.
 - Frozen files are copied to `evolve/finalists/v4/` with their sha256, `code_version` and bundle key recorded in the
   amendment.
 
@@ -110,9 +114,11 @@ Notes:
 - Frozen finalists are run unchanged. Re-searching per deployment is a separate, labelled experiment (open question
   §3 of the plan).
 
-## 8. Open items for Kamil before this comes into force
+## 8. Decisions (Kamil, 2026-10-10)
 
-1. Is the 1.05 non-inferiority margin acceptable for token pace and for RL-vs-evolved?
-2. Joint freeze date, i.e. how long RL gets before test3b is opened.
-3. Is test4 (option B portfolio, or E learned selector) in the paper or deferred?
-4. At most 3 finalists per method: is that acceptable?
+1. Non-inferiority margin 1.05 for token pace and for RL-vs-evolved.
+2. Joint freeze: whenever RL is ready (§4); evolved finalists wait, frozen and untested.
+3. test4 (portfolio / learned selector) is deferred; it stays untouched.
+4. At most 3 finalists per method.
+5. RL primary finalist: the online-lookahead planner (compute per decision stated; not deployable at serving time);
+   the distilled network is reported as the deployable RL policy.
