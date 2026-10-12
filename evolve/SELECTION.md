@@ -135,3 +135,25 @@ Notes:
   - no v4.1 search results and no test-set results.
 - **RL claims:** claim (a) (vs the bar) and claim (b) (vs the evolved primary finalist) are separate. (b) does not
   require (a).
+
+## Amendment 2026-10-12 (evolved v4.1 freeze; approved by Kamil)
+
+- **Searches:** v4_ds_r1, v4_ds_r2 (DeepSeek), v4_claude_r1 (Claude via relay); search3b, tail4, bar v4t; 123
+  candidate evaluations each; seeds l3_48a067a7df63, l3_1dafac434ec8, l3_6595477664aa.
+- **"Top 5 programs of each run" (§4) read as the top 5 behaviourally distinct programs:** programs with identical
+  search fitness (to full precision, i.e. the same decisions on search3b) count as one, represented by the earliest.
+  v4_ds_r1's best fitness was shared by 12 programs.
+- **Validation (heldout3, bar v4t = 14 routers, tail4; `finalists/v4/v4_val_v4t_{ds,cl}.json`):** all 15 programs
+  and π_e score below 0. Frozen, by heldout3 fitness:
+
+  | Finalist | Run | heldout3 fitness | geo E2E / TTFT / TPOT / TBT | sha256 |
+  |---|---|---|---|---|
+  | `v4_487363424749.py` (primary) | v4_ds_r2 | −0.0199 | 1.005 / 0.997 / 1.013 / 0.974 | 487363424749b062edb3787e8d0b103bdfe75e3581dc72a926fab2d857b11208 |
+  | `v4_fef09c9e6c9b.py` | v4_claude_r1 | −0.0213 | 1.008 / 1.005 / 1.016 / 0.974 | fef09c9e6c9b596eedf0ba94b9b25522ef362f693b57bf6ba041074f0a8b38f7 |
+  | `v4_3b4ba4e688e6.py` | v4_claude_r1 | −0.0259 | 1.012 / 1.000 / 1.017 / 0.976 | 3b4ba4e688e6188c7e70d327425c4b4130ecb8633b6eb039748f1c3067562c1a |
+
+  π_e on the same bar: −0.0591 (1.035 / 1.083 / 1.002 / 0.930).
+- **Simulator and bundle:** v4.1, `code_version` cbeb5161f046; prediction bundle 8e6e78e985b87b2a:82b720c5cc7e.
+- **Results seen when this was written:** search3b and heldout3 scores of these programs, π_e and the bar; step B
+  (failed gate) and the first B2 window. No test-set (test3b) results.
+- The finalists stay untested until the joint freeze with RL (§4).
