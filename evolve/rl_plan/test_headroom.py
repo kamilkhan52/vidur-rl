@@ -36,6 +36,7 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
+import scipy.stats as st
 
 from evolve import evaluate as ev
 from evolve.rl_plan import headroom as hr
@@ -718,7 +719,13 @@ def test_futures_crn_and_average(plain, tmp_path):
     assert seeds[0] == 1000003 * h.decisions + 7 and len(set(seeds + hr.future_seeds(h.decisions + 1, 2))) == 4
     hz = hr.Horizon.parse("T=10+drain")
     samples = [(x, pool, cap) for x in seeds]
-    pe, mean, per = hr.evaluate_futures(h, [None, 1], hz, plan, 2, 600, samples)
+    pe, mean, per, none = hr.evaluate_futures(h, [None, 1], hz, plan, 2, 600, samples)
+    assert none is None
+    pe2, mean2, per2, aud = hr.evaluate_futures(h, [None, 1], hz, plan, 2, 600, samples, audit=True)
+    true = hr._by(hr.evaluate_candidates(h, [None, 1], [hz], plan, 2), 0, pe)
+    strip_ = lambda t: {k: v for k, v in t.items() if k != "cpu_s"}  # noqa: E731
+    assert pe2 == pe and {c: strip_(t) for c, t in aud.items()} == {c: strip_(t) for c, t in true.items()}
+    assert all(mean2[c]["sum"] == mean[c]["sum"] for c in mean)  # the audit is not averaged in
     assert len(per) == 2 and set(mean) == set(per[0]) == {pe, 1}
     strip = lambda t: {k: v for k, v in t.items() if k != "cpu_s"}  # noqa: E731
     for j, smp in enumerate(samples):  # CRN: the same future j for every candidate
@@ -860,7 +867,7 @@ def test_pooled_test_matches_pooled_stat():
     assert worse["tpot"]["p_high"] < 0.025 < worse["tbt"]["p_high"] and worse["tpot"]["p_low"] > 0.9
 
 
-def _bwindow(tag, L, seed=0, rate=0.03, p_off=0.0, transfer=True, n_noise=20, p_rate=None, k=4):
+def _bwindow(tag, L, seed=0, rate=0.03, p_off=0.0, transfer=True, n_noise=20, p_rate=None, k=4, rule=None):
     rng = np.random.default_rng(seed)
     sh = {m: hr.decision_sha(m) for m in ("closed_crn", "placebo", "noise")}
     rows = {f"placebo{i}": _ctl("placebo", _vs(*(rng.normal(0, 0.02, 4) + p_off)), sha=sh["placebo"],
@@ -874,6 +881,8 @@ def _bwindow(tag, L, seed=0, rate=0.03, p_off=0.0, transfer=True, n_noise=20, p_
          "decision_sha": sh["closed_crn"]}
     if transfer:
         p |= {"thresholds_from": {"windows": src}, "weight_from": {"windows": src}}
+    if rule:
+        p["deviation_rule"] = rule
     rows["B"] = {"params": p, "deviation_frac": rate, "vs_pi_e": _vs(*L)}
     rows["verdict"] = {"label": "missing"}
     return {"meta": {"scenario": tag, "code_version": CV, "bundle": "b"}, "rows": rows}
@@ -911,3 +920,182 @@ def test_gate_verdict(cv):
     assert hr.gate_verdict({t: _bwindow(t, (0, 0, 0, 0)) for t in hr.pilot_windows()})["gate"] == "invalid_windows"
     old = [dict(w, meta=dict(w["meta"], code_version="old")) for w in ws]
     assert G(old)["gate"] == "invalid_windows"
+
+
+# ------------------------------------------------------------------ step B2 (lcb deviation rule)
+
+def test_select_candidate_lcb():
+    """Paired LCB over the futures, Bonferroni over the alternatives: a noisy candidate with the best mean is not
+    taken (the mean rule would take it), a consistent one is; no bound above min_gain keeps pi_e."""
+    plan = hr.Plan("sum")
+    sk = {0: [100.0, 100.0, 100.0, 100.0], 1: [80.0, 120.0, 70.0, 90.0], 2: [95.0, 96.0, 94.0, 95.0],
+          3: [101.0, 99.0, 100.0, 100.0]}
+    by = {c: {"sum": float(np.mean(v))} for c, v in sk.items()}
+    assert hr.select_candidate(by, 0, plan)[0] == 1  # the mean rule picks the noisy best mean
+    best, info = hr.select_candidate_lcb(by, sk, 0, plan, 0.05)
+    t = st.t.ppf(1 - 0.05 / 3, 3)
+    assert info["t_crit"] == pytest.approx(t) and best == 2 and info["decided_by"] == "sum"
+    d = np.array([5.0, 4.0, 6.0, 5.0])
+    assert info["lcb"][2] == pytest.approx(d.mean() - t * d.std(ddof=1) / 2) and info["lcb"][1] < 0
+    assert info["gain"] == pytest.approx(5.0) and set(info["lcb"]) == {1, 2, 3}
+    # two pass: the larger bound wins, not the larger mean
+    sk2 = {**sk, 3: [96.0, 88.0, 94.0, 90.0]}  # mean gain 8 > 5, but the wider bound
+    by2 = {c: {"sum": float(np.mean(v))} for c, v in sk2.items()}
+    b2, i2 = hr.select_candidate_lcb(by2, sk2, 0, plan, 0.05)
+    assert 0 < i2["lcb"][3] < i2["lcb"][2] and b2 == 2 and np.mean(sk2[3]) < np.mean(sk2[2])
+    # nothing passes min_gain: keep
+    keep, ik = hr.select_candidate_lcb(by, sk, 0, hr.replace(plan, min_gain=10.0), 0.05)
+    assert keep == 0 and ik["decided_by"] == "keep" and ik["gain"] == 0.0
+    # zero variance: the gain itself is the bound; an identical rollout is not an override
+    sk3 = {0: [10.0, 12.0], 1: [9.0, 11.0], 2: [10.0, 12.0]}
+    b3, i3 = hr.select_candidate_lcb({c: {"sum": float(np.mean(v))} for c, v in sk3.items()}, sk3, 0, plan, 0.05)
+    assert b3 == 1 and i3["lcb"][1] == pytest.approx(1.0) and i3["lcb"][2] == 0.0
+    with pytest.raises(ValueError, match="futures"):
+        hr.select_candidate_lcb({0: {"sum": 1.0}, 1: {"sum": 0.0}}, {0: [1.0], 1: [0.0]}, 0, plan, 0.05)
+    with pytest.raises(ValueError, match="scalar"):
+        hr.select_candidate_lcb(by, sk, 0, hr.Plan("lex"), 0.05)
+    with pytest.raises(ValueError, match="alpha"):
+        hr.select_candidate_lcb(by, sk, 0, plan, 0.0)
+
+
+def test_closed_loop_crn_lcb_rule_logs_and_resumes(plain, tmp_path):
+    """B2 end to end on a small window: every logged decision is the lcb rule applied to the logged per-future
+    scores, the bounds and t_crit are logged, and a resumed run replays without new rollouts."""
+    _, s = plain
+    plan, hz = _plan(s), hr.Horizon.parse("T=5+drain")
+    log = tmp_path / "l.jsonl"
+    r = hr.closed_loop_crn(SC, hz, plan, s["cut"], tmp_path / "A", log, workers=2, n_futures=3, max_decisions=3,
+                           rule="lcb", alpha=0.05, audit_true=True)
+    assert r["planned"] == 3 and r["deviation_rule"] == {"rule": "lcb", "alpha": 0.05}
+    head = json.loads(open(log).readline())
+    assert "lcb" in json.dumps(head) and "audit_true" in json.dumps(head)  # the default header carries both
+    # the audit is the true-future score: equal to a true-future rollout from the same decision
+    first = json.loads(open(log).readlines()[1])
+    h = build_simulator(hr.argv_for(SC, tmp_path / "X"))
+    while h.next_decision() and h.decisions + 1 < first["k"]:
+        h.run(lambda x, n=h.decisions: x.decisions > n)
+    tb = hr._by(hr.evaluate_candidates(h, list(range(SC.replicas)), [hz], plan, 2), 0, first["pe"])
+    assert all(first["cands"][str(c)]["score_true"] == pytest.approx(sum(hr.score_parts(tb[c], plan).values()))
+               for c in tb)
+    rows = [json.loads(x) for x in open(log)][1:]
+    assert len(rows) == 3
+    for row in rows:
+        pe = row["pe"]
+        sk = {int(c): v["score_k"] for c, v in row["cands"].items()}
+        by = {int(c): {k: v[k] for k in ("sum", "hinge", "hinge_ttft")} for c, v in row["cands"].items()}
+        best, info = hr.select_candidate_lcb(by, sk, pe, plan, 0.05)
+        assert row["chosen"] == best and row["t_crit"] == pytest.approx(st.t.ppf(1 - 0.05 / (SC.replicas - 1), 2))
+        assert all(row["cands"][str(c)]["lcb"] == pytest.approx(info["lcb"][c]) for c in info["lcb"])
+        assert "lcb" not in row["cands"][str(pe)]
+    r2 = hr.closed_loop_crn(SC, hz, plan, s["cut"], tmp_path / "B", log, workers=2, n_futures=3, max_decisions=3,
+                            rule="lcb", alpha=0.05, audit_true=True)
+    with pytest.raises(SystemExit):  # a log of one rule never resumes under the other
+        hr.closed_loop_crn(SC, hz, plan, s["cut"], tmp_path / "M", log, workers=2, n_futures=3, max_decisions=3)
+    assert r2["replayed"] == 3 and r2["deviations"] == r["deviations"]
+    _same_outputs(tmp_path / "A", tmp_path / "B")
+    with pytest.raises(ValueError, match="lcb"):
+        hr.closed_loop_crn(SC, hz, plan, s["cut"], tmp_path / "C", tmp_path / "c.jsonl", n_futures=1, rule="lcb")
+    with pytest.raises(ValueError, match="lcb"):
+        hr.closed_loop_crn(SC, hz, plan, s["cut"], tmp_path / "C", tmp_path / "c.jsonl", n_futures=2, rule="lcb",
+                           chooser=_worst)
+    with pytest.raises(ValueError, match="rule"):
+        hr.closed_loop_crn(SC, hz, plan, s["cut"], tmp_path / "C", tmp_path / "c.jsonl", n_futures=2, rule="max")
+
+
+def test_gate_selects_rows_by_rule(cv):
+    """The gate takes only rows of its rule: B2 (lcb) rows pass under rule lcb, are missing under the mean rule,
+    and windows whose rule parameters differ are refused."""
+    tags = hr.b_windows()
+    lcb = {"rule": "lcb", "alpha": 0.05}
+    ws = [_bwindow(t, (-0.10, 0.0, 0.0, 0.0), seed=i, k=8, rule=lcb) for i, t in enumerate(tags)]
+    G = lambda ws, **kw: hr.gate_verdict({t: w for t, w in zip(tags, ws)}, n_futures=8, **kw)  # noqa: E731
+    v = G(ws, rule="lcb")
+    assert v["gate"] == "pass" and v["rule"] == "lcb" and all(w["deviation_rule"] == lcb for w in v["windows"].values())
+    assert G(ws)["gate"] == "incomplete"  # mean rule: no B row
+    mixed = ws[:3] + [_bwindow(tags[3], (-0.10, 0.0, 0.0, 0.0), seed=3, k=8, rule={"rule": "lcb", "alpha": 0.1})]
+    assert G(mixed, rule="lcb")["gate"] == "invalid_windows"
+    a2 = [_bwindow(t, (-0.10, 0.0, 0.0, 0.0), seed=i, k=8, rule={"rule": "lcb", "alpha": 0.2}) for i, t in enumerate(tags)]
+    assert G(a2, rule="lcb")["gate"] == "invalid_windows" and G(a2, rule="lcb", lcb_alpha=0.2)["gate"] == "pass"
+    both = [dict(w, rows=dict(w["rows"], B_mean=_bwindow(t, (0.0, 0, 0, 0), k=8)["rows"]["B"]))
+            for w, t in zip(ws, tags)]
+    assert G(both, rule="lcb")["gate"] == "pass" and G(both)["gate"] == "fail"  # each rule finds its own head
+
+
+def test_cli_refuses_lcb_without_futures(tmp_path):
+    for argv in (["--deviation-rule", "lcb"], ["--deviation-rule", "lcb", "--n-futures", "1"],
+                 ["--deviation-rule", "lcb", "--n-futures", "4", "--future", "sampled-lengths", "--mode",
+                  "openloop"], ["--deviation-rule", "lcb", "--n-futures", "4", "--lcb-alpha", "1.5"],
+                 ["--lcb-alpha", "0.1"], ["--audit-true"], ["--audit-true", "--n-futures", "4", "--future",
+                  "sampled-lengths", "--mode", "placebo"]):
+        with pytest.raises(SystemExit):
+            hr.main(argv + ["--out", str(tmp_path)])
+
+
+def _arow(k, pe, chosen, sk, true):
+    return {"k": k, "pe": pe, "chosen": chosen,
+            "cands": {str(c): {"score": float(np.mean(v)), "score_k": v, "score_true": true[c]} for c, v in sk.items()}}
+
+
+def test_audit_stats():
+    """The pre-registered audit: true gain per override, precision vs the sampled-futures prediction, and the
+    mean-rule and random-alternative baselines on the same decisions."""
+    rows = [  # pe = 0 everywhere; lower scores are better
+        _arow(1, 0, 1, {0: [10.0, 10.0], 1: [8.0, 9.0], 2: [11.0, 12.0]}, {0: 10.0, 1: 7.0, 2: 12.0}),  # right, +3
+        _arow(2, 0, 2, {0: [10.0, 10.0], 1: [9.0, 9.0], 2: [9.0, 8.0]}, {0: 10.0, 1: 10.0, 2: 11.0}),  # wrong, -1
+        _arow(3, 0, 0, {0: [10.0, 10.0], 1: [9.0, 11.5], 2: [12.0, 12.0]}, {0: 10.0, 1: 10.0, 2: 9.0}),  # kept
+    ]
+    a = hr.audit_stats({"w": rows})
+    assert a["overrides"] == 2 and a["underpowered"] and a["mean_true_gain"]["mean"] == pytest.approx(1.0)
+    assert a["precision"] == 0.5 and a["windows"]["w"]["overrides"] == 2
+    p1 = hr._norm_cdf(1.5 / np.std([2.0, 1.0], ddof=1))
+    p2 = hr._norm_cdf(1.5 / np.std([1.0, 2.0], ddof=1))
+    assert a["predicted_precision_upper"] == pytest.approx((p1 + p2) / 2) and a["reading"] == "underpowered"
+    assert a["calibration_all_pairs"]["pairs"] == 6 and a["calibration_all_pairs"]["realised"] == pytest.approx(2 / 6)
+    # mean rule: decision 1 -> 1 (+3), decision 2 -> 2 (mean 8.5 < 9; -1), decision 3: 1's mean 10.25 > 10, keep
+    assert a["mean_rule"]["overrides"] == 2 and a["mean_rule"]["mean_true_gain"]["mean"] == pytest.approx(1.0)
+    # random alternative: per-decision means of g over {1, 2}: (3 - 2)/2, (0 - 1)/2, (0 + 1)/2
+    assert a["random_alternative"]["mean_true_gain"]["mean"] == pytest.approx((0.5 - 0.5 + 0.5) / 3)
+    assert a["random_alternative"]["precision"] == pytest.approx((0.5 + 0.0 + 0.5) / 3)
+    tie = hr.audit_stats({"w": [_arow(1, 0, 1, {0: [2.0, 2.0], 1: [1.0, 1.0]}, {0: 5.0, 1: 5.0})]})
+    assert tie["precision"] == 0.0 and tie["predicted_precision_upper"] == 1.0  # a tie is not right; sd 0, gain > 0
+    many = hr.audit_stats({"a": rows * 10, "b": rows * 6}, block=1)  # gains +3/-1 alternate: i.i.d. blocks here
+    assert many["overrides"] == 32 and not many["underpowered"]
+    assert 0 < many["mean_true_gain"]["lo"] < 1.0 < many["mean_true_gain"]["hi"] and many["reading"] == "right_not_enough"
+    assert many["block"] == 1 and many["audit_sha"] == hr.audit_sha()
+    mix = [_arow(i, 0, 1, {0: [10.0, 10.0], 1: [8.0, 9.0]}, {0: 10.0, 1: 10.0 + (3.0 if i % 7 < 3 else -2.5)})
+           for i in range(70)]
+    assert hr.audit_stats({"w": mix})["reading"] == "inconclusive" and hr.audit_stats({"w": mix})["block"] == hr.BLOCK
+    good = [_arow(i, 0, 1, {0: [10.0, 10.0], 1: [8.0, 9.0]}, {0: 10.0, 1: 7.0 + (i % 3)}) for i in range(40)]
+    bad = [_arow(i, 0, 1, {0: [10.0, 10.0], 1: [8.0, 9.0]}, {0: 10.0, 1: 11.0 + (i % 3)}) for i in range(40)]
+    assert hr.audit_stats({"w": good})["reading"] == "right_not_enough"
+    assert hr.audit_stats({"w": bad})["reading"] == "not_better"
+    with pytest.raises(ValueError, match="score_true"):
+        r = _arow(1, 0, 1, {0: [1.0, 1.0], 1: [0.0, 0.0]}, {0: 1.0, 1: 0.0})
+        del r["cands"]["1"]["score_true"]
+        hr.audit_stats({"w": [r]})
+
+
+def test_audit_logs_reads_the_gated_log(plain, tmp_path):
+    """The audit reads the gated B2 row's own log (rule, alpha, K, sha, audit) and refuses an incomplete one."""
+    _, s = plain
+    plan, hz = _plan(s), hr.Horizon.parse("T=5+drain")
+    params = {"mode": "closed", "horizon": "full", "plan_every": 1, "max_decisions": None,
+              "future": "sampled-lengths", "score": "tail", "n_futures": 2, "thresholds_from": {"windows": ["x"]},
+              "weight_from": {"windows": ["x"]}, "decision_sha": hr.decision_sha("closed_crn"),
+              "deviation_rule": {"rule": "lcb", "alpha": 0.05}, "audit_true": True}
+    key = hr._row_key(params)
+    r = hr.closed_loop_crn(SC, hz, plan, s["cut"], tmp_path / "A", tmp_path / f"{key}.jsonl", workers=2,
+                           n_futures=2, max_decisions=2, rule="lcb", audit_true=True)
+    other = dict(params, audit_true=None)  # an unaudited lcb row is ignored
+    summ = {"rows": {key: {"params": params, "planned": r["planned"]}, "o": {"params": other, "planned": 9}}}
+    (tmp_path / "summary.json").write_text(json.dumps(summ))
+    logs = hr.audit_logs([str(tmp_path)], 2)
+    assert len(logs[str(tmp_path)]) == 2 and hr.audit_stats(logs)["random_alternative"]["decisions"] == 2
+    with pytest.raises(SystemExit, match="0 audited"):
+        hr.audit_logs([str(tmp_path)], 2, lcb_alpha=0.1)
+    with pytest.raises(SystemExit, match="0 audited"):
+        hr.audit_logs([str(tmp_path)], 8)
+    summ["rows"][key]["planned"] = 3
+    (tmp_path / "summary.json").write_text(json.dumps(summ))
+    with pytest.raises(SystemExit, match="planned 3"):
+        hr.audit_logs([str(tmp_path)], 2)

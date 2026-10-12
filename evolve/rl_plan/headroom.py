@@ -181,7 +181,7 @@ closed run replays its log, ~one pi_e run; open-loop statistics are pure post-pr
 after a header; a run resumes from it (header must match; replay checks pi_e's choice and the arrival time at each
 logged decision). Rows that fail the completion gate are not stored.
 
-Alpine (acpu, <= 22 CPUs; jobs resume, so chain 4 h jobs; ship cache/prediction_bundle_<key>.pkl so the bundle in
+Alpine (acpu, <= 22 CPUs for the pilot's backfill; jobs resume, so chain 4 h jobs; ship cache/prediction_bundle_<key>.pkl so the bundle in
 meta matches): one window per chain, ``--workers 8`` (8 rollouts at once, one batch per decision). Each job runs
 the four modes IN ORDER (open loop first: the closed loop's ``--tail-weight auto`` refuses to start without its
 row); every mode resumes from its log or reuses its finished rows, so a job picks up wherever the last one stopped::
@@ -251,6 +251,64 @@ STEP B (status report 2026-10-10, section 4: a planner with less foresight; the 
   # when all 4 chains are done:
   python -m evolve.rl_plan.headroom --mode gate --n-futures 4 --out evolve/rl_plan/out/b41_tool_w4000,evolve/rl_plan/out/b41_tool_w6000,evolve/rl_plan/out/b41_conv_w4000,evolve/rl_plan/out/b41_conv_w6000
 
+STEP B2 (pre-registered 2026-10-11, approved by Kamil, before any B2 run; review B2_r1). Step B as run overrode pi_e
+on 77-81 % of decisions (pilot: 2-3 %) and was worse than pi_e in its first three windows (P99 E2E +4 to +21 %):
+with the mean rule and ``min_gain`` 0, the argmin over 8 candidates of a 4-future mean picks noise (pi_e's score rank
+among the 8 was near uniform; at K = 4 only 3-4 % of decisions had a paired gain surviving a Bonferroni t-test). B2
+changes only the override rule and K and adds a logged audit; everything else is step B's (windows, transferred
+settings, warm-up cut, controls, gate).
+- Rule (``--deviation-rule lcb``, ``select_candidate_lcb``): override pi_e only when an alternative's paired lower
+  confidence bound on the score gain over the K futures is positive, one-sided alpha = 0.05 Bonferroni over the 7
+  alternatives (t(1 - 0.05/7, 7) = 3.238 at K = 8, so a mean gain above 1.145 paired SDs); the override is the
+  largest bound.
+- K = 8 futures per decision (``--n-futures 8``), the same CRN seed scheme as B (``future_seeds``).
+- Audit (``--audit-true``, closed loop only): each candidate also rolled out once under the true future in the same
+  batch of children, its score logged as ``score_true`` and never used to decide (+8 rollouts per decision, +12.5 %). It gives the precision of
+  B2's overrides (true gain > 0) and the true gains the rule leaves (missed overrides, in paired-SD units).
+- What B2 can and cannot see (B's K = 4 logs): paired SD per alternative ~900-1,070 score units (1.5-3.4 % of pi_e's
+  score); the pilot's true-future overrides had a median gain of 34-39 units (90th percentile 470-1,010; Tool w0, Conv w0
+  and w2000; Tool w2000's ``tails`` weight is not comparable), so B2 can take
+  only the large, confident overrides. Paired differences looked normal (pooled standardised skew -0.005 to -0.019;
+  "3 gains and 1 large loss" pattern 2.1-2.8 % vs 2.1 % for normal data; over the alternatives with a positive mean
+  gain, the ones the rule can take, skew +0.04 to +0.10 vs 0.00: the long tail is on the gain side); a loss in fewer than ~1/K of futures
+  cannot be seen by any K-future rule (stated limitation; the audit measures the realised false-override rate).
+- Interpretation, fixed now: pass = C eligible. On a fail the audit decides the reading, with the pre-registered
+  analysis ``--mode audit --n-futures 8 --out <the 4 dirs>`` (``audit_stats`` on the gated rows' complete logs;
+  reviews B2_r2, B2_r3). Primary: the mean true gain per override pooled over the windows, with a block-bootstrap
+  95 % CI (overrides in a window share its true future). Readings: fewer than 30 overrides = underpowered; CI above
+  0 = right overrides that do not move the P99 enough (the score-to-tail link, or too few); CI at or below 0 = not
+  better on the true future (noise or a biased length model); CI straddling 0 = inconclusive, quoting its upper
+  end. Context, not tests: precision with its selected-on-the-same-futures upper bound, calibration of the
+  predicted win probability over all (unselected) decision x alternative pairs, and the mean rule and a random
+  alternative scored on the same trajectory and true futures. The true gains of the alternatives not taken, in
+  paired-SD units, say what K or which length predictor per-decision planning would need.
+- Controls: 20 noise runs and 20 placebo runs at B2's own deviation rate, as in B.
+- Gate to C: step B's gate unchanged, at the lcb rule and alpha 0.05 (``gate_verdict`` selects rows by rule and K
+  and refuses another alpha; B's rows also carry another ``decision_sha``). B's own gate is run with B's code
+  (commit 1183084) in its own tree (vidur-rl-v4); do not update that tree to this code until B's chains and gate are
+  done.
+- Cost: 72 rollouts per decision (64 sampled + 8 audit) vs B's 32 at ~250 CPU-s per decision on Alpine: ~560 CPU-s
+  per decision, ~250 CPU-h per window, ~1,000 CPU-h in all; ``--workers 18`` = 4 waves of 18 on 24 CPUs, ~15-20 h
+  per window (10 links of 4 h queued; links that find everything done exit in minutes).
+- Alpine: a separate tree vidur-rl-b2 (same ``code_version``; the pilot summaries copied into its
+  ``evolve/rl_plan/out/v41_*``), so B's chains and the A searches keep their code::
+
+  cd /scratch/alpine/kamil@colostate.edu/vidur-rl-b2; P=evolve/rl_plan/out
+  for W in Tool:tool:4000 Tool:tool:6000 Conv:conv:4000 Conv:conv:6000; do
+    IFS=: read TR T S <<< "$W"; jid=
+    H="python -m evolve.rl_plan.headroom --trace $TR --start $S --workers 18 --future sampled-lengths \\
+      --n-futures 8 --deviation-rule lcb --thresholds-from $P/v41_${T}_w0 $P/v41_${T}_w2000 \\
+      --tail-weight-from $P/v41_${T}_w0 $P/v41_${T}_w2000 --out evolve/rl_plan/out/b42_${T}_w$S"
+    for i in $(seq 10); do
+      jid=$(sbatch --parsable ${jid:+--dependency=afterany:$jid} --cpus-per-task=24 --mem=64G --time=04:00:00 \\
+        --job-name=hb2_${T}_w$S --export=ALL,REPO_DIR=$PWD,CMD="$H --mode closed --audit-true && \\
+        $H --mode placebo && $H --mode noise" scripts/submit_python_job.sbatch)
+    done
+  done
+  # when all 4 chains are done:
+  python -m evolve.rl_plan.headroom --mode gate --n-futures 8 --deviation-rule lcb --out evolve/rl_plan/out/b42_tool_w4000,evolve/rl_plan/out/b42_tool_w6000,evolve/rl_plan/out/b42_conv_w4000,evolve/rl_plan/out/b42_conv_w6000
+  python -m evolve.rl_plan.headroom --mode audit --n-futures 8 --out evolve/rl_plan/out/b42_tool_w4000,evolve/rl_plan/out/b42_tool_w6000,evolve/rl_plan/out/b42_conv_w4000,evolve/rl_plan/out/b42_conv_w6000
+
 Usage (each window: open loop, closed loop at the open loop's weight, then placebo and noise; then the pilot):
   .venv/bin/python -m evolve.rl_plan.headroom --mode openloop --trace Tool --out evolve/rl_plan/out/v4_tool_w0
   .venv/bin/python -m evolve.rl_plan.headroom --trace Tool --out evolve/rl_plan/out/v4_tool_w0
@@ -280,6 +338,7 @@ from typing import Callable, List, Optional
 
 import numpy as np
 import pandas as pd
+from scipy import stats as sps
 
 from evolve import evaluate as ev
 from evolve import sim_fork
@@ -450,6 +509,43 @@ def select_candidate(by: dict, pe: int, plan: Plan):
     decided = "keep" if best == pe else max(term_gain, key=term_gain.get)
     return best, {"decided_by": decided, "gain": gain, "term_gain": term_gain, "scores": s,
                   "parts": parts}
+
+
+DEVIATION_RULES = ("mean", "lcb")
+
+
+def select_candidate_lcb(by: dict, score_k: dict, pe: int, plan: Plan, alpha: float):
+    """Step B2's noise-aware choice over K sampled futures. ``by``: candidate -> rollout terms averaged over the
+    futures; ``score_k``: candidate -> its score in each future (future j is the same for every candidate). For each
+    alternative c the paired gains d_j = score_k[pe][j] - score_k[c][j] give the one-sided lower confidence bound
+    LCB_c = mean(d) - t(1 - alpha / m, K - 1) * sd(d) / sqrt(K), Bonferroni over the m alternatives. pi_e is
+    overridden only when some LCB_c exceeds ``min_gain`` plus ``select_candidate``'s 1e-9 relative tolerance; the
+    override is the largest LCB (ties: the lowest index). The record has ``select_candidate``'s fields (mean-score
+    ``gain`` and ``term_gain`` of the chosen candidate) plus ``lcb`` and ``t_crit``."""
+    if plan.score not in ("tail", "sum", "hinge"):
+        raise ValueError("the lcb rule needs a scalar score")
+    if not 0.0 < alpha < 1.0:
+        raise ValueError(f"alpha must be in (0, 1), got {alpha}")
+    k = len(score_k[pe])
+    if k < 2 or set(score_k) != set(by) or any(len(v) != k for v in score_k.values()):
+        raise ValueError(f"the lcb rule needs >= 2 futures for every candidate: "
+                         f"{ {c: len(v) for c, v in score_k.items()} }")
+    parts = {c: score_parts(by[c], plan) for c in by}
+    s = {c: sum(p.values()) for c, p in parts.items()}
+    alts = sorted(c for c in by if c != pe)
+    t_crit = float(sps.t.ppf(1.0 - alpha / max(len(alts), 1), k - 1))
+    base = np.asarray(score_k[pe], float)
+    lcb = {}
+    for c in alts:
+        d = base - np.asarray(score_k[c], float)
+        lcb[c] = float(d.mean() - t_crit * d.std(ddof=1) / math.sqrt(k))
+    scale = abs(parts[pe]["mean"]) if plan.score == "tail" else abs(s[pe])
+    ok = [c for c in alts if lcb[c] > plan.min_gain + 1e-9 * max(1.0, scale)]
+    best = min(ok, key=lambda c: (-lcb[c], c)) if ok else pe
+    term_gain = {x: parts[pe][x] - parts[best][x] for x in parts[pe]}
+    decided = "keep" if best == pe else max(term_gain, key=term_gain.get)
+    return best, {"decided_by": decided, "gain": s[pe] - s[best], "term_gain": term_gain, "scores": s,
+                  "parts": parts, "lcb": lcb, "t_crit": t_crit}
 
 
 # ------------------------------------------------------------------ rollouts
@@ -945,41 +1041,59 @@ def mean_terms(ts: List[dict]) -> dict:
     return out
 
 
-def evaluate_futures(h, cands, hz: Horizon, plan: Plan, workers: int, timeout: float, samples: list):
+def evaluate_futures(h, cands, hz: Horizon, plan: Plan, workers: int, timeout: float, samples: list,
+                     audit: bool = False):
     """Every candidate under every sampled future (``samples``: one ``(seed, pool, cap)`` per future; common random
     numbers: the same K futures for every candidate), ``workers`` children at a time. Returns pi_e's choice, the
-    per-candidate terms averaged over the futures (``mean_terms``) and the per-future terms (list of candidate ->
-    terms)."""
+    per-candidate terms averaged over the futures (``mean_terms``), the per-future terms (list of candidate ->
+    terms) and, with ``audit``, each candidate's terms under the TRUE future (one more rollout per candidate, in the
+    same batch; never averaged in), else None."""
     fns = [lambda c=c, s=s: child_rollouts(h, c, [hz], plan, s, timeout) for s in samples for c in cands]
+    if audit:
+        fns += [lambda c=c: child_rollouts(h, c, [hz], plan, None, timeout) for c in cands]
     res = _run_children(fns, workers, timeout)
     R = len(cands)
-    groups = [res[i * R:(i + 1) * R] for i in range(len(samples))]
+    groups = [res[i * R:(i + 1) * R] for i in range(len(samples) + int(audit))]
     for g in groups:
         _check_consistent(g, 1)
     if len({r["policy_choice"] for r in res}) != 1:
-        raise RuntimeError(f"pi_e's choice differs between sampled futures: {[r['policy_choice'] for r in res]}")
+        raise RuntimeError(f"pi_e's choice differs between futures: {[r['policy_choice'] for r in res]}")
     pe = res[0]["policy_choice"]
-    per = [_by(g, 0, pe) for g in groups]
-    return pe, {c: mean_terms([p[c] for p in per]) for c in per[0]}, per
+    per = [_by(g, 0, pe) for g in groups[:len(samples)]]
+    return (pe, {c: mean_terms([p[c] for p in per]) for c in per[0]}, per,
+            _by(groups[-1], 0, pe) if audit else None)
 
 
 def closed_loop_crn(sc, hz: Horizon, plan: Plan, cut, out_dir, log_path, workers=4, n_futures=4,
                     max_decisions=None, candidates="all", child_timeout=1800.0, chooser=None, plan_every=1,
-                    header=None):
+                    header=None, rule="mean", alpha=0.05, audit_true=False):
     """``closed_loop`` with sampled output lengths averaged over ``n_futures`` futures per decision (step B): each
     candidate's score is the mean over the same K futures (``future_seeds``; different at every decision), output
     lengths resampled as in ``--future sampled-lengths`` (``resample_outputs``: in-flight requests conditioned on the
     tokens they have generated; pool = the trace outside the window), arrivals true. Logs per candidate the averaged
     terms, the mean score and each future's score (``score_k``) and per decision the seeds. With K = 1 the decisions
-    and outputs equal ``closed_loop(future="sampled-lengths")`` (test). Resume and replay as in ``closed_loop``."""
+    and outputs equal ``closed_loop(future="sampled-lengths")`` (test). Resume and replay as in ``closed_loop``.
+    ``rule="lcb"`` (step B2) decides with ``select_candidate_lcb`` at level ``alpha`` instead of the mean score
+    (``chooser``); it needs K >= 2 and logs each candidate's ``lcb`` and the decision's ``t_crit``.
+    ``audit_true`` also rolls every candidate out once under the TRUE future and logs its score (``score_true``),
+    never used to decide: it measures how often the overrides are right and what the rule misses (step B2)."""
     if hz.rel:
         raise ValueError("resolve a relative time horizon first")
     if n_futures < 1:
         raise ValueError("n_futures must be >= 1")
     if plan.score not in ("tail", "sum", "hinge"):
         raise ValueError("averaging over futures needs a scalar score (linear in the rollout terms)")
+    if rule not in DEVIATION_RULES:
+        raise ValueError(f"unknown deviation rule {rule!r}")
+    if rule == "lcb" and (chooser is not None or n_futures < 2):
+        raise ValueError("the lcb rule needs n_futures >= 2 and no chooser")
     chooser = chooser or select_candidate
-    logged = read_log(log_path, header if header is not None else {"horizon": hz.label, "n_futures": n_futures})
+    default_header = {"horizon": hz.label, "n_futures": n_futures}
+    if rule != "mean":
+        default_header["deviation_rule"] = {"rule": rule, "alpha": alpha}
+    if audit_true:
+        default_header["audit_true"] = True
+    logged = read_log(log_path, header if header is not None else default_header)
     h = build_simulator(argv_for(sc, out_dir))
     pool, cap = output_pool(sc), ev.max_request_tokens(sc)
     n_planned = n_dev = n_eligible = n_replayed = 0
@@ -1011,21 +1125,29 @@ def closed_loop_crn(sc, hz: Horizon, plan: Plan, cut, out_dir, log_path, workers
                 c0 = _cpu_children()
                 cands = list(range(sc.replicas)) if candidates == "all" else [None]
                 seeds = future_seeds(n, n_futures)
-                pe, by, per = evaluate_futures(h, cands, hz, plan, workers, child_timeout,
-                                               [(s, pool, cap) for s in seeds])
-                best, info = chooser(by, pe, plan)
+                pe, by, per, tb = evaluate_futures(h, cands, hz, plan, workers, child_timeout,
+                                                   [(s, pool, cap) for s in seeds], audit_true)
+                score_k = {c: [sum(score_parts(p[c], plan).values()) for p in per] for c in by}
+                if rule == "lcb":
+                    best, info = select_candidate_lcb(by, score_k, pe, plan, alpha)
+                else:
+                    best, info = chooser(by, pe, plan)
+                true_score = {c: sum(score_parts(tb[c], plan).values()) for c in tb} if tb else {}  # logged only
                 rec = apply_decision(h, best)
                 if rec["policy_choice"] != pe or rec["executed"] != best:
                     raise RuntimeError(f"parent decision {k}: pi_e chose {rec['policy_choice']} (children: {pe}), "
                                        f"executed {rec['executed']} (wanted {best})")
                 dc = _cpu_children() - c0
                 cpu += dc
-                cand = {str(c): {x: by[c][x] for x in keys}
-                        | {"score": info["scores"][c],
-                           "score_k": [sum(score_parts(p[c], plan).values()) for p in per]} for c in sorted(by)}
+                lcb = info.get("lcb", {})
+                cand = {str(c): {x: by[c][x] for x in keys} | {"score": info["scores"][c], "score_k": score_k[c]}
+                        | ({"lcb": lcb[c]} if c in lcb else {})
+                        | ({"score_true": true_score[c]} if c in true_score else {}) for c in sorted(by)}
                 row = {"k": k, "t": req.arrived_at, "pe": pe, "chosen": best, "decided_by": info["decided_by"],
                        "gain": info.get("gain"), "term_gain": info.get("term_gain"), "cands": cand,
                        "n_aff": by[pe]["n"], "seeds": seeds, "cpu_s": dc, "wall": time.time() - t0}
+                if rule == "lcb":
+                    row["t_crit"] = info["t_crit"]
                 log.write(json.dumps(row) + "\n")
                 log.flush()
             n_planned += 1
@@ -1034,9 +1156,10 @@ def closed_loop_crn(sc, hz: Horizon, plan: Plan, cut, out_dir, log_path, workers
     if n_replayed != len(logged):
         raise SystemExit(f"{log_path}: {len(logged) - n_replayed} logged decisions were not reached on replay")
     h.write_output()
-    return {"planned": n_planned, "deviations": n_dev, "deviation_frac": n_dev / max(n_planned, 1),
-            "decided_by": decided, "replayed": n_replayed, "wall_s_session": time.time() - t0,
-            "cpu_s_children": cpu, "cpu_s_per_decision": cpu / max(n_planned, 1), "n_futures": n_futures}
+    return ({"planned": n_planned, "deviations": n_dev, "deviation_frac": n_dev / max(n_planned, 1),
+             "decided_by": decided, "replayed": n_replayed, "wall_s_session": time.time() - t0,
+             "cpu_s_children": cpu, "cpu_s_per_decision": cpu / max(n_planned, 1), "n_futures": n_futures}
+            | ({"deviation_rule": {"rule": rule, "alpha": alpha}} if rule != "mean" else {}))
 
 
 # ------------------------------------------------------------------ controls: placebo and noise
@@ -1727,31 +1850,37 @@ GATE_MIN_GAIN = 0.05  # geometric-mean P99 E2E gain over the windows
 GATE_ALPHA = 0.025  # one-sided, per pooled test
 
 
+def _rule_of(p: dict) -> str:
+    """A closed row's deviation rule (rows without ``deviation_rule`` are step B's mean rule)."""
+    return (p.get("deviation_rule") or {"rule": "mean"})["rule"]
+
+
 def b_head_rows(rows: dict, sha: Optional[str], n_futures: int, weight: Optional[float] = None,
-                future: str = "sampled-lengths") -> list:
+                future: str = "sampled-lengths", rule: str = "mean") -> list:
     """Step B's closed rows: as ``head_rows`` (full horizon, tail score, no ``--max-decisions``, plan every
-    decision, the given closed-loop ``decision_sha``) but with sampled futures, ``n_futures`` futures per decision
-    and both settings transferred (``thresholds_from`` and ``weight_from`` in the params)."""
+    decision, the given closed-loop ``decision_sha``) but with sampled futures, ``n_futures`` futures per decision,
+    both settings transferred (``thresholds_from`` and ``weight_from`` in the params) and deviation rule ``rule``
+    (B: mean, B2: lcb)."""
     out = []
     for v in rows.values():
         p = _params(v)
         if (p.get("mode") == "closed" and p.get("horizon") == "full" and p.get("plan_every") == 1
                 and p.get("max_decisions") is None and p.get("future") == future and p.get("score") == "tail"
                 and p.get("n_futures", 1) == n_futures and p.get("thresholds_from") and p.get("weight_from")
-                and (sha is None or p.get("decision_sha") == sha)
+                and _rule_of(p) == rule and (sha is None or p.get("decision_sha") == sha)
                 and (weight is None or abs(p.get("weight", float("nan")) - weight) <= 1e-9 * max(1.0, weight))):
             out.append(v)
     return out
 
 
-def b_inputs(rows: dict, shas: dict, noise_delta: Optional[float], n_futures: int) -> dict:
+def b_inputs(rows: dict, shas: dict, noise_delta: Optional[float], n_futures: int, rule: str = "mean") -> dict:
     """``verdict_inputs`` for a step-B window: its one B head row (``b_head_rows``), placebo runs at ITS deviation
     rate, noise runs of one kind, current shas only; N = the pairwise noise reference. The control selection is
     ``verdict_inputs``'s own, run on a view of the rows in which the B head stands as the only closed row."""
-    heads = b_head_rows(rows, shas.get("closed"), n_futures)
+    heads = b_head_rows(rows, shas.get("closed"), n_futures, rule=rule)
     if len(heads) != 1:
         return {"missing": f"{len(heads)} step-B closed rows (full horizon, sampled lengths, {n_futures} futures, "
-                f"transferred settings, current code)"}
+                f"transferred settings, rule {rule}, current code)"}
     view = {k: v for k, v in rows.items() if _params(v).get("mode") != "closed"}
     view["__b_head__"] = dict(heads[0], params=dict(heads[0]["params"], future="true"))
     inp = verdict_inputs(view, shas, noise_delta, None)
@@ -1799,7 +1928,8 @@ def pooled_test(windows: list, metrics=METRICS4, max_enum: int = 200_000, draws:
 
 
 def gate_verdict(summaries: dict, noise_delta: float = NOISE_DELTA, n_futures: int = 4,
-                 min_gain: float = GATE_MIN_GAIN, alpha: float = GATE_ALPHA) -> dict:
+                 min_gain: float = GATE_MIN_GAIN, alpha: float = GATE_ALPHA, rule: str = "mean",
+                 lcb_alpha: float = 0.05) -> dict:
     """Step B's gate to C (status report 2026-10-10, section 4), from the 4 B windows' summaries (name -> summary):
     - ``e2e_gain``: geometric-mean P99 E2E gain over the windows >= ``min_gain`` (5 %), each window's change L
       measured against its single unjittered pi_e run (``vs_pi_e``);
@@ -1811,7 +1941,8 @@ def gate_verdict(summaries: dict, noise_delta: float = NOISE_DELTA, n_futures: i
     ``pass`` = all clauses. Refuses (``invalid_windows``) any other window set, more than one setup or a stale
     ``code_version``; ``incomplete`` when a window lacks its B row (``b_head_rows``: K = ``n_futures``, settings
     transferred from the pilot windows of the same trace) or its 20 noise / 20 placebo runs. Stored labels are not
-    read; everything is recomputed from the rows."""
+    read; everything is recomputed from the rows. ``rule``: the B rows' deviation rule (B2: ``lcb``); the windows'
+    rule parameters (``deviation_rule``) must agree and, for lcb, be at level ``lcb_alpha``."""
     metas = [dict(s.get("meta", {})) for s in summaries.values()]
     tags = sorted(m.get("scenario") for m in metas)
     if tags != b_windows():
@@ -1828,7 +1959,7 @@ def gate_verdict(summaries: dict, noise_delta: float = NOISE_DELTA, n_futures: i
     per, noise_in, placebo_in, reasons = {}, [], [], []
     for summ in summaries.values():
         tag = summ["meta"]["scenario"]
-        inp = b_inputs(summ["rows"], shas, noise_delta, n_futures)
+        inp = b_inputs(summ["rows"], shas, noise_delta, n_futures, rule)
         if "missing" in inp:
             per[tag] = {"status": "missing", "reason": inp["missing"]}
             reasons.append(f"{tag}: {inp['missing']}")
@@ -1843,13 +1974,23 @@ def gate_verdict(summaries: dict, noise_delta: float = NOISE_DELTA, n_futures: i
             continue
         per[tag] = {"status": "ok", "L": {m: inp["L"][f"log_p99_{m}"] for m in METRICS4}, "rate": inp["rate"],
                     "n_placebo": len(inp["P"]), "n_noise": len(inp["N_raw"]), "n_futures": p.get("n_futures", 1),
+                    "deviation_rule": p.get("deviation_rule"), "audit_true": bool(p.get("audit_true")),
                     "weight": p["weight"], "tau_e": p["tau_e"], "tau_f": p["tau_f"], "transferred_from": src}
         noise_in.append((inp["L"], inp["N"]))
         placebo_in.append((inp["L"], inp["P"]))
-    out = {"gate": "incomplete", "windows": per, "reasons": reasons, "n_futures": n_futures,
+    out = {"gate": "incomplete", "windows": per, "reasons": reasons, "n_futures": n_futures, "rule": rule,
            "min_gain": min_gain, "alpha": alpha, "noise_delta": noise_delta, "gate_sha": gate_sha()}
     if len(noise_in) != 4:
         return out
+    if len({json.dumps(w["deviation_rule"], sort_keys=True) for w in per.values()}) != 1:
+        return {"gate": "invalid_windows", "reason": "the windows' deviation rules differ",
+                "rules": {t: w["deviation_rule"] for t, w in per.items()}}
+    if len({w["audit_true"] for w in per.values()}) != 1:
+        return {"gate": "invalid_windows", "reason": "the windows differ in audit_true",
+                "audit_true": {t: w["audit_true"] for t, w in per.items()}}
+    if rule != "mean" and next(iter(per.values()))["deviation_rule"] != {"rule": rule, "alpha": lcb_alpha}:
+        return {"gate": "invalid_windows", "reason": f"the B rows are not at {rule} alpha {lcb_alpha}",
+                "rules": {t: w["deviation_rule"] for t, w in per.items()}}
     gm = float(np.mean([L["log_p99_e2e"] for L, _ in noise_in]))
     nz = pooled_test(noise_in, METRICS4)
     pl = pooled_test(placebo_in, ("e2e",))
@@ -1869,10 +2010,116 @@ def gate_verdict(summaries: dict, noise_delta: float = NOISE_DELTA, n_futures: i
     return out
 
 
+AUDIT_MIN_OVERRIDES = 30  # pooled overrides below this: the audit is underpowered
+
+
+def _norm_cdf(z: float) -> float:
+    return 0.5 * math.erfc(-z / math.sqrt(2.0))
+
+
+def audit_stats(logs: dict, B: int = 2000, seed: int = 0, block: int = BLOCK) -> dict:
+    """Step B2's pre-registered audit analysis (reviews B2_r2, B2_r3), from the gated B2 rows' closed-loop logs with
+    ``score_true`` (window -> decision rows, in decision order), pooled over the windows. For an override of pi_e's
+    choice pe by c, the true gain is g = score_true[pe] - score_true[c] (> 0: better on the true future; ties count
+    as not right).
+    - Primary: the mean true gain per override, pooled, with a circular moving-block bootstrap 95 % CI (``boot_ci``,
+      blocks of ``block`` consecutive overrides in window order: overrides in one window share its true future), the
+      lag-1 autocorrelation of the gains, and per window.
+    - Precision (share of overrides with g > 0), with ``predicted_precision_upper``: the mean of Phi(mean d / sd d)
+      over the overrides (d = the chosen alternative's paired per-future gains; sd 0: 1 if mean d > 0). Selected on
+      the same futures, it is an upper bound (>= 0.87 by construction at K = 8), not a reference.
+    - Calibration over ALL decision x alternative pairs (unselected): the mean predicted Phi(mean d / sd d) against
+      the realised share with g > 0.
+    - Baselines on the same trajectory and true futures (each over its own decisions): the mean rule at the same K
+      (B's rule: the best mean score, overriding when it beats pi_e's) and a random alternative (per decision, the mean
+      over the alternatives of g and of [g > 0], over all decisions).
+    Fewer than ``AUDIT_MIN_OVERRIDES`` pooled overrides: ``underpowered`` (no reading of the primary)."""
+    g_rule, p_pred, g_mean, g_rand, r_rand, cal_p, cal_r, per_window = [], [], [], [], [], [], [], {}
+
+    def phi(d):
+        sd = d.std(ddof=1)
+        return _norm_cdf(d.mean() / sd) if sd > 0 else float(d.mean() > 0)
+
+    for name, rows in logs.items():
+        gw = []
+        for r in rows:
+            c = {int(x): v for x, v in r["cands"].items()}
+            pe, ch = r["pe"], r["chosen"]
+            if any("score_true" not in v for v in c.values()):
+                raise ValueError(f"{name}: decision {r['k']} has no score_true (not an audited log)")
+            st_ = {x: v["score_true"] for x, v in c.items()}
+            alts = [x for x in c if x != pe]
+            base = np.asarray(c[pe]["score_k"], float)
+            for x in alts:
+                cal_p.append(phi(base - np.asarray(c[x]["score_k"], float)))
+                cal_r.append(float(st_[pe] - st_[x] > 0))
+            if ch != pe:
+                p_pred.append(phi(base - np.asarray(c[ch]["score_k"], float)))
+                gw.append(st_[pe] - st_[ch])
+            m = {x: v["score"] for x, v in c.items()}
+            bm = min(m, key=lambda x: (m[x], x != pe, x))
+            if bm != pe and m[pe] - m[bm] > 1e-9 * max(1.0, abs(m[pe])):
+                g_mean.append(st_[pe] - st_[bm])
+            g = [st_[pe] - st_[x] for x in alts]
+            g_rand.append(float(np.mean(g)))
+            r_rand.append(float(np.mean([x > 0 for x in g])))
+        g_rule += gw
+        per_window[name] = {"decisions": len(rows), "overrides": len(gw),
+                            "mean_true_gain": boot_ci(gw, B, seed, block), "lag1": lag1(gw)}
+    n = len(g_rule)
+    ci = boot_ci(g_rule, B, seed, block)
+    if n < AUDIT_MIN_OVERRIDES:
+        reading = "underpowered"
+    elif ci["lo"] > 0:
+        reading = "right_not_enough"  # better on the true future, but not enough to pass the gate
+    elif ci["hi"] <= 0:
+        reading = "not_better"  # noise or a biased length model
+    else:
+        reading = "inconclusive"  # quote ci["hi"]
+    return {"overrides": n, "underpowered": n < AUDIT_MIN_OVERRIDES, "reading": reading, "windows": per_window,
+            "mean_true_gain": ci, "lag1": lag1(g_rule),
+            "precision": float(np.mean([x > 0 for x in g_rule])) if n else None,
+            "predicted_precision_upper": float(np.mean(p_pred)) if n else None,
+            "calibration_all_pairs": {"pairs": len(cal_p), "predicted": float(np.mean(cal_p)) if cal_p else None,
+                                      "realised": float(np.mean(cal_r)) if cal_r else None},
+            "mean_rule": {"overrides": len(g_mean), "mean_true_gain": boot_ci(g_mean, B, seed, block),
+                          "precision": float(np.mean([x > 0 for x in g_mean])) if g_mean else None},
+            "random_alternative": {"decisions": len(g_rand), "mean_true_gain": boot_ci(g_rand, B, seed, block),
+                                   "precision": float(np.mean(r_rand)) if r_rand else None},
+            "min_overrides": AUDIT_MIN_OVERRIDES, "block": block, "audit_sha": audit_sha()}
+
+
+def audit_logs(dirs: List[str], n_futures: int, lcb_alpha: float = 0.05) -> dict:
+    """Each window directory's gated B2 row (``b_head_rows``: lcb at ``lcb_alpha``, K = ``n_futures``, current
+    ``decision_sha``, with ``audit_true``) and its complete closed-loop log (rows = the row's ``planned``), as decision
+    rows."""
+    logs = {}
+    sha = decision_sha("closed_crn")
+    for d in dirs:
+        rows = json.loads((Path(d) / "summary.json").read_text())["rows"]
+        heads = [v for v in b_head_rows(rows, sha, n_futures, rule="lcb")
+                 if v["params"].get("deviation_rule") == {"rule": "lcb", "alpha": lcb_alpha}
+                 and v["params"].get("audit_true")]
+        if len(heads) != 1:
+            raise SystemExit(f"{d}: {len(heads)} audited B2 rows (lcb alpha {lcb_alpha}, K = {n_futures}, current code)")
+        log = Path(d) / f"{_row_key(heads[0]['params'])}.jsonl"
+        dec = [json.loads(x) for x in log.read_text().split("\n")[1:] if x.strip()]
+        if len(dec) != heads[0]["planned"]:
+            raise SystemExit(f"{log}: {len(dec)} logged decisions, the row planned {heads[0]['planned']}")
+        logs[d] = dec
+    return logs
+
+
+def audit_sha() -> str:
+    return _src_sha([audit_stats, audit_logs, boot_ci, lag1, _norm_cdf]) + \
+        hashlib.sha256(repr((AUDIT_MIN_OVERRIDES, BLOCK)).encode()).hexdigest()[:4]
+
+
 def gate_sha() -> str:
     """The step-B gate's post-processing source (recorded in its output; not part of ``post_sha``, so adding the
     gate re-keys no pilot row)."""
-    return _src_sha([b_head_rows, b_inputs, verdict_inputs, pooled_test, _robust_scale, gate_verdict, vs_pi_e]) + \
+    return _src_sha([_rule_of, b_head_rows, b_inputs, verdict_inputs, pooled_test, _robust_scale, gate_verdict,
+                     vs_pi_e]) + \
         hashlib.sha256(repr((GATE_MIN_GAIN, GATE_ALPHA, NOISE_CENTRE)).encode()).hexdigest()[:4]
 
 
@@ -1893,7 +2140,7 @@ def decision_sha(mode: str = "closed") -> str:
             _next_time, apply_decision, output_pool, _draw, generated_tokens, fit_hashes, resample_outputs, _due,
             horizon_terms, child_rollouts, evaluate_candidates, _by]
     parts = {"closed": core + [closed_loop],
-             "closed_crn": core + [future_seeds, mean_terms, evaluate_futures, closed_loop_crn],
+             "closed_crn": core + [future_seeds, mean_terms, evaluate_futures, select_candidate_lcb, closed_loop_crn],
              "openloop": core + [jitter_arrivals, jitter_future, open_loop],
              "placebo": [argv_for, apply_decision, placebo_run],
              "noise": [argv_for, jitter_arrivals, noise_run]}
@@ -1991,7 +2238,8 @@ def parse_weight(spec: str, mean_e2e: float) -> float:
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("--mode", default="closed", choices=("closed", "openloop", "placebo", "noise", "pilot", "gate"))
+    ap.add_argument("--mode", default="closed",
+                    choices=("closed", "openloop", "placebo", "noise", "pilot", "gate", "audit"))
     ap.add_argument("--trace", default="Tool")
     ap.add_argument("--replicas", type=int, default=8)
     ap.add_argument("--scale", type=float, default=0.75)
@@ -2015,6 +2263,13 @@ def main(argv=None):
                     "open-loop row's pre-specified choice). Default: auto for closed, 25m otherwise")
     ap.add_argument("--censor", default="elapsed", choices=("elapsed", "remaining"), help="pure T=<t> only")
     ap.add_argument("--min-gain", type=float, default=0.0, help="score gain a deviation needs (scalar scores)")
+    ap.add_argument("--deviation-rule", default="mean", choices=DEVIATION_RULES, help="closed with --n-futures > 1: "
+                    "override pi_e on the best mean score (step B) or only on a positive paired lower confidence "
+                    "bound over the futures (lcb, step B2; select_candidate_lcb). placebo, gate: the B rows' rule")
+    ap.add_argument("--lcb-alpha", type=float, help="lcb: one-sided level, Bonferroni over the alternatives "
+                    "(default 0.05; refused with the mean rule)")
+    ap.add_argument("--audit-true", action="store_true", help="closed with --n-futures > 1: also log each "
+                    "candidate's score under the true future (never used to decide; step B2)")
     ap.add_argument("--future", default="true", choices=("true", "sampled-lengths"))
     ap.add_argument("--n-futures", type=int, default=1, help="closed, --future sampled-lengths: average each "
                     "candidate's score over this many sampled futures (common to all candidates; step B: 4). "
@@ -2037,9 +2292,16 @@ def main(argv=None):
         wins = {d: json.loads((Path(d) / "summary.json").read_text()) for d in a.out.split(",") if d}
         print(json.dumps({"pilot": pilot_verdict(wins, a.noise_delta, a.future)}, indent=1))
         return
+    if a.mode == "audit":
+        logs = audit_logs([d for d in a.out.split(",") if d], a.n_futures,
+                          a.lcb_alpha if a.lcb_alpha is not None else 0.05)
+        print(json.dumps({"audit": audit_stats(logs)}, indent=1))
+        return
     if a.mode == "gate":
         wins = {d: json.loads((Path(d) / "summary.json").read_text()) for d in a.out.split(",") if d}
-        print(json.dumps({"gate": gate_verdict(wins, a.noise_delta, a.n_futures)}, indent=1))
+        print(json.dumps({"gate": gate_verdict(wins, a.noise_delta, a.n_futures, rule=a.deviation_rule,
+                                                lcb_alpha=a.lcb_alpha if a.lcb_alpha is not None else 0.05)},
+                         indent=1))
         return
     if not a.noise_delta > 0:
         raise SystemExit("--noise-delta must be > 0")
@@ -2048,6 +2310,15 @@ def main(argv=None):
     if a.n_futures > 1 and (a.future != "sampled-lengths" or a.mode == "openloop" or a.score == "lex"):
         raise SystemExit("--n-futures > 1 needs --future sampled-lengths, a scalar score and the closed loop "
                          "(or placebo/noise, to find its row)")
+    if a.deviation_rule == "lcb" and (a.n_futures < 2 or a.mode not in ("closed", "placebo", "noise")):
+        raise SystemExit("--deviation-rule lcb needs --n-futures >= 2 (closed loop, or placebo/noise to find its row)")
+    if a.lcb_alpha is not None and a.deviation_rule != "lcb":
+        raise SystemExit("--lcb-alpha is for --deviation-rule lcb")
+    if a.audit_true and (a.mode != "closed" or a.n_futures < 2):
+        raise SystemExit("--audit-true is for the closed loop with --n-futures >= 2")
+    a.lcb_alpha = 0.05 if a.lcb_alpha is None else a.lcb_alpha
+    if not 0.0 < a.lcb_alpha < 1.0:
+        raise SystemExit("--lcb-alpha must be in (0, 1)")
     step_b = a.n_futures != 1 or bool(a.thresholds_from) or bool(a.tail_weight_from)
     if a.mode == "openloop" and (a.thresholds_from or a.tail_weight_from):  # early; resolve_settings checks again
         raise SystemExit("transferred settings are for closed, placebo and noise runs; the open loop computes its "
@@ -2121,6 +2392,10 @@ def main(argv=None):
     # provenance, only when used (default runs keep their keys and log headers)
     if a.n_futures != 1:
         common["n_futures"] = a.n_futures
+    if a.deviation_rule != "mean":
+        common["deviation_rule"] = {"rule": a.deviation_rule, "alpha": a.lcb_alpha}
+    if a.audit_true:
+        common["audit_true"] = True
     if t_from:
         common["thresholds_from"] = {"windows": t_from["src"]["windows"]} | {
             k: t_from["src"][k] for k in ("tau_e", "tau_f", "tpot_ref")}
@@ -2171,7 +2446,8 @@ def main(argv=None):
                 if crn:
                     info = closed_loop_crn(sc, hz_abs, plan, pe["cut"], tmp, out / f"{key}.jsonl", a.workers,
                                            a.n_futures, a.max_decisions, child_timeout=a.child_timeout,
-                                           plan_every=a.plan_every, header=params)
+                                           plan_every=a.plan_every, header=params, rule=a.deviation_rule,
+                                           alpha=a.lcb_alpha, audit_true=a.audit_true)
                 else:
                     info = closed_loop(sc, hz_abs, plan, pe["cut"], tmp, out / f"{key}.jsonl", a.workers, a.future,
                                        a.max_decisions, child_timeout=a.child_timeout, plan_every=a.plan_every,
@@ -2182,10 +2458,12 @@ def main(argv=None):
         rate = a.rate
         if a.mode == "placebo" and rate is None and step_b:  # B: the B row's own deviation rate (as the gate)
             sha = decision_sha("closed_crn" if a.n_futures > 1 else "closed")
-            heads = b_head_rows(rows, sha, a.n_futures, weight if a.score == "tail" else None, a.future)
+            heads = b_head_rows(rows, sha, a.n_futures, weight if a.score == "tail" else None, a.future,
+                                a.deviation_rule)
             if len(heads) != 1:
                 raise SystemExit(f"--rate needed: {len(heads)} step-B closed rows (full horizon, {a.future}, "
-                                 f"{a.n_futures} futures, transferred settings, weight {weight:.6g}, current code)")
+                                 f"{a.n_futures} futures, transferred settings, weight {weight:.6g}, rule "
+                                 f"{a.deviation_rule}, current code)")
             rate = heads[0]["deviation_frac"]
         elif a.mode == "placebo" and rate is None:  # the same head the verdict uses
             heads = head_rows(rows, shas["closed"], w_pre["weight"] if w_pre else None, a.plan_every)
