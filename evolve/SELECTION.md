@@ -157,3 +157,14 @@ Notes:
 - **Results seen when this was written:** search3b and heldout3 scores of these programs, π_e and the bar; step B
   (failed gate) and the first B2 window. No test-set (test3b) results.
 - The finalists stay untested until the joint freeze with RL (§4).
+
+## Amendment 2026-10-12 (reporting; Kamil)
+
+- **Every comparison also reports the centre and each router.** Alongside the P99 tails: mean and P50 of E2E and
+  TTFT; against the bar (the per-scenario, per-metric envelope of the 14 routers) and against each router on its
+  own, with cluster-bootstrap CIs and win counts (`evolve/analysis/policy_table.py`). The claim rules (§5) are
+  unchanged: the bar stays the target, the single-router comparisons show where a policy sits.
+- **C follows B2** whatever B2's gate says; C is judged by its improvement over its starting point, reported with
+  the same tables.
+- **Results seen when this was written:** the heldout3 policy table of the three evolved finalists and π_e
+  (`finalists/v4/policy_table_heldout3.json`); B2 Tool w4000 and w6000.
