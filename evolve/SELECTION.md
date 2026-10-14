@@ -168,3 +168,76 @@ Notes:
   the same tables.
 - **Results seen when this was written:** the heldout3 policy table of the three evolved finalists and π_e
   (`finalists/v4/policy_table_heldout3.json`); B2 Tool w4000 and w6000.
+
+## Amendment 2026-10-13 (step C; Kamil's choices C1–C12)
+
+Design deck: https://claude.ai/artifact/6uQBgTFkhFqsg5JyPbNbe9 (v11). Kamil accepted every recommendation except
+C9's fail branch, where he chose a larger C0 before deciding (below).
+
+- **What C learns (C1, C3, C4).**
+  - The router is the base router plus a learned correction. The correction predicts each replica's score gain over
+    the base router's pick, from the router's view only.
+  - The router keeps the base pick unless the best predicted gain exceeds a margin, so a model that learns nothing
+    changes nothing.
+  - The base router is the frozen primary finalist `v4_487363424749.py` (4873).
+  - Ablations: a π_e base; a free-standing network. Control: copying the recorded winner.
+- **Labels (C2; changes §4's "planners use sampled output lengths" for C's training labels only).**
+  - Each training decision is scored on the window's recorded future: true arrivals and output lengths.
+  - The router never sees output lengths. Planners keep sampled lengths.
+  - A guessed-future label arm (8 sampled futures) runs once, as an ablation.
+- **RL finalists (C5; replaces §4's planning primary and §8 item 5).**
+  - The learned router is the primary RL finalist, and RL claims (a) and (b) of §5 are confirmatory for it. It takes
+    the distilled network's slot.
+  - Online planners are reported as exploratory analysis.
+  - The model-free control (C11) keeps its slot and runs after C0.
+  - If C0 (and C0b) fail, the learned router is dropped and the planners stay as analysis.
+- **No arrival model (C6).**
+- **Score of a choice (C7; adapts Q1).** Over the affected requests:
+  - Score = Σ E2E + w · (hinge E2E + hinge TTFT + hinge TPOT + hinge TBT).
+  - Each hinge is Σ (x/τ − 1)+ over requests; TBT's runs over token gaps, scaled by the window's requests per token.
+  - τ per metric is the bar's P99 on that training window: the best of the 14 v4t routers run on it.
+  - w per trace is step B's transferred weight: Tool 1,774 s, Conv 2,336 s.
+  - Q1's R0 and R2 reward ablations are deferred until C0 passes; Q7's noisy-predictor arm goes to the planner study.
+- **Training traffic (C8).**
+  - New arrival draws p20 and p21 of Tool and Conv, 8R, load 0.75.
+  - Request ranges of 2,000: Tool starts 0, 4000, …, 20000; Conv starts 0, 2000, …, 10000. That is 12 ranges × 2
+    draws = 24 windows, with the usual warm-up cut.
+  - Draws p14–p19 stay reserved (§1). heldout3 stays for selection; test3b stays unopened.
+  - As in every set here, draws replay the same trace requests with other arrival times. The left-out fit (C9 item 1)
+    is the check against memorising requests.
+- **C0 and its pass mark (C9).** The model class and the margin grid are fixed in C0's reviewed code before any
+  decision is scored.
+  - **Data:** 4873 routes the 24 windows. Every 6th decision after the cut is scored (about 6,400), with 8 forked
+    rollouts to the window end.
+  - **Item 1:** leave one request range out (both of its draws). The margin is chosen by an inner split of the 11
+    training ranges. Over the pooled left-out decisions, at least 30 overrides, and a mean score gain per override
+    whose 95 % CI is above 0. The CI comes from a bootstrap over the 12 request ranges.
+  - **Item 2:** at each left-out decision, take the model's best alternative to 4873's pick. The Spearman correlation
+    of its predicted and recorded gain must have a 95 % CI above 0 (same bootstrap).
+  - **Item 3:** one router, trained on all 24 windows, routes the 6 heldout3 Tool/Conv 8R 0.75 scenarios (p2, p3, p5).
+    - The geometric mean of the four P99 ratios (new / 4873) must be below 1, with one-sided p < 0.05 from the B
+      gate's pooled statistic against 20 runs of 4873 with arrivals jittered by up to 5 ms.
+    - No 95 % cluster-bootstrap CI may lie wholly above 1 for P99 E2E, TTFT, TPOT or TBT, mean E2E or P50 E2E.
+    - The other 21 heldout3 scenarios are reported.
+  - **If items 1 or 2 fail: C0b (Kamil, 2026-10-13).**
+    - Add Tool's other 5 request ranges (starts 2000, 6000, …, 18000; 17 ranges in all), with draws p20 and p21.
+    - Score every 3rd decision in all windows, reusing C0's scored decisions: about 18,000 decisions, about 200
+      further CPU-hours.
+    - Rerun items 1–3 with the same rules. Across the two looks, the false-pass rate per item is at most 5 %
+      one-sided, against 2.5 % for one look; this is reported.
+    - If C0b also fails item 1 or 2, C stops and Kamil decides.
+  - **If items 1 and 2 pass and item 3 fails:** report; more data or a shorter horizon, Kamil decides.
+  - **Power:** with about 1,000 score units of spread and 12 ranges, a true mean gain of 200 per override passes
+    item 1 at roughly even odds. B2-sized gains (+35) would likely be missed.
+  - **Diagnostics, reported whatever the outcome:** left-out explained variance, override rate, agreement with 4873,
+    and the Tool/Conv split.
+- **Budget (C10).** Approved now: C12 and C0 (about 250–350 CPU-hours), and C0b if triggered (about 200 more). Full
+  C (about 9,500 CPU-hours in all) waits for C0's result and Kamil's approval.
+- **C12 (informs, no gate).**
+  - The v4.1 headroom pilot is rerun with 4873 as base and rollout router: the same 4 windows (Tool and Conv, 8R,
+    load 0.75, w0+2000 and w2000+2000, p1), the same code (decision shas unchanged, `code_version` cbeb5161f046) and
+    the same pre-registered verdict (`--mode pilot`). Only `--policy` differs (repo 0c4533b).
+  - p1 is one of the search draws 4873 was selected on, so the headroom it shows is conservative.
+  - Alpine tree `vidur-rl-c12`, chains `c12_{tool,conv}_w{0,2000}` = jobs 34086837–68.
+- **Results seen when this was written:** everything in the earlier amendments, plus B2's gate (fail) and audit
+  (inconclusive) and the B2 check job. No C0 or C12 results; no test-set results.
