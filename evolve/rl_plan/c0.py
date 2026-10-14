@@ -155,6 +155,8 @@ def install_capture() -> None:
         if _CAP["armed"] and not kw.get("observe") and fn is getattr(self._policy, "choose", None):
             _CAP["armed"] = False
             _CAP["args"] = args
+            # the base router's own memory before the call (4873: attended-context sums per replica), for reference
+            _CAP["state"] = {k: list(v) for k, v in self._ctx.state.items() if k == "attn_sums"}
         return orig(self, fn, *args, **kw)
 
     _call._c0_capture = True
@@ -174,7 +176,7 @@ def capture_view(h) -> tuple:
     if args is None:
         raise RuntimeError("the base router's choose() was not called at this decision")
     req, reps = view_dicts(args[0], args[1])
-    return rec["policy_choice"], req, reps
+    return rec["policy_choice"], req, reps, _CAP.get("state")
 
 
 # ------------------------------------------------------------------ rollouts and their terms
@@ -193,7 +195,30 @@ def request_arrays(h, reqs) -> dict:
     greq = np.concatenate([np.frombuffer(s._token_gap_req, dtype=np.int64) for s in stores]) if stores \
         else np.zeros(0, np.int64)
     keep = np.isin(greq, ids)
-    return {"ids": ids, "e2e": e2e, "ttft": ttft, "tpot": tpot, "gaps": gaps[keep], "gap_ids": greq[keep]}
+    return {"ids": ids, "e2e": e2e, "ttft": ttft, "tpot": tpot, "gaps": gaps[keep], "gap_ids": greq[keep],
+            "arrived": np.array([r.arrived_at for r in reqs], float), "tpot_idx": np.nonzero(m)[0]}
+
+
+SUBSET_WINDOWS = (30.0, 60.0, 120.0)  # s after the decision
+
+
+def subset(arr: dict, mask: np.ndarray) -> dict:
+    """``request_arrays`` restricted to the requests in ``mask`` (their TPOTs and token gaps with them)."""
+    tp_keep = mask[arr["tpot_idx"]]
+    return {"e2e": arr["e2e"][mask], "ttft": arr["ttft"][mask], "tpot": arr["tpot"][tp_keep],
+            "gaps": arr["gaps"][np.isin(arr["gap_ids"], arr["ids"][mask])]}
+
+
+def sub_terms(arr: dict, taus: dict, n_aff: int, t_dec: float, cut: float) -> dict:
+    """The terms over subsets of the affected set, for analyses that need them (not the C7 score): ``postcut`` =
+    requests arriving at or after the warm-up cut (the requests evaluation scores); ``a<w>`` = the requests in flight
+    at the decision plus arrivals within w seconds after it (a shorter horizon's affected set, scored on the full
+    run)."""
+    idx = np.arange(len(arr["e2e"]))
+    out = {"postcut": terms4(subset(arr, arr["arrived"] >= cut), taus)}
+    for w in SUBSET_WINDOWS:
+        out[f"a{w:g}"] = terms4(subset(arr, (idx < n_aff) | (arr["arrived"] <= t_dec + w)), taus)
+    return out
 
 
 def hinge(x: np.ndarray, tau: float) -> float:
@@ -217,7 +242,7 @@ def score(t: dict, w: float, s_tbt: float) -> float:
     return t["sum"] + w * (t["h_e2e"] + t["h_ttft"] + t["h_tpot"] + s_tbt * t["h_tbt"])
 
 
-def c0_child(h, choice: int, taus: dict) -> dict:
+def c0_child(h, choice: int, taus: dict, cut: float = 0.0) -> dict:
     """One candidate (inside an ``os.fork`` child; mutates ``h``): force ``choice``, run the window to completion
     with arrivals continuing, return the terms over the affected set (requests in flight at the decision, the routed
     burst included, plus every later arrival)."""
@@ -225,6 +250,7 @@ def c0_child(h, choice: int, taus: dict) -> dict:
     gc.disable()
     c0 = time.process_time()
     affected = hr._inflight(h)
+    t_dec = affected[0].arrived_at  # the routed request arrives now
     g = h.sim._request_generator
     made = []
     orig_next = g.get_next_request
@@ -239,7 +265,9 @@ def c0_child(h, choice: int, taus: dict) -> dict:
     h.run()
     if not h.sim._scheduler.is_empty():
         raise RuntimeError("rollout ended with requests left in the scheduler")
-    t = terms4(request_arrays(h, affected + made), taus)
+    arr = request_arrays(h, affected + made)
+    t = terms4(arr, taus)
+    t["sub"] = sub_terms(arr, taus, len(affected), t_dec, cut)
     t["cpu_s"] = time.process_time() - c0
     return {"choice": choice, "policy_choice": rec["policy_choice"], "executed": rec["executed"], "t": t}
 
@@ -247,10 +275,11 @@ def c0_child(h, choice: int, taus: dict) -> dict:
 def c0_sha() -> str:
     """What a log row depends on (log headers carry it; a change orphans the logs). The feature code that turns a
     row's raw view into model inputs runs at fit time and is hashed separately (``feature_sha``)."""
-    return hr._src_sha([request_arrays, hinge, terms4, c0_child, capture_view, install_capture, log_window,
+    return hr._src_sha([request_arrays, subset, sub_terms, hinge, terms4, c0_child, capture_view, install_capture, log_window,
                         view_dicts, cf.hist_features, cf.prune_hist, hr.apply_decision, hr._inflight,
                         hr.request_costs, hr.argv_for]) \
-        + hashlib.sha256(repr((cf.HIST_WINDOWS, cf.DT_CAP)).encode()).hexdigest()[:4] + ":" + hr.SIM_FORK_SHA
+        + hashlib.sha256(repr((cf.HIST_WINDOWS, cf.DT_CAP, SUBSET_WINDOWS)).encode()).hexdigest()[:4] \
+        + ":" + hr.SIM_FORK_SHA
 
 
 def feature_sha() -> str:
@@ -291,17 +320,17 @@ def log_window(sc, log_path: Path, taus: dict, cut: float, every: int, workers: 
                                              f"j={logged[k]['j']}; this run reaches it at t={t}, j={j}")
                     else:
                         c0 = hr._cpu_children()
-                        pe, req, reps = capture_view(h)
+                        pe, req, reps, base_state = capture_view(h)
                         if req["arrived_at"] != t or req["position_in_burst"] != 0 or req["burst_size"] != burst:
                             raise RuntimeError(f"captured view does not match decision {k}")
-                        res = hr._run_children([lambda c=c: c0_child(h, c, taus) for c in range(R)], workers,
+                        res = hr._run_children([lambda c=c: c0_child(h, c, taus, cut) for c in range(R)], workers,
                                                timeout)
                         if any(r["policy_choice"] != pe or r["executed"] != r["choice"] for r in res) \
                                 or len({r["t"]["n"] for r in res}) != 1:
                             raise RuntimeError(f"rollouts at decision {k} disagree: "
                                                f"{[(r['choice'], r['policy_choice'], r['t']['n']) for r in res]}")
                         row = {"k": k, "j": j, "t": t, "pe": pe, "burst": burst, "req": req, "reps": reps,
-                               "hist": hf, "hist_raw": raw_hist, "cands": {str(r["choice"]): r["t"] for r in res},
+                               "hist": hf, "hist_raw": raw_hist, "base_state": base_state, "cands": {str(r["choice"]): r["t"] for r in res},
                                "cpu_s": hr._cpu_children() - c0, "wall": time.time() - t0}
                         log.write(json.dumps(row) + "\n")
                         log.flush()

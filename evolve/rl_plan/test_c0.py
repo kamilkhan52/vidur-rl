@@ -142,7 +142,7 @@ def test_router_override_equals_forced_decisions(tmp_path):
         hf = cf.hist_features(hist, t)
         hist.append((t, len(q)))
         cf.prune_hist(hist, t)
-        pe, req, reps = c0.capture_view(ref)
+        pe, req, reps, _ = c0.capture_view(ref)
         rows = cf.features(req, reps, pe, hf)
         alts = [c for c in range(SC.replicas) if c != pe]
         pred = model.predict(np.asarray([rows[c] for c in alts]))
@@ -304,6 +304,13 @@ def test_log_main_end_to_end(tmp_path):
     wins = c0.check_windows({SC.tag: d}, 60)
     row = wins[SC.tag]["rows"][0]
     assert {"sum_ttft", "above_tbt", "h_tpot"} <= set(row["cands"]["0"]) and "hist_raw" in row
+    assert len(row["base_state"]["attn_sums"]) == SC.replicas
+    for t in row["cands"].values():
+        sub = t["sub"]
+        assert set(sub) == {"postcut", "a30", "a60", "a120"}
+        assert sub["a30"]["n"] <= sub["a60"]["n"] <= sub["a120"]["n"] <= t["n"]
+        assert sub["a120"]["sum"] <= t["sum"] + 1e-6 and sub["postcut"]["n"] <= t["n"]
+        assert sub["a120"]["n_gaps"] <= t["n_gaps"]
     r2 = c0.log_main(SC, tmp_path, every=60, workers=4)
     assert r2["new"] == 0 and r2["points"] == r["points"]
     r3 = c0.log_main(SC, tmp_path, every=30, workers=4)

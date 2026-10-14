@@ -287,3 +287,17 @@ C9's fail branch, where he chose a larger C0 before deciding (below).
 - **Reported, not clauses:** the learned router on all 27 heldout3 scenarios against 4873, the bar and each router
   (`--mode report`).
 - **Results seen when this was written:** none from C0 or C12.
+
+## Amendment 2026-10-13 (C0 code review round 3; before any C0 decision is scored)
+
+- **Review outcome:** round 3 found nothing blocking. Code at the launch of the C0 logs: see the research log.
+- **A window that cannot complete:** for example, a rollout failure that repeats at the same decision after 3 job
+  attempts. Its request range is excluded (both draws), the exclusion is reported, and items 1–3 use the remaining
+  ranges. With fewer than 10 ranges left, C0 is not evaluated and Kamil decides.
+- **Logged for later analyses, not used by C0's score or features:**
+  - terms over requests arriving after the warm-up cut;
+  - terms over the requests in flight at the decision plus arrivals within 30, 60 and 120 s;
+  - per-metric sums and counts above τ;
+  - the raw arrival history;
+  - 4873's own attended-context sums.
+- **Results seen when this was written:** none from C0 or C12.
