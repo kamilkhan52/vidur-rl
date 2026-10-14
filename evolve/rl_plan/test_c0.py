@@ -289,3 +289,25 @@ def test_check_windows_refuses_incomplete_logs(tmp_path):
     assert len(c0.check_windows({sc.tag: d}, 6)[sc.tag]["rows"]) == 1
     with pytest.raises(SystemExit, match="not logged"):
         c0.check_windows({sc.tag: d, "x": tmp_path / "missing"}, 6)
+
+
+def test_log_main_end_to_end(tmp_path):
+    """Review r2 B1: the real log path on a whole (small) window: bar runs, base run, summary, every point logged,
+    completion recorded; check_windows accepts it; a resume scores nothing new and keeps the record; a second
+    spacing (C0b-style) adds its own record on the same log."""
+    ev.ensure_baselines([SC], ev.BARS[c0.BAR], workers=4)
+    r = c0.log_main(SC, tmp_path, every=60, workers=4)
+    d = c0.window_dir(tmp_path, SC)
+    summ = json.loads((d / "summary.json").read_text())
+    assert r["points"] == r["new"] >= 2 and summ["complete"]["60"]["points"] == r["points"]
+    assert len(summ["bar"]) == c0.BAR_SIZE and summ["taus"]["e2e"] == min(v["e2e"] for v in summ["bar"].values())
+    wins = c0.check_windows({SC.tag: d}, 60)
+    row = wins[SC.tag]["rows"][0]
+    assert {"sum_ttft", "above_tbt", "h_tpot"} <= set(row["cands"]["0"]) and "hist_raw" in row
+    r2 = c0.log_main(SC, tmp_path, every=60, workers=4)
+    assert r2["new"] == 0 and r2["points"] == r["points"]
+    r3 = c0.log_main(SC, tmp_path, every=30, workers=4)
+    assert r3["new"] == r3["points"] - r["points"]
+    summ = json.loads((d / "summary.json").read_text())
+    assert set(summ["complete"]) == {"60", "30"}
+    assert len(c0.check_windows({SC.tag: d}, 30)[SC.tag]["rows"]) == r3["points"]

@@ -133,7 +133,8 @@ def taus_from_cache(sc, bundle: Optional[str] = None) -> dict:
 
 def bar_record(sc) -> dict:
     """Which routers set tau: name, file sha and P99s per router."""
-    return {ev.baseline_key(b, sc).split("|")[-1]: {m: float(r[f"p99_{m}"]) for m in METRICS4}
+    return {(Path(b[len("policy:"):]).stem if b.startswith("policy:") else b):
+            {"key": ev.baseline_key(b, sc).split("|")[-1], **{m: float(r[f"p99_{m}"]) for m in METRICS4}}
             for b, r in bar_rows(sc).items()}
 
 
@@ -200,9 +201,16 @@ def hinge(x: np.ndarray, tau: float) -> float:
 
 
 def terms4(arr: dict, taus: dict) -> dict:
-    return {"sum": float(arr["e2e"].sum()), "h_e2e": hinge(arr["e2e"], taus["e2e"]),
-            "h_ttft": hinge(arr["ttft"], taus["ttft"]), "h_tpot": hinge(arr["tpot"], taus["tpot"]),
-            "h_tbt": hinge(arr["gaps"], taus["tbt"]), "n": int(len(arr["e2e"])), "n_gaps": int(len(arr["gaps"]))}
+    """The C7 score's terms, plus sums and counts above tau of every metric (for the deferred mean-only and
+    threshold-count reward ablations; they do not enter the C7 score)."""
+    x = {"e2e": arr["e2e"], "ttft": arr["ttft"], "tpot": arr["tpot"], "tbt": arr["gaps"]}
+    out = {"sum": float(arr["e2e"].sum()), "n": int(len(arr["e2e"])), "n_tpot": int(len(arr["tpot"])),
+           "n_gaps": int(len(arr["gaps"]))}
+    for m, v in x.items():
+        out[f"h_{m}"] = hinge(v, taus[m])
+        out[f"sum_{m}"] = float(v.sum())
+        out[f"above_{m}"] = int((v > taus[m]).sum())
+    return out
 
 
 def score(t: dict, w: float, s_tbt: float) -> float:
@@ -237,12 +245,16 @@ def c0_child(h, choice: int, taus: dict) -> dict:
 
 
 def c0_sha() -> str:
-    """What a log row depends on (log headers carry it; a change orphans the logs)."""
+    """What a log row depends on (log headers carry it; a change orphans the logs). The feature code that turns a
+    row's raw view into model inputs runs at fit time and is hashed separately (``feature_sha``)."""
     return hr._src_sha([request_arrays, hinge, terms4, c0_child, capture_view, install_capture, log_window,
-                        view_dicts, cf.features, cf.hist_features, cf.prune_hist, cf._per_replica,
-                        hr.apply_decision, hr._inflight, hr.request_costs, hr.argv_for]) \
-        + hashlib.sha256(repr((cf.FEATURES, cf.HIST_WINDOWS, cf.DT_CAP)).encode()).hexdigest()[:4] \
-        + ":" + hr.SIM_FORK_SHA
+                        view_dicts, cf.hist_features, cf.prune_hist, hr.apply_decision, hr._inflight,
+                        hr.request_costs, hr.argv_for]) \
+        + hashlib.sha256(repr((cf.HIST_WINDOWS, cf.DT_CAP)).encode()).hexdigest()[:4] + ":" + hr.SIM_FORK_SHA
+
+
+def feature_sha() -> str:
+    return hr._src_sha([cf.features, cf._per_replica]) + hashlib.sha256(repr(cf.FEATURES).encode()).hexdigest()[:4]
 
 
 def log_window(sc, log_path: Path, taus: dict, cut: float, every: int, workers: int, header: dict,
@@ -265,6 +277,7 @@ def log_window(sc, log_path: Path, taus: dict, cut: float, every: int, workers: 
             q = gs._request_queue
             t, burst, n = q[0].arrived_at, len(q), h.decisions
             hf = cf.hist_features(hist, t)
+            raw_hist = [list(x) for x in hist]  # the router's history before this burst (pruned to 60 s)
             hist.append((t, burst))
             cf.prune_hist(hist, t)
             if t >= cut:
@@ -288,7 +301,7 @@ def log_window(sc, log_path: Path, taus: dict, cut: float, every: int, workers: 
                             raise RuntimeError(f"rollouts at decision {k} disagree: "
                                                f"{[(r['choice'], r['policy_choice'], r['t']['n']) for r in res]}")
                         row = {"k": k, "j": j, "t": t, "pe": pe, "burst": burst, "req": req, "reps": reps,
-                               "hist": hf, "cands": {str(r["choice"]): r["t"] for r in res},
+                               "hist": hf, "hist_raw": raw_hist, "cands": {str(r["choice"]): r["t"] for r in res},
                                "cpu_s": hr._cpu_children() - c0, "wall": time.time() - t0}
                         log.write(json.dumps(row) + "\n")
                         log.flush()
@@ -297,6 +310,49 @@ def log_window(sc, log_path: Path, taus: dict, cut: float, every: int, workers: 
         if write_dir is not None:
             h.write_output()
     return {"points": n_points, "new": n_new, "wall_s": time.time() - t0}
+
+
+def log_main(sc, out: Path, every: int, workers: int, child_timeout: float = 3600.0,
+             max_points: Optional[int] = None) -> dict:
+    """One window: the base run (P99s, warm-up cut, bundle), tau from the bar, the summary, then ``log_window``;
+    records completion at this spacing when the whole window was walked. One job per window at a time (lock)."""
+    import fcntl
+    bar_rows(sc)  # refuse early, before the base run, when the bar's runs are missing
+    d = window_dir(out, sc)
+    d.mkdir(parents=True, exist_ok=True)
+    lock = open(d / ".lock", "w")
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        raise SystemExit(f"{d}: another job is logging this window")
+    with tempfile.TemporaryDirectory() as tmp:
+        h = build_simulator(hr.argv_for(sc, tmp, policy=BASE))
+        bundle = hr.bundle_of(h)
+        h.run()
+        h.write_output()
+        del h
+        base = hr.score_output(tmp, sc)
+    gc.collect()
+    if not base["ok"]:
+        raise SystemExit(f"base run failed: {base['reason']}")
+    taus = taus_from_cache(sc, bundle)
+    meta = _meta(sc, bundle)
+    summ_path = d / "summary.json"
+    summ = {"meta": meta, "base": base, "taus": taus, "bar": bar_record(sc), "w": WEIGHTS[sc.trace],
+            "s_tbt": base["scored"] / base["n_tbt"], "complete": {}}
+    header = {**meta, "taus": taus, "cut": base["cut"]}
+    hr.read_log(d / "log.jsonl", header)  # refuses a log written with another setup before anything is written
+    if summ_path.exists():
+        old = json.loads(summ_path.read_text())
+        if any(old.get(k) != summ[k] for k in ("meta", "base", "taus", "bar", "w", "s_tbt")):
+            raise SystemExit(f"{summ_path}: written with another setup; move it away")
+        summ["complete"] = old.get("complete", {})
+    hr._atomic_json(summ_path, summ)
+    r = log_window(sc, d / "log.jsonl", taus, base["cut"], every, workers, header, child_timeout, max_points)
+    if max_points is None:  # the whole window was walked: every point at this spacing is in the log
+        summ["complete"][str(every)] = {"points": r["points"], "header": header}
+        hr._atomic_json(summ_path, summ)
+    return r
 
 
 # ------------------------------------------------------------------ data set for fitting
@@ -324,9 +380,13 @@ def check_windows(dirs: Dict[str, Path], every: int) -> Dict[str, dict]:
         if not (d / "summary.json").exists():
             bad.append(f"{tag}: not logged")
             continue
-        w = load_window(d, every)
+        try:
+            w = load_window(d, every)
+            head = json.loads((d / "log.jsonl").read_text().split("\n", 1)[0])["header"]
+        except (OSError, ValueError, KeyError) as e:
+            bad.append(f"{tag}: unreadable log or summary ({type(e).__name__}: {e})")
+            continue
         done = w["summary"].get("complete", {}).get(str(every))
-        head = json.loads((d / "log.jsonl").read_text().split("\n", 1)[0])["header"]
         if done is None:
             bad.append(f"{tag}: log not complete at every={every}")
         elif done["header"] != head or head["code_version"] != cv or head["decision_sha"] != sha:
@@ -425,6 +485,9 @@ def loro(ds: dict) -> dict:
     return {"folds": per}
 
 
+NO_GAIN = -1e18  # a bootstrap resample without overrides: below every real gain (finite, so percentiles stay finite)
+
+
 def _spearman0(a, b) -> float:
     a, b = np.asarray(a, float), np.asarray(b, float)
     if len(a) < 3 or a.std() == 0 or b.std() == 0:
@@ -453,12 +516,12 @@ def items12(ds: dict, lo: dict, n_boot: int = BOOT, seed: int = 0) -> dict:
         pick = rng.integers(0, len(folds), len(folds))
         n = sum(len(gain_ov[p]) for p in pick)
         # a resample without overrides shows no gain: it counts as below every finite value (review r1 B1)
-        bm[i] = _ratio(sum(float(gain_ov[p].sum()) for p in pick), n) if n > 0 else -np.inf
+        bm[i] = _ratio(sum(float(gain_ov[p].sum()) for p in pick), n) if n > 0 else NO_GAIN
         br[i] = rho_g[pick].mean()
     ci_m = [float(np.percentile(bm, 2.5)), float(np.percentile(bm, 97.5))]
     ci_r = [float(np.percentile(br, 2.5)), float(np.percentile(br, 97.5))]
     item1 = {"overrides": n_ov, "min_overrides": MIN_OVERRIDES, "mean_gain_per_override": mean_gain, "ci95": ci_m,
-             "resamples_without_overrides": int(np.isneginf(bm).sum()),
+             "resamples_without_overrides": int((bm == NO_GAIN).sum()),
              "ok": bool(n_ov >= MIN_OVERRIDES and ci_m[0] > 0)}
     item2 = {"spearman_within_range_mean": float(rho_g.mean()), "ci95": ci_r,
              "per_range": {f["range"]: float(r) for f, r in zip(folds, rho_g)}, "spearman_pooled": rho_pooled,
@@ -584,8 +647,8 @@ def item3_verdict(res: dict) -> dict:
     wins, per = [], {}
     keys = ["geo4"] + list(GUARDED)
     for tag, x in sorted(res.items()):
-        if len({r.get("seed") for r in x.get("noise", [])}) < 20 or len(x.get("noise", [])) != \
-                len({r.get("seed") for r in x.get("noise", [])}) or "new" not in x or "base" not in x:
+        seeds = [r.get("seed") for r in x.get("noise", [])]
+        if sorted(seeds) != list(range(20)) or "new" not in x or "base" not in x:
             return {"ok": None, "status": "incomplete", "missing": tag}
         L = logs_vs(x["new"], x["base"])
         N = [logs_vs(a, b) for a, b in itertools.permutations(x["noise"], 2)]
@@ -640,47 +703,18 @@ def main(argv=None):
     if a.mode == "log":
         if not a.window:
             raise SystemExit("--mode log needs --window Trace:start:draw")
-        t, s, p = a.window.split(":")
-        sc = ev.Scenario(t, 8, 0.75, int(s), LEN, int(p), model="l3_8b")
+        t, s_, p = a.window.split(":")
+        sc = ev.Scenario(t, 8, 0.75, int(s_), LEN, int(p), model="l3_8b")
         if sc.tag not in {w.tag for w in wins}:
             raise SystemExit(f"{sc.tag} is not a {a.stage} window")
-        bar_rows(sc)  # refuse early, before the base run, when the bar's runs are missing
-        d = window_dir(out, sc)
-        d.mkdir(parents=True, exist_ok=True)
-        with tempfile.TemporaryDirectory() as tmp:
-            h = build_simulator(hr.argv_for(sc, tmp, policy=BASE))
-            bundle = hr.bundle_of(h)
-            h.run()
-            h.write_output()
-            base = hr.score_output(tmp, sc)
-        if not base["ok"]:
-            raise SystemExit(f"base run failed: {base['reason']}")
-        taus = taus_from_cache(sc, bundle)
-        meta = _meta(sc, bundle)
-        summ_path = d / "summary.json"
-        summ = {"meta": meta, "base": base, "taus": taus, "bar": bar_record(sc), "w": WEIGHTS[sc.trace],
-                "s_tbt": base["scored"] / base["n_tbt"]}
-        header = {**meta, "taus": taus, "cut": base["cut"]}
-        hr.read_log(d / "log.jsonl", header)  # refuses a log written with another setup before anything is written
-        if summ_path.exists():
-            old = json.loads(summ_path.read_text())
-            if any(old.get(k) != summ[k] for k in ("meta", "base", "taus", "bar", "w", "s_tbt")):
-                raise SystemExit(f"{summ_path}: written with another setup; move it away")
-            summ["complete"] = old.get("complete", {})
-        hr._atomic_json(summ_path, summ)
-        r = log_window(sc, d / "log.jsonl", taus, base["cut"], EVERY[a.stage], a.workers, header, a.child_timeout,
-                       a.max_points)
-        if a.max_points is None:  # the whole window was walked: every point at this spacing is in the log
-            summ["complete"][str(EVERY[a.stage])] = {"points": r["points"], "header": header}
-            hr._atomic_json(summ_path, summ)
-        print(json.dumps(r))
+        print(json.dumps(log_main(sc, out, EVERY[a.stage], a.workers, a.child_timeout, a.max_points)))
         return
     dirs = {sc.tag: window_dir(out, sc) for sc in wins}
     if a.mode in ("fit", "train"):
         ds = dataset(check_windows(dirs, EVERY[a.stage]))
         prov = {"stage": a.stage, "every": EVERY[a.stage], "decisions": int(len(ds["range"])),
                 "ranges": sorted(set(ds["range"])), "model": MODEL_PARAMS, "clip_q": CLIP_Q, "margin_q": MARGIN_Q,
-                "c0_sha": c0_sha(), "code_version": ev.code_version()}
+                "c0_sha": c0_sha(), "feature_sha": feature_sha(), "code_version": ev.code_version()}
         if a.mode == "fit":
             res = items12(ds, loro(ds)) | {"provenance": prov}
             hr._atomic_json(out / f"items12_{a.stage}.json", res)
@@ -746,11 +780,13 @@ def main(argv=None):
             else {}
         if p3.exists() and i3.get("policy_sha") != tr.get("policy_sha"):
             raise SystemExit(f"item 3 was run with another trained router than train_{a.stage}.json's")
+        if p3.exists() and tr.get("provenance") != i12.get("provenance"):
+            raise SystemExit("items 1-2 and the trained router come from different data or code")
         ok12 = i12["item1"]["ok"] and i12["item2"]["ok"]
         if not ok12:
             nxt = "C0b (SELECTION 2026-10-13)" if a.stage == "c0" else "stop C; Kamil decides"
         elif i3.get("ok") is None:
-            nxt = "run item 3"
+            nxt = f"item 3: {i3.get('status', 'not run')}"
         else:
             nxt = "pass: full C needs Kamil's budget approval" if i3["ok"] else \
                 "items 1-2 pass, item 3 fails: report; Kamil decides (more data or a shorter horizon)"
