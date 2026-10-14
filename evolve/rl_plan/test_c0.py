@@ -185,16 +185,24 @@ def _run(scale, rng=None, sd=0.0):
 
 def test_item3_verdict():
     rng = np.random.default_rng(0)
-    tags = [f"l3_8b-8R-{t}-s0.75-full-p{p}" for t in ("Tool", "Conv") for p in (2, 3, 5)]
+    tags = sorted(sc.tag for sc in c0.heldout_c0())
+    assert len(tags) == 6
 
     def res(new_scale):
-        return {t: {"new": _run(new_scale), "base": _run(1.0), "noise": [_run(1.0, rng, 0.01) for _ in range(20)]}
+        return {t: {"new": _run(new_scale), "base": _run(1.0), "noise": [_run(1.0, rng, 0.01) | {"seed": i} for i in range(20)]}
                 for t in tags}
     good = c0.item3_verdict(res(0.95))
     assert good["ok"] and good["better"]["geo_ratio"] == pytest.approx(0.95)
     bad = c0.item3_verdict(res({"p99_e2e": 0.9, "p99_ttft": 0.9, "p99_tpot": 0.9, "p99_tbt": 0.9, "p50_e2e": 1.1}))
     assert bad["better"]["ok"] and not bad["not_worse"]["p50_e2e"]["ok"] and not bad["ok"]
-    assert c0.item3_verdict({tags[0]: {"new": _run(1.0), "base": _run(1.0), "noise": []}})["status"] == "incomplete"
+    assert c0.item3_verdict({tags[0]: {"new": _run(1.0), "base": _run(1.0), "noise": []}})["status"] == \
+        "invalid_scenarios"
+    part = res(0.95)
+    part[tags[0]]["noise"] = part[tags[0]]["noise"][:19]
+    assert c0.item3_verdict(part)["status"] == "incomplete"
+    dup = res(0.95)
+    dup[tags[0]]["noise"][3]["seed"] = 4  # a repeated seed: incomplete, never a smaller noise spread
+    assert c0.item3_verdict(dup)["status"] == "incomplete"
 
 
 def test_windows_and_log_refuses_without_bar(tmp_path):
@@ -205,3 +213,79 @@ def test_windows_and_log_refuses_without_bar(tmp_path):
         c0.main(["--mode", "log", "--window", "Tool:0:20", "--out", str(tmp_path)])
     with pytest.raises(SystemExit, match="not a c0 window"):
         c0.main(["--mode", "log", "--window", "Tool:2000:20", "--out", str(tmp_path)])
+
+
+def test_logged_rows_equal_deployed_router_features(plain, tmp_path):
+    """The logger's own rows, read back as ``fit`` reads them, give the feature rows the deployed router computes
+    at the same decisions (margin +inf: the router follows 4873, so both walk the same path)."""
+    d, s = plain
+    taus = {m: s[f"p99_{m}"] for m in c0.METRICS4}
+    log = tmp_path / "log.jsonl"
+    c0.log_window(SC, log, taus, s["cut"], every=7, workers=4, header={"t": 1}, max_points=4)
+    rows = [json.loads(x) for x in log.read_text().splitlines()[1:]]
+    c0.FeatureRecorder.seen = []
+    pol = c0.write_policy(tmp_path, c0.FeatureRecorder(), float("inf"), {})["policy"]
+    h = build_simulator(hr.argv_for(SC, tmp_path / "A", policy=pol))
+    h.run()
+    seen = c0.FeatureRecorder.seen
+    assert len(seen) == h.sim._scheduler._ctx.state["c0_stats"]["decisions"]
+    for r in rows:
+        F = cf.features(r["req"], r["reps"], r["pe"], r["hist"])
+        alts = [c for c in range(SC.replicas) if c != r["pe"]]
+        assert np.array_equal(np.asarray([F[c] for c in alts]), seen[r["k"] - 1])
+
+
+def _folds(gains_by_range, preds_by_range=None, override_all=True):
+    folds = []
+    for i, g in enumerate(gains_by_range):
+        g = np.asarray(g, float)
+        pr = np.asarray(preds_by_range[i], float) if preds_by_range else g.copy()
+        folds.append({"range": f"Tool:{i}", "pred": pr, "gain": g,
+                      "override": np.full(len(g), override_all),
+                      "best": np.zeros(len(g), int), "alt_pred": pr, "alt_gain": g, "margin": 0.0})
+    return {"folds": folds}
+
+
+def test_item1_overrides_in_one_range_do_not_pass():
+    """Review r1 B1: a resample without overrides counts as no gain, so 40 overrides from one range cannot pass."""
+    rng = np.random.default_rng(0)
+    lo = _folds([rng.normal(500, 50, 40)] + [rng.normal(0, 1, 30) for _ in range(11)])
+    for f in lo["folds"][1:]:
+        f["override"][:] = False
+    ds = {"G": np.zeros((10, 8))}
+    r = c0.items12(ds, lo, n_boot=2000)
+    assert r["item1"]["overrides"] == 40 and r["item1"]["resamples_without_overrides"] > 0
+    assert not r["item1"]["ok"]
+
+
+def test_item2_needs_within_range_skill():
+    """Review r1 M4: predictions and gains sharing only a per-range offset pass the pooled Spearman but not item 2."""
+    rng = np.random.default_rng(1)
+    gains, preds = [], []
+    for i in range(12):
+        off = 100.0 * i
+        gains.append(off + rng.normal(0, 50, 60))
+        preds.append(off + rng.normal(0, 50, 60))
+    r = c0.items12({"G": np.zeros((10, 8))}, _folds(gains, preds), n_boot=2000)
+    assert r["item2"]["spearman_pooled"] > 0.5 and not r["item2"]["ok"]
+    skill = [g + rng.normal(0, 20, len(g)) for g in gains]
+    assert c0.items12({"G": np.zeros((10, 8))}, _folds(gains, skill), n_boot=2000)["item2"]["ok"]
+
+
+def test_check_windows_refuses_incomplete_logs(tmp_path):
+    sc = c0.windows("c0")[0]
+    d = tmp_path / sc.tag
+    d.mkdir()
+    head = {"code_version": ev.code_version(), "decision_sha": c0.c0_sha(), "scenario": sc.tag}
+    (d / "log.jsonl").write_text(json.dumps({"header": head}) + "\n" + json.dumps({"k": 5, "j": 0}) + "\n")
+    summ = {"meta": {}, "taus": {}, "w": 1.0, "s_tbt": 1.0}
+    (d / "summary.json").write_text(json.dumps(summ))
+    with pytest.raises(SystemExit, match="not complete"):
+        c0.check_windows({sc.tag: d}, 6)
+    (d / "summary.json").write_text(json.dumps(summ | {"complete": {"6": {"points": 2, "header": head}}}))
+    with pytest.raises(SystemExit, match="1 rows"):
+        c0.check_windows({sc.tag: d}, 6)
+    (d / "summary.json").write_text(json.dumps(summ | {"complete": {"6": {"points": 1, "header": head}}}))
+    assert len(c0.check_windows({sc.tag: d}, 6)[sc.tag]["rows"]) == 1
+    with pytest.raises(SystemExit, match="not logged"):
+        c0.check_windows({sc.tag: d, "x": tmp_path / "missing"}, 6)

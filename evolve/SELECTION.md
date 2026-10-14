@@ -266,3 +266,24 @@ C9's fail branch, where he chose a larger C0 before deciding (below).
   routed by 4873. The deployed router overrides only at those decisions, and books an override as `sim_fork`'s forced
   decision does (tested: identical outputs).
 - **Results seen when this was written:** none from C0 or C12.
+
+## Amendment 2026-10-13 (C0 code review round 1; before any C0 decision is scored)
+
+- **Item 1's bootstrap over request ranges.** A resample that contains no overrides counts as no gain, below every
+  finite value; it is never dropped. Before this rule, dropping such resamples let overrides from a single range pass
+  with a CI collapsed to a point (review r1 B1).
+- **Item 2 measures skill within a range.**
+  - For each held-out request range (both its draws), take the Spearman correlation between the best alternative's
+    predicted gain and its recorded gain. A range whose predictions or gains are constant counts as 0.
+  - Item 2 passes if the mean over the 12 ranges has a 95 % CI above 0, from a bootstrap over ranges.
+  - The pooled correlation is reported, but it is not the clause: range-level offsets shared by predictions and gains
+    could pass it without any skill within a range (review r1 M4).
+- **The bar for τ has exactly 14 routers.** The log job refuses any other bar, and refuses bar runs made with
+  another prediction bundle. The routers' names, shas and P99s are recorded with each window's τ. The tuned Mooncake
+  seeds 1 and 2 are now committed: same files as on Alpine, sha256 5bae0ba18080… and 67b3cdf59de5….
+- **Completeness checks.** Items 1–2 refuse windows whose log is not complete at the stage's spacing, or whose code,
+  setup or row counts differ. Item 3 requires noise seeds exactly 0–19 and the 6 named scenarios. The verdict refuses
+  item 3 results from another trained router.
+- **Reported, not clauses:** the learned router on all 27 heldout3 scenarios against 4873, the bar and each router
+  (`--mode report`).
+- **Results seen when this was written:** none from C0 or C12.

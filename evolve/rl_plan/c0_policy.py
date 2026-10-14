@@ -57,6 +57,15 @@ def build(base_path: str, model_path: str):
         bundle = pickle.load(f)
     if tuple(bundle["features"]) != cf.FEATURES:
         raise ValueError(f"{model_path}: trained on other features")
+    if "base_sha" in bundle:
+        import hashlib
+        sha = hashlib.sha256(Path(base_path).read_bytes()).hexdigest()
+        if sha != bundle["base_sha"]:
+            raise ValueError(f"{base_path}: not the base router the model was trained on")
+    if "sklearn" in bundle:
+        import sklearn
+        if sklearn.__version__ != bundle["sklearn"]:
+            raise ValueError(f"{model_path}: trained with scikit-learn {bundle['sklearn']}, this is {sklearn.__version__}")
     model, margin = bundle["model"], float(bundle["margin"])
     from threadpoolctl import threadpool_limits
     threadpool_limits(1)  # one prediction on 7 rows per burst: OpenMP threads would only add overhead

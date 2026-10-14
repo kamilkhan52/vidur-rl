@@ -43,6 +43,7 @@ Runbook (Alpine tree with the bundle shipped; ``--stage c0`` or ``c0b``)::
 import argparse
 import concurrent.futures as cf_
 import gc
+import hashlib
 import json
 import math
 import multiprocessing as mp
@@ -102,17 +103,38 @@ def heldout_c0() -> List[ev.Scenario]:
 
 # ------------------------------------------------------------------ thresholds (the bar on each window)
 
-def taus_from_cache(sc) -> dict:
-    """tau per metric = the bar's best (lowest) window P99 on ``sc``, from the baseline cache (``--mode taus`` fills
-    it; a log job never runs baselines itself, so concurrent jobs do not race on the cache)."""
+BAR_SIZE = 14  # BAR_V4's 10 plus tuned Dynamo and tuned Mooncake seeds 0-2 (SELECTION amendment 2026-10-11)
+
+
+def bar_rows(sc, bundle: Optional[str] = None) -> dict:
+    """The bar's runs on ``sc`` from the baseline cache (``--mode taus`` fills it; a log job never runs baselines
+    itself, so concurrent jobs do not race on the cache). Refuses a bar of other than 14 routers, a missing run, or
+    (``bundle``) a run with another prediction bundle."""
+    bar = ev.BARS[BAR]
+    if len(bar) != BAR_SIZE:
+        raise SystemExit(f"bar {BAR} has {len(bar)} routers here, expected {BAR_SIZE}: install the tuned controls")
     cache = ev.load_baseline_cache()
     rows = {}
-    for b in ev.BARS[BAR]:
+    for b in bar:
         r = cache.get(ev.baseline_key(b, sc))
         if not r or not r.get("ok", True):
             raise SystemExit(f"no bar run of {b} on {sc.tag}: run --mode taus first")
+        if bundle is not None and r.get("bundle") != bundle:
+            raise SystemExit(f"bar run of {b} on {sc.tag} used bundle {r.get('bundle')}, expected {bundle}")
         rows[b] = r
+    return rows
+
+
+def taus_from_cache(sc, bundle: Optional[str] = None) -> dict:
+    """tau per metric = the bar's best (lowest) window P99 on ``sc``."""
+    rows = bar_rows(sc, bundle)
     return {m: min(float(r[f"p99_{m}"]) for r in rows.values()) for m in METRICS4}
+
+
+def bar_record(sc) -> dict:
+    """Which routers set tau: name, file sha and P99s per router."""
+    return {ev.baseline_key(b, sc).split("|")[-1]: {m: float(r[f"p99_{m}"]) for m in METRICS4}
+            for b, r in bar_rows(sc).items()}
 
 
 # ------------------------------------------------------------------ the router's view at a decision
@@ -218,7 +240,9 @@ def c0_sha() -> str:
     """What a log row depends on (log headers carry it; a change orphans the logs)."""
     return hr._src_sha([request_arrays, hinge, terms4, c0_child, capture_view, install_capture, log_window,
                         view_dicts, cf.features, cf.hist_features, cf.prune_hist, cf._per_replica,
-                        hr.apply_decision, hr._inflight, hr.request_costs, hr.argv_for]) + ":" + hr.SIM_FORK_SHA
+                        hr.apply_decision, hr._inflight, hr.request_costs, hr.argv_for]) \
+        + hashlib.sha256(repr((cf.FEATURES, cf.HIST_WINDOWS, cf.DT_CAP)).encode()).hexdigest()[:4] \
+        + ":" + hr.SIM_FORK_SHA
 
 
 def log_window(sc, log_path: Path, taus: dict, cut: float, every: int, workers: int, header: dict,
@@ -235,7 +259,7 @@ def log_window(sc, log_path: Path, taus: dict, cut: float, every: int, workers: 
     n_new = n_points = 0
     t0 = time.time()
     with tempfile.TemporaryDirectory() as tmp, open(log_path, "a") as log:
-        h = build_simulator(hr.argv_for(sc, write_dir or tmp))
+        h = build_simulator(hr.argv_for(sc, write_dir or tmp, policy=BASE))
         gs = h.sim._scheduler
         while h.next_decision():
             q = gs._request_queue
@@ -287,6 +311,36 @@ def load_window(d: Path, every: int) -> dict:
     rows = [json.loads(x) for x in (d / "log.jsonl").read_text().splitlines()[1:] if x.strip()]
     rows = [r for r in rows if r["j"] % every == 0]
     return {"summary": summ, "rows": sorted(rows, key=lambda r: r["k"])}
+
+
+def check_windows(dirs: Dict[str, Path], every: int) -> Dict[str, dict]:
+    """Every window logged completely at this spacing, with the current code and one setup: the log header equals
+    the completion record's and the current ``code_version`` and ``c0_sha``; the logged points at j % every == 0 are
+    exactly the recorded count. Refuses otherwise."""
+    wins, bad = {}, []
+    cv, sha = ev.code_version(), c0_sha()
+    setups = set()
+    for tag, d in sorted(dirs.items()):
+        if not (d / "summary.json").exists():
+            bad.append(f"{tag}: not logged")
+            continue
+        w = load_window(d, every)
+        done = w["summary"].get("complete", {}).get(str(every))
+        head = json.loads((d / "log.jsonl").read_text().split("\n", 1)[0])["header"]
+        if done is None:
+            bad.append(f"{tag}: log not complete at every={every}")
+        elif done["header"] != head or head["code_version"] != cv or head["decision_sha"] != sha:
+            bad.append(f"{tag}: header / code_version / decision_sha differ from the current code")
+        elif len(w["rows"]) != done["points"]:
+            bad.append(f"{tag}: {len(w['rows'])} rows at every={every}, completion record says {done['points']}")
+        setups.add(json.dumps({k: v for k, v in head.items() if k not in ("scenario", "taus", "cut")},
+                              sort_keys=True))
+        wins[tag] = w
+    if len(setups) > 1:
+        bad.append(f"{len(setups)} different setups across windows")
+    if bad:
+        raise SystemExit(f"{len(bad)} window problem(s): " + "; ".join(bad[:5]))
+    return wins
 
 
 def dataset(wins: Dict[str, dict]) -> dict:
@@ -371,6 +425,13 @@ def loro(ds: dict) -> dict:
     return {"folds": per}
 
 
+def _spearman0(a, b) -> float:
+    a, b = np.asarray(a, float), np.asarray(b, float)
+    if len(a) < 3 or a.std() == 0 or b.std() == 0:
+        return 0.0
+    return float(sps.spearmanr(a, b).statistic)
+
+
 def _ratio(num, den):
     return num / den if den > 0 else float("nan")
 
@@ -381,23 +442,27 @@ def items12(ds: dict, lo: dict, n_boot: int = BOOT, seed: int = 0) -> dict:
     gain_ov = [f["gain"][f["override"]] for f in folds]
     n_ov = int(sum(len(x) for x in gain_ov))
     mean_gain = _ratio(sum(float(x.sum()) for x in gain_ov), n_ov)
-    rho = float(sps.spearmanr(np.concatenate([f["pred"] for f in folds]),
-                              np.concatenate([f["gain"] for f in folds])).statistic)
+    # item 2: within each held-out range (both draws), the Spearman correlation of the best alternative's predicted
+    # and recorded gain; its mean over ranges (a range with constant predictions or gains counts as 0). Range-level
+    # offsets shared by predictions and gains cannot pass it (review r1 M4); the pooled correlation is reported.
+    rho_g = np.array([_spearman0(f["pred"], f["gain"]) for f in folds])
+    rho_pooled = _spearman0(np.concatenate([f["pred"] for f in folds]), np.concatenate([f["gain"] for f in folds]))
     rng = np.random.default_rng(seed)
     bm, br = np.empty(n_boot), np.empty(n_boot)
     for i in range(n_boot):
         pick = rng.integers(0, len(folds), len(folds))
         n = sum(len(gain_ov[p]) for p in pick)
-        bm[i] = _ratio(sum(float(gain_ov[p].sum()) for p in pick), n)
-        a = np.concatenate([folds[p]["pred"] for p in pick])
-        b = np.concatenate([folds[p]["gain"] for p in pick])
-        br[i] = sps.spearmanr(a, b).statistic if a.std() > 0 and b.std() > 0 else np.nan
-    ci_m = [float(np.nanpercentile(bm, 2.5)), float(np.nanpercentile(bm, 97.5))] if np.isfinite(bm).any() \
-        else [float("nan")] * 2
-    ci_r = [float(np.nanpercentile(br, 2.5)), float(np.nanpercentile(br, 97.5))]
+        # a resample without overrides shows no gain: it counts as below every finite value (review r1 B1)
+        bm[i] = _ratio(sum(float(gain_ov[p].sum()) for p in pick), n) if n > 0 else -np.inf
+        br[i] = rho_g[pick].mean()
+    ci_m = [float(np.percentile(bm, 2.5)), float(np.percentile(bm, 97.5))]
+    ci_r = [float(np.percentile(br, 2.5)), float(np.percentile(br, 97.5))]
     item1 = {"overrides": n_ov, "min_overrides": MIN_OVERRIDES, "mean_gain_per_override": mean_gain, "ci95": ci_m,
+             "resamples_without_overrides": int(np.isneginf(bm).sum()),
              "ok": bool(n_ov >= MIN_OVERRIDES and ci_m[0] > 0)}
-    item2 = {"spearman": rho, "ci95": ci_r, "ok": bool(ci_r[0] > 0)}
+    item2 = {"spearman_within_range_mean": float(rho_g.mean()), "ci95": ci_r,
+             "per_range": {f["range"]: float(r) for f, r in zip(folds, rho_g)}, "spearman_pooled": rho_pooled,
+             "ok": bool(ci_r[0] > 0)}
     # diagnostics
     ap = np.concatenate([f["alt_pred"] for f in folds])
     ag = np.concatenate([f["alt_gain"] for f in folds])
@@ -435,11 +500,26 @@ class LeastPendingAltModel:
         return out
 
 
+def _sklearn_version() -> str:
+    import sklearn
+    return sklearn.__version__
+
+
+class FeatureRecorder:
+    """A 'gain model' for tests that predicts 0 everywhere and records every feature matrix it is given."""
+    seen: list = []
+
+    def predict(self, X):
+        FeatureRecorder.seen.append(np.array(X, float))
+        return np.zeros(len(X))
+
+
 def write_policy(out: Path, model, margin: float, provenance: dict, name: str = "c0") -> dict:
     """Pickle the model bundle and write the generated policy file next to it."""
     mp_ = Path(out) / f"{name}_model.pkl"
     with open(mp_, "wb") as f:
-        pickle.dump({"model": model, "margin": margin, "features": cf.FEATURES, "provenance": provenance}, f)
+        pickle.dump({"model": model, "margin": margin, "features": cf.FEATURES, "provenance": provenance,
+                     "base_sha": ev.file_sha(Path(BASE)), "sklearn": _sklearn_version()}, f)
     pol = Path(out) / f"{name}_router.py"
     sha = ev.file_sha(mp_)
     pol.write_text(POLICY_TEMPLATE.format(base=BASE, model=str(mp_.resolve()), model_sha=sha, margin=margin))
@@ -496,16 +576,24 @@ def item3_verdict(res: dict) -> dict:
     """``res``: tag -> {"new", "base", "noise": [20 runs]}. L = log ratios new / base; reference = the 380 ordered
     pairwise differences of the 20 noise runs (``headroom.NOISE_CENTRE``); ``headroom.pooled_test``."""
     import itertools
+    if hr.NOISE_CENTRE != "pairwise":
+        raise RuntimeError("item 3 is pre-registered with the pairwise noise reference")
+    want = sorted(sc.tag for sc in heldout_c0())
+    if sorted(res) != want:
+        return {"ok": None, "status": "invalid_scenarios", "got": sorted(res), "expected": want}
     wins, per = [], {}
     keys = ["geo4"] + list(GUARDED)
     for tag, x in sorted(res.items()):
-        if len(x.get("noise", [])) < 20 or "new" not in x or "base" not in x:
+        if len({r.get("seed") for r in x.get("noise", [])}) < 20 or len(x.get("noise", [])) != \
+                len({r.get("seed") for r in x.get("noise", [])}) or "new" not in x or "base" not in x:
             return {"ok": None, "status": "incomplete", "missing": tag}
         L = logs_vs(x["new"], x["base"])
         N = [logs_vs(a, b) for a, b in itertools.permutations(x["noise"], 2)]
         wins.append((L, N))
         per[tag] = {k: L[f"log_p99_{k}"] for k in keys} | {"c0_stats": x["new"].get("c0_stats")}
     pt = hr.pooled_test(wins, metrics=tuple(keys))
+    if any("error" in v for v in pt.values()):
+        return {"ok": None, "status": "not_computable", "pooled": pt, "per_scenario": per}
     gm = float(np.mean([L["log_p99_geo4"] for L, _ in wins]))
     tags = sorted(res)
     groups = clusters(tags)
@@ -531,7 +619,7 @@ def _meta(sc, bundle: str) -> dict:
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("--mode", required=True, choices=("taus", "log", "fit", "train", "item3", "verdict"))
+    ap.add_argument("--mode", required=True, choices=("taus", "log", "fit", "train", "item3", "verdict", "report"))
     ap.add_argument("--stage", default="c0", choices=sorted(STARTS))
     ap.add_argument("--window", help="log: Trace:start:draw, e.g. Tool:4000:20")
     ap.add_argument("--workers", type=int, default=8)
@@ -556,37 +644,40 @@ def main(argv=None):
         sc = ev.Scenario(t, 8, 0.75, int(s), LEN, int(p), model="l3_8b")
         if sc.tag not in {w.tag for w in wins}:
             raise SystemExit(f"{sc.tag} is not a {a.stage} window")
-        taus = taus_from_cache(sc)
+        bar_rows(sc)  # refuse early, before the base run, when the bar's runs are missing
         d = window_dir(out, sc)
         d.mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory() as tmp:
-            h = build_simulator(hr.argv_for(sc, tmp))
+            h = build_simulator(hr.argv_for(sc, tmp, policy=BASE))
             bundle = hr.bundle_of(h)
             h.run()
             h.write_output()
             base = hr.score_output(tmp, sc)
         if not base["ok"]:
             raise SystemExit(f"base run failed: {base['reason']}")
+        taus = taus_from_cache(sc, bundle)
         meta = _meta(sc, bundle)
         summ_path = d / "summary.json"
-        summ = {"meta": meta, "base": base, "taus": taus, "w": WEIGHTS[sc.trace],
+        summ = {"meta": meta, "base": base, "taus": taus, "bar": bar_record(sc), "w": WEIGHTS[sc.trace],
                 "s_tbt": base["scored"] / base["n_tbt"]}
+        header = {**meta, "taus": taus, "cut": base["cut"]}
+        hr.read_log(d / "log.jsonl", header)  # refuses a log written with another setup before anything is written
         if summ_path.exists():
             old = json.loads(summ_path.read_text())
-            if old["meta"] != meta or old["taus"] != taus:
+            if any(old.get(k) != summ[k] for k in ("meta", "base", "taus", "bar", "w", "s_tbt")):
                 raise SystemExit(f"{summ_path}: written with another setup; move it away")
+            summ["complete"] = old.get("complete", {})
         hr._atomic_json(summ_path, summ)
-        header = {**meta, "taus": taus, "cut": base["cut"]}
         r = log_window(sc, d / "log.jsonl", taus, base["cut"], EVERY[a.stage], a.workers, header, a.child_timeout,
                        a.max_points)
+        if a.max_points is None:  # the whole window was walked: every point at this spacing is in the log
+            summ["complete"][str(EVERY[a.stage])] = {"points": r["points"], "header": header}
+            hr._atomic_json(summ_path, summ)
         print(json.dumps(r))
         return
     dirs = {sc.tag: window_dir(out, sc) for sc in wins}
     if a.mode in ("fit", "train"):
-        missing = [t for t, d in dirs.items() if not (d / "summary.json").exists()]
-        if missing:
-            raise SystemExit(f"{len(missing)} windows not logged: {missing[:3]}...")
-        ds = dataset({t: load_window(d, EVERY[a.stage]) for t, d in dirs.items()})
+        ds = dataset(check_windows(dirs, EVERY[a.stage]))
         prov = {"stage": a.stage, "every": EVERY[a.stage], "decisions": int(len(ds["range"])),
                 "ranges": sorted(set(ds["range"])), "model": MODEL_PARAMS, "clip_q": CLIP_Q, "margin_q": MARGIN_Q,
                 "c0_sha": c0_sha(), "code_version": ev.code_version()}
@@ -606,7 +697,11 @@ def main(argv=None):
         res = json.loads(path.read_text()) if path.exists() else {}
         if res and res.get("_policy_sha") != tr["policy_sha"]:
             raise SystemExit(f"{path}: from another trained router; move it away")
-        res["_policy_sha"] = tr["policy_sha"]
+        meta3 = {"code_version": ev.code_version(), "base_sha": ev.file_sha(Path(BASE))[:12],
+                 "noise_sha": hr.decision_sha("noise"), "noise_delta": hr.NOISE_DELTA}
+        if res and res.get("_meta") != meta3:
+            raise SystemExit(f"{path}: written with another code version, base or noise rule; move it away")
+        res["_policy_sha"], res["_meta"] = tr["policy_sha"], meta3
         jobs = []
         for sc in heldout_c0():
             x = res.setdefault(sc.tag, {"noise": []})
@@ -614,13 +709,15 @@ def main(argv=None):
                 jobs.append(("run", sc, tr["policy"], None, "new"))
             if "base" not in x:
                 jobs.append(("run", sc, BASE, None, "base"))
-            jobs += [("noise", sc, None, s, "noise") for s in range(len(x["noise"]), 20)]
+            have = {r["seed"] for r in x["noise"]}
+            jobs += [("noise", sc, None, s, "noise") for s in range(20) if s not in have]
         with cf_.ProcessPoolExecutor(a.workers, mp_context=mp.get_context("fork")) as ex:
             futs = {ex.submit(_run_in_process, j[:4]): j for j in jobs}
             for fu in cf_.as_completed(futs):
                 kind, sc, _, seed, slot = futs[fu]
                 r = fu.result()
                 if not r.get("ok"):
+                    ex.shutdown(wait=False, cancel_futures=True)
                     raise SystemExit(f"{slot} run on {sc.tag} failed: {r.get('reason')}")
                 x = res[sc.tag]
                 if slot == "noise":
@@ -628,14 +725,27 @@ def main(argv=None):
                 else:
                     x[slot] = r
                 hr._atomic_json(path, res)
-        v = item3_verdict({k: v for k, v in res.items() if not k.startswith("_")})
+        v = item3_verdict({k: v for k, v in res.items() if not k.startswith("_")}) | {"policy_sha": tr["policy_sha"]}
         hr._atomic_json(out / f"item3_verdict_{a.stage}.json", v)
         print(json.dumps({k: v[k] for k in ("ok", "better", "not_worse") if k in v}, indent=1))
+        return
+    if a.mode == "report":  # reported, never a clause: the learned router on all 27 heldout3 scenarios (policy_table)
+        tr = json.loads((out / f"train_{a.stage}.json").read_text())
+        scen = list(ev.STAGES["heldout3"])
+        ev.ensure_baselines(scen, tuple(ev.BARS[BAR]) + (f"policy:{BASE}", f"policy:{Path(tr['policy']).resolve()}"),
+                            workers=a.workers)
+        from evolve.analysis import policy_table
+        policy_table.main(["--stage", "heldout3", "--bar", BAR, "--policy", tr["policy"], "--policy", BASE,
+                           "--out", str(out / f"policy_table_heldout3_{a.stage}.json")])
         return
     if a.mode == "verdict":
         i12 = json.loads((out / f"items12_{a.stage}.json").read_text())
         p3 = out / f"item3_verdict_{a.stage}.json"
         i3 = json.loads(p3.read_text()) if p3.exists() else {"ok": None, "status": "not run"}
+        tr = json.loads((out / f"train_{a.stage}.json").read_text()) if (out / f"train_{a.stage}.json").exists() \
+            else {}
+        if p3.exists() and i3.get("policy_sha") != tr.get("policy_sha"):
+            raise SystemExit(f"item 3 was run with another trained router than train_{a.stage}.json's")
         ok12 = i12["item1"]["ok"] and i12["item2"]["ok"]
         if not ok12:
             nxt = "C0b (SELECTION 2026-10-13)" if a.stage == "c0" else "stop C; Kamil decides"
@@ -646,6 +756,9 @@ def main(argv=None):
                 "items 1-2 pass, item 3 fails: report; Kamil decides (more data or a shorter horizon)"
         v = {"stage": a.stage, "item1": i12["item1"], "item2": i12["item2"], "item3": {k: i3.get(k) for k in
              ("ok", "better", "not_worse", "status")}, "pass": bool(ok12 and i3.get("ok")), "next": nxt}
+        if a.stage == "c0b":
+            v["two_looks"] = ("C0b is the second look after C0 failed item 1 or 2: the false-pass rate of each of items "
+                              "1-2 across both looks is at most 5 % one-sided (2.5 % for one look)")
         hr._atomic_json(out / f"verdict_{a.stage}.json", v)
         print(json.dumps(v, indent=1))
 
