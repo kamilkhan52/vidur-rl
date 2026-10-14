@@ -1099,3 +1099,32 @@ def test_audit_logs_reads_the_gated_log(plain, tmp_path):
     (tmp_path / "summary.json").write_text(json.dumps(summ))
     with pytest.raises(SystemExit, match="planned 3"):
         hr.audit_logs([str(tmp_path)], 2)
+
+
+def test_base_policy_swap_keeps_decision_code_and_matches_run_one(tmp_path):
+    """Step C12: ``--policy`` plans from another base router. The decision shas stay those of the pi_e runs (only
+    ``argv_for``'s default and ``POLICY`` are rebound), the base run equals ``evaluate.run_one`` with that router, and
+    always keeping its choice through the fork path reproduces it."""
+    base = ev.REPO / "evolve/finalists/v4/v4_487363424749.py"
+    old_policy, old_defaults = hr.POLICY, hr.argv_for.__defaults__
+    shas = {m: hr.decision_sha(m) for m in ("closed", "closed_crn", "openloop", "placebo", "noise")}
+    try:
+        hr.set_base_policy(base)
+        assert hr.POLICY == str(base.resolve()) and hr.argv_for.__defaults__ == (str(base.resolve()),)
+        assert {m: hr.decision_sha(m) for m in shas} == shas
+        d = tmp_path / "A"
+        h = build_simulator(hr.argv_for(SC, d))
+        h.run()
+        h.write_output()
+        s = hr.score_output(d, SC)
+        r = ev.run_one("evolved", SC, policy=hr.POLICY)
+        assert s["ok"] and r["ok"]
+        for k in ("p99_e2e", "p99_ttft", "p99_tpot", "p99_tbt", "mean_e2e"):
+            assert s[k] == r[k], k
+        hr.closed_loop(SC, hr.Horizon.parse("T=10+drain"), _plan(s), s["cut"], tmp_path / "B", tmp_path / "b.jsonl",
+                       workers=2, max_decisions=5, candidates="pe")
+        _same_outputs(d, tmp_path / "B")
+        with pytest.raises(SystemExit):
+            hr.set_base_policy(tmp_path / "missing.py")
+    finally:
+        hr.POLICY, hr.argv_for.__defaults__ = old_policy, old_defaults

@@ -356,6 +356,20 @@ def argv_for(sc, out_dir, policy=POLICY):
     return ev.sim_command("evolved", policy, sc, ev.window_csv(sc), Path(out_dir))[3:]
 
 
+def set_base_policy(path) -> None:
+    """Step C12: plan from another base router (e.g. the evolved finalist 4873) instead of pi_e. Rebinds ``POLICY``
+    and ``argv_for``'s default, so every run in this process (base runs, rollouts, placebo, noise, the harness check)
+    uses it, while the hashed source of the decision code (``decision_sha``) stays unchanged. The base router's name
+    and sha go into ``meta`` and every row's params, so its summaries and logs never mix with pi_e's. Rows and
+    output fields keep the name ``pi_e`` for the base run."""
+    global POLICY
+    path = str(Path(path).resolve())
+    if not Path(path).is_file():
+        raise SystemExit(f"--policy {path}: no such file")
+    POLICY = path
+    argv_for.__defaults__ = (path,)
+
+
 def score_output(out_dir, sc):
     """``evaluate.run_one``'s post-processing on an output directory written in process: completion gate, warm-up
     cut, ``summarize_rows``, exact TBT over the scored requests' tokens, prediction bundle and clamp hits. Returns
@@ -2238,6 +2252,8 @@ def parse_weight(spec: str, mean_e2e: float) -> float:
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    ap.add_argument("--policy", help="base (and rollout) router file; default pi_e (step C12: the finalist "
+                    "evolve/finalists/v4/v4_487363424749.py)")
     ap.add_argument("--mode", default="closed",
                     choices=("closed", "openloop", "placebo", "noise", "pilot", "gate", "audit"))
     ap.add_argument("--trace", default="Tool")
@@ -2288,6 +2304,8 @@ def main(argv=None):
     ap.add_argument("--out", required=True, help="output directory (pilot, gate: the 4 windows' directories, "
                     "comma-separated)")
     a = ap.parse_args(argv)
+    if a.policy:
+        set_base_policy(a.policy)
     if a.mode == "pilot":
         wins = {d: json.loads((Path(d) / "summary.json").read_text()) for d in a.out.split(",") if d}
         print(json.dumps({"pilot": pilot_verdict(wins, a.noise_delta, a.future)}, indent=1))
