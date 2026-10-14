@@ -241,3 +241,28 @@ C9's fail branch, where he chose a larger C0 before deciding (below).
   - Alpine tree `vidur-rl-c12`, chains `c12_{tool,conv}_w{0,2000}` = jobs 34086837–68.
 - **Results seen when this was written:** everything in the earlier amendments, plus B2's gate (fail) and audit
   (inconclusive) and the B2 check job. No C0 or C12 results; no test-set results.
+
+## Amendment 2026-10-13 (C0 details fixed in code, before any C0 decision is scored)
+
+- **Item 3's "not worse" guard.**
+  - The 6 heldout3 scenarios form only 2 configurations, so a cluster bootstrap over configurations has 2 clusters
+    and no usable CI.
+  - The guard is therefore the B gate's not-worse test: for each of P99 E2E, TTFT, TPOT, TBT, mean E2E and P50 E2E,
+    no pooled one-sided worsening against 4873's 20 noise runs at p < 0.025 (`headroom.pooled_test`, pairwise noise
+    reference).
+  - The cluster-bootstrap CIs are still reported.
+  - The geometric-mean clause is unchanged: the mean of the six scenarios' log geometric-mean P99 ratios is below 0,
+    and pooled p_low < 0.05.
+- **Gain model and margin (`evolve/rl_plan/c0.py`).**
+  - Model: scikit-learn HistGradientBoostingRegressor (squared error, 300 iterations, learning rate 0.05, 15 leaves,
+    min 100 rows per leaf, L2 1.0, seed 0, no early stopping), on every (decision, alternative replica) row. The
+    target is clipped to the training rows' 0.5th–99.5th percentiles.
+  - Features: 29 from the router's view (`c0_features.FEATURES`): the request; the candidate replica; the candidate
+    minus the base pick; cluster means; the arrival history.
+  - Margin grid: 0, the 50/75/90/95/99th percentiles of the positive inner-held-out best predictions, and +inf (never
+    override). The margin with the largest total recorded gain on the inner held-out decisions wins; ties go to the
+    larger margin.
+- **Decisions.** A decision is the first request of an arrival burst, as in the planners. The rest of a burst is
+  routed by 4873. The deployed router overrides only at those decisions, and books an override as `sim_fork`'s forced
+  decision does (tested: identical outputs).
+- **Results seen when this was written:** none from C0 or C12.
