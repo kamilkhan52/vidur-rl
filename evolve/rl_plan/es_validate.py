@@ -26,7 +26,9 @@ from evolve.rl_plan import c0
 
 FINAL_DIR = ev.REPO / "evolve" / "finalists" / "rl_es"
 TAILS4 = ("p99_e2e", "p99_ttft", "p99_tpot", "p99_tbt")
-METS = TAILS4 + ("mean_e2e", "mean_ttft", "p50_e2e", "p50_ttft")
+MEANS4 = ("mean_e2e", "mean_ttft", "mean_tpot", "mean_tbt")
+METS = TAILS4 + MEANS4 + ("p50_e2e", "p50_ttft", "p50_tpot", "p50_tbt")
+COMBINED = {"tails4": TAILS4, "means4": MEANS4, "gen8": MEANS4 + TAILS4}
 TEMPLATE = '''"""Frozen ES policy {name} (evolve.rl_plan.es_validate): 4873 + the learned price correction in {name}.npz."""
 import hashlib
 from pathlib import Path
@@ -59,10 +61,11 @@ def compare(pol: str, ref: str, scen: list, res: dict, n_boot: int = 10000) -> d
         d = np.log(np.array([res[(pol, sc)][m] / res[(ref, sc)][m] for sc in scen], float))
         g, lo, hi = boot(d, groups, n_boot)
         out[m] = {"geo": float(g), "lo": float(lo), "hi": float(hi), "wins": int((d < 0).sum()), "n": len(d)}
-    d = np.array([np.mean([np.log(res[(pol, sc)][m] / res[(ref, sc)][m]) for m in TAILS4]) for sc in scen])
-    g, lo, hi = boot(d, groups, n_boot)
-    out["tails4"] = {"geo": float(g), "lo": float(lo), "hi": float(hi), "wins": int((d < 0).sum()), "n": len(d)}
-    out["success"] = bool(hi < 1.0 and all(out[m]["lo"] <= 1.0 for m in TAILS4))
+    for name, ms in COMBINED.items():
+        d = np.array([np.mean([np.log(res[(pol, sc)][m] / res[(ref, sc)][m]) for m in ms]) for sc in scen])
+        g, lo, hi = boot(d, groups, n_boot)
+        out[name] = {"geo": float(g), "lo": float(lo), "hi": float(hi), "wins": int((d < 0).sum()), "n": len(d)}
+    out["success"] = bool(out["tails4"]["hi"] < 1.0 and all(out[m]["lo"] <= 1.0 for m in TAILS4))
     return out
 
 
@@ -81,7 +84,7 @@ def main(argv=None):
     res = ev.ensure_baselines(scen, [ref, pol], workers=a.workers, timeout=a.timeout)
     out = {"name": a.name, "params": a.params, "stage": a.stage, "code_version": ev.code_version(),
            "vs_4873": compare(pol, ref, scen, res),
-           "per_scenario": {sc.tag: {m: res[(pol, sc)][m] / res[(ref, sc)][m] for m in TAILS4} for sc in scen}}
+           "per_scenario": {sc.tag: {m: res[(pol, sc)][m] / res[(ref, sc)][m] for m in METS} for sc in scen}}
     Path(a.out).write_text(json.dumps(out, indent=1))
     for m, r in out["vs_4873"].items():
         if isinstance(r, dict):

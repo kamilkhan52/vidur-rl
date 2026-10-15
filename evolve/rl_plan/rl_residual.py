@@ -272,7 +272,10 @@ def tail_metrics(arr: dict, cut: float) -> dict:
     return {"p99_e2e": float(np.percentile(e2e, 99)), "p99_ttft": float(np.percentile(sub["ttft"], 99)),
             "p99_tpot": float(np.percentile(sub["tpot"], 99)) if len(sub["tpot"]) else float("nan"),
             "p99_tbt": float(np.percentile(sub["gaps"], 99)) if len(sub["gaps"]) else float("nan"),
-            "mean_e2e": float(e2e.mean()), "p50_e2e": float(np.median(e2e))}
+            "mean_e2e": float(e2e.mean()), "p50_e2e": float(np.median(e2e)),
+            "mean_ttft": float(sub["ttft"].mean()), "p50_ttft": float(np.median(sub["ttft"])),
+            "mean_tpot": float(sub["tpot"].mean()) if len(sub["tpot"]) else float("nan"),
+            "mean_tbt": float(sub["gaps"].mean()) if len(sub["gaps"]) else float("nan")}
 
 
 def run_episode(job: dict) -> dict:

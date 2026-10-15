@@ -339,14 +339,19 @@ def window_job(tr: str, replicas: int, scale: float, start: int, length: int, dr
     return j
 
 
-METRICS = ("score", "p99_e2e", "p99_ttft", "p99_tpot", "p99_tbt", "mean_e2e")
+METRICS = ("score", "p99_e2e", "p99_ttft", "p99_tpot", "p99_tbt", "mean_e2e", "mean_ttft", "mean_tpot", "mean_tbt",
+           "p50_e2e", "p50_ttft")
 TAILS4 = ("p99_e2e", "p99_ttft", "p99_tpot", "p99_tbt")
+MEANS4 = ("mean_e2e", "mean_ttft", "mean_tpot", "mean_tbt")
+# general latency (Kamil, 2026-10-15): the four means and the four P99s, equal weight
+GEN8 = MEANS4 + TAILS4
+FIT_METRICS = {"tails4": TAILS4, "gen8": GEN8}
 
 
 def fitness(e: dict, r: dict, kind: str) -> float:
     if kind == "score":
         return -math.log(e["score"] / r["score"])
-    return -float(np.mean([math.log(e[m] / r[m]) for m in TAILS4]))
+    return -float(np.mean([math.log(e[m] / r[m]) for m in FIT_METRICS[kind]]))
 
 
 def paired_summary(res: list, ref: dict, seed: int = 0) -> dict:
@@ -362,9 +367,12 @@ def paired_summary(res: list, ref: dict, seed: int = 0) -> dict:
         bs = L[picks].mean(1)
         out[m] = {"ratio": float(np.exp(L.mean())), "lo": float(np.exp(np.percentile(bs, 2.5))),
                   "hi": float(np.exp(np.percentile(bs, 97.5)))}
-    L = np.array([np.mean([-fitness(e, ref[_key(e)], "tails4") for e in res if _group(e) == g]) for g in groups])
-    bs = L[picks].mean(1)
-    out["tails4"] = {"ratio": float(np.exp(L.mean())), "lo": float(np.exp(np.percentile(bs, 2.5))),
+    for kind in ("tails4", "gen8"):
+        if not all(np.isfinite(e[m]) for e in res for m in FIT_METRICS[kind]):
+            continue
+        L = np.array([np.mean([-fitness(e, ref[_key(e)], kind) for e in res if _group(e) == g]) for g in groups])
+        bs = L[picks].mean(1)
+        out[kind] = {"ratio": float(np.exp(L.mean())), "lo": float(np.exp(np.percentile(bs, 2.5))),
                      "hi": float(np.exp(np.percentile(bs, 97.5)))}
     out["moved_rate"] = float(sum(e["moved"] for e in res) / max(1, sum(e["calls"] for e in res)))
     return out
@@ -527,7 +535,7 @@ def main(argv=None):
     ap.add_argument("--eval-len", type=int, default=rl.EVAL_LEN)
     ap.add_argument("--probe", default="1,3,10")
     ap.add_argument("--probe-draws", default="22,23,24,25")
-    ap.add_argument("--fitness", default="tails4", choices=("tails4", "score"))
+    ap.add_argument("--fitness", default="tails4", choices=("tails4", "gen8", "score"))
     a = ap.parse_args(argv)
     hr.set_base_policy(BASE)
     (train if a.mode == "train" else probe)(a)
