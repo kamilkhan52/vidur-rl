@@ -78,7 +78,7 @@ COUNT_KEY = "rl_counts"  # [routing calls, overrides]
 
 DEFAULTS = {"windows_per_iter": 8, "rollouts": 4, "length": 6000, "t_gamma": 120.0, "eps": 0.02, "lr": 3e-4,
             "clip": 0.2, "epochs": 8, "minibatch": 8192, "target_kl": 0.01, "eval_every": 10, "max_grad_norm": 0.5,
-            "plant": 0.0}
+            "plant": 0.0, "start_grid": 0}
 I_OUT = cf.FEATURES.index("outstanding")
 
 
@@ -440,6 +440,13 @@ def ppo_update(net, opt, batch: dict, cfg: dict, rng: np.random.Generator, mu, s
 
 # ------------------------------------------------------------------ driver
 
+def draw_start(rng: np.random.Generator, trace: str, length: int, grid: int) -> int:
+    """A training window start: any request index, or (``grid`` > 0) a multiple of ``grid``, which bounds the number
+    of window files the simulator caches (about 40 MB per 6,000-request window; the Mac's disk is small)."""
+    hi = N_REQ[trace] - length
+    return int(rng.integers(0, hi)) if grid <= 0 else int(grid * rng.integers(0, hi // grid + 1))
+
+
 def reward_constants(c0_out: Path) -> dict:
     """Per trace: tau = median over C0's windows of the bar's best P99; s_tbt = median of C0's windows; w = C0's."""
     out = {}
@@ -523,7 +530,7 @@ def train(a) -> None:
             # and on the eval windows as the learning curves' reference
             P0 = init_params(np.random.default_rng(a.seed), np.zeros(F_IN), np.ones(F_IN))
             save_params(P0, out / "params_0.npz")
-            warm = [{"trace": TRACES[i % 2], "start": int(rng.integers(0, N_REQ[TRACES[i % 2]] - cfg["length"])),
+            warm = [{"trace": TRACES[i % 2], "start": draw_start(rng, TRACES[i % 2], cfg["length"], cfg["start_grid"]),
                      "length": cfg["length"], "draw": int(rng.choice(TRAIN_DRAWS)), "params": str(out / "params_0.npz"),
                      "mode": "greedy", "seed": 0, "record": True, "consts": consts, **SCEN} for i in range(4)]
             res = pool.map(run_episode, warm + eval_jobs(str(out / "params_0.npz"), consts), chunksize=1)
@@ -551,7 +558,7 @@ def train(a) -> None:
             jobs, wins = [], []
             for i in range(cfg["windows_per_iter"]):
                 tr = TRACES[i % 2]
-                s_ = int(rng.integers(0, N_REQ[tr] - cfg["length"]))
+                s_ = draw_start(rng, tr, cfg["length"], cfg["start_grid"])
                 d = int(rng.choice(TRAIN_DRAWS))
                 seeds = [int(x) for x in rng.integers(1 << 31, size=cfg["rollouts"])]
                 wins.append([tr, s_, d, seeds])
