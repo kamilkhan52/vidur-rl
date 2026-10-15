@@ -27,7 +27,7 @@ S_4873) with the C7 score S (``rl_residual.score_total``). A few random override
 SD 0.095 per 6,000-request window but the four-tail mean by only 0.020 (``out/noise_probe.json``), so tails4 is the
 default. The ES gradient uses antithetic differences, so 4873's score cancels;
 it is logged for the learning curve. Training: Tool and Conv windows at random starts, draws p22-p39, loads from
-``--scales``. Learning curves: the centre policy on fixed held-out windows (p40-p43) vs 4873, as in rl_residual.
+``--configs`` (trace:replicas:load). Learning curves: the centre policy on fixed held-out windows (p40-p43) vs 4873, as in rl_residual.
 
 Usage:
     python -m evolve.rl_plan.rl_es --out evolve/rl_plan/out/es/s0 --workers 8 --pairs 8 --windows 4
@@ -245,8 +245,8 @@ def run_episode(job: dict) -> dict:
     write_dir. Returns tail metrics and the C7 score over the requests after the warm-up cut."""
     hr.set_base_policy(BASE)
     sc = ev.Scenario(job["trace"], job["replicas"], job["scale"], job["start"], job["length"], job["draw"],
-                     model="l3_8b")
-    k = job["consts"][job["trace"]]
+                     model="l3_8b", jitter_s=job.get("jitter_s", -1.0))
+    k = job["consts"].get(job["trace"])
     t0 = time.time()
     with tempfile.TemporaryDirectory() as tmp:
         if job.get("params") is None and job.get("probe") is None:
@@ -275,14 +275,40 @@ def run_episode(job: dict) -> dict:
     a_ = arr["arrived"]
     cut = float(a_.min() + rl.WARM_FRAC * (a_.max() - a_.min()))
     sub = c0.subset(arr, a_ >= cut)
-    return {"trace": job["trace"], "start": job["start"], "draw": job["draw"], "scale": job["scale"],
-            "tag": job.get("tag"), "n": len(made), "wall_s": time.time() - t0, **rl.tail_metrics(arr, cut),
-            "score": rl.score_total(sub, k["taus"], k["w"], k["s_tbt"]),
+    return {"trace": job["trace"], "replicas": job["replicas"], "scale": job["scale"], "start": job["start"],
+            "draw": job["draw"], "tag": job.get("tag"), "n": len(made), "wall_s": time.time() - t0,
+            **rl.tail_metrics(arr, cut),
+            "score": rl.score_total(sub, k["taus"], k["w"], k["s_tbt"]) if k else float("nan"),
             "calls": st.get("calls", 0), "moved": st.get("moved", 0)}
 
 
 def _key(e):
-    return (e["trace"], e["start"], e["draw"], e["scale"])
+    return (e["trace"], e["replicas"], e["scale"], e["start"], e["draw"])
+
+
+def _group(e):
+    """A request range of one configuration: the bootstrap unit (its draws are resampled together)."""
+    return (e["trace"], e["replicas"], e["scale"], e["start"])
+
+
+SYNTH_LEN = 0  # Synth (3,993 requests) is always run in full, with its arrival jitter
+CONFIGS_DEFAULT = "Tool:8:0.75,Conv:8:0.75,Tool:8:1.0,Conv:8:1.0"
+
+
+def parse_configs(s: str) -> list:
+    out = []
+    for x in s.split(","):
+        t, r, sc = x.split(":")
+        out.append((t, int(r), float(sc)))
+    return out
+
+
+def window_job(tr: str, replicas: int, scale: float, start: int, length: int, draw: int, consts: dict) -> dict:
+    j = {"trace": tr, "replicas": replicas, "scale": scale, "start": start, "length": length, "draw": draw,
+         "consts": consts}
+    if tr == "Synth":
+        j.update(start=-1, length=SYNTH_LEN, jitter_s=ev.SYNTH_JITTER_S)
+    return j
 
 
 METRICS = ("score", "p99_e2e", "p99_ttft", "p99_tpot", "p99_tbt", "mean_e2e")
@@ -297,18 +323,18 @@ def fitness(e: dict, r: dict, kind: str) -> float:
 
 def paired_summary(res: list, ref: dict, seed: int = 0) -> dict:
     """Geometric-mean ratio to 4873 per metric, 95 % bootstrap CI over request ranges (trace, start, scale)."""
-    groups = sorted({(e["trace"], e["start"], e["scale"]) for e in res})
+    groups = sorted({_group(e) for e in res})
     rng = np.random.default_rng(seed)
     picks = rng.integers(0, len(groups), (2000, len(groups)))
     out = {}
     for m in METRICS:
-        L = np.array([np.mean([math.log(e[m] / ref[_key(e)][m]) for e in res
-                               if (e["trace"], e["start"], e["scale"]) == g]) for g in groups])
+        if any(not np.isfinite(e[m]) for e in res):
+            continue
+        L = np.array([np.mean([math.log(e[m] / ref[_key(e)][m]) for e in res if _group(e) == g]) for g in groups])
         bs = L[picks].mean(1)
         out[m] = {"ratio": float(np.exp(L.mean())), "lo": float(np.exp(np.percentile(bs, 2.5))),
                   "hi": float(np.exp(np.percentile(bs, 97.5)))}
-    L = np.array([np.mean([-fitness(e, ref[_key(e)], "tails4") for e in res
-                           if (e["trace"], e["start"], e["scale"]) == g]) for g in groups])
+    L = np.array([np.mean([-fitness(e, ref[_key(e)], "tails4") for e in res if _group(e) == g]) for g in groups])
     bs = L[picks].mean(1)
     out["tails4"] = {"ratio": float(np.exp(L.mean())), "lo": float(np.exp(np.percentile(bs, 2.5))),
                      "hi": float(np.exp(np.percentile(bs, 97.5)))}
@@ -316,10 +342,10 @@ def paired_summary(res: list, ref: dict, seed: int = 0) -> dict:
     return out
 
 
-def eval_jobs(params, consts: dict, scales, length: int, probe=None, draws=None) -> list:
-    return [{"trace": tr, "start": s, "length": length, "draw": d, "params": params, "probe": probe,
-             "consts": consts, "replicas": 8, "scale": sc}
-            for sc in scales for tr in TRACES for s in rl.EVAL_STARTS[tr] for d in (draws or EVAL_DRAWS)]
+def eval_jobs(params, consts: dict, configs, length: int, probe=None, draws=None) -> list:
+    """Fixed windows per configuration: rl_residual's disjoint request ranges (Synth: the full trace) x draws."""
+    return [{**window_job(tr, R, sc, s, length, d, consts), "params": params, "probe": probe}
+            for (tr, R, sc) in configs for s in rl.EVAL_STARTS.get(tr, (-1,)) for d in (draws or EVAL_DRAWS)]
 
 
 # ------------------------------------------------------------------ ES driver
@@ -328,7 +354,7 @@ def train(a) -> None:
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     consts = rl.reward_constants(Path(a.c0_out))
-    scales = [float(x) for x in a.scales.split(",")]
+    configs = parse_configs(a.configs)
     rng = np.random.default_rng(a.seed)
     ckpt = out / "ckpt.npz"
     P0 = init_params(np.random.default_rng(a.seed))
@@ -355,7 +381,7 @@ def train(a) -> None:
             return str(p)
 
         if a.eval_every:
-            ref_eval = {_key(e): e for e in pool.map(run_episode, eval_jobs(None, consts, scales, a.eval_len),
+            ref_eval = {_key(e): e for e in pool.map(run_episode, eval_jobs(None, consts, configs, a.eval_len),
                                                     chunksize=1)}
         for it in range(it0, a.max_iters):
             if time.time() > t_end:
@@ -363,18 +389,17 @@ def train(a) -> None:
             t_it = time.time()
             wins = []
             for i in range(a.windows):
-                tr = TRACES[i % 2]
-                wins.append((tr, rl.draw_start(rng, tr, a.length, a.start_grid), int(rng.choice(TRAIN_DRAWS)),
-                             float(scales[(i // 2) % len(scales)])))
+                tr, R, sc = configs[(it * a.windows + i) % len(configs)]
+                st_ = rl.draw_start(rng, tr, a.length, a.start_grid) if tr in N_REQ else -1
+                wins.append((tr, R, sc, st_, int(rng.choice(TRAIN_DRAWS))))
             eps = rng.standard_normal((a.pairs, theta.size))
             paths = {"c": save(theta, "c")}
             for i in range(a.pairs):
                 paths[f"p{i}"] = save(theta + a.sigma * eps[i], f"p{i}")
                 paths[f"m{i}"] = save(theta - a.sigma * eps[i], f"m{i}")
             jobs = []
-            for (tr, s_, d, sc) in wins:
-                base = {"trace": tr, "start": s_, "length": a.length, "draw": d, "replicas": 8, "scale": sc,
-                        "consts": consts}
+            for (tr, R, sc, s_, d) in wins:
+                base = window_job(tr, R, sc, s_, a.length, d, consts)
                 jobs.append({**base, "params": None, "tag": "ref"})
                 for name, p in paths.items():
                     jobs.append({**base, "params": p, "tag": name})
@@ -400,18 +425,20 @@ def train(a) -> None:
             rec = {"iter": it, "wall_s": time.time() - t_it, "windows": wins,
                    "center_F": Fm["c"], "center_ratio": math.exp(-Fm["c"]),
                    "pop_F": {t: round(v, 4) for t, v in Fm.items()},
+                   "pop_moved": float(np.mean([e["moved"] / max(1, e["calls"]) for e in res
+                                               if e["tag"] not in ("ref", "c")])),
                    "pop_F_mean": float(np.mean([Fm[t] for t in Fm if t != "c"])),
                    "pair_diff_sd": pair_sd, "pair_diff_mean_abs": float(np.mean(np.abs(diff))),
                    "grad_norm": float(np.linalg.norm(grad)), "step_norm": float(np.linalg.norm(step)),
                    "theta_norm": float(np.linalg.norm(theta)),
                    "center_moved": float(np.mean([e["moved"] / max(1, e["calls"]) for e in res if e["tag"] == "c"])),
-                   "center_per_window": {f"{e['trace']}:{e['start']}:{e['draw']}:{e['scale']}":
+                   "center_per_window": {":".join(map(str, _key(e))):
                                          round(fitness(e, ref[_key(e)], a.fitness), 4)
                                          for e in res if e["tag"] == "c"}}
             if a.eval_every and (it + 1) % a.eval_every == 0:
                 pth = out / f"params_{it + 1}.npz"
                 np.savez(pth, **unflatten(theta, P0))
-                ge = pool.map(run_episode, eval_jobs(str(pth), consts, scales, a.eval_len), chunksize=1)
+                ge = pool.map(run_episode, eval_jobs(str(pth), consts, configs, a.eval_len), chunksize=1)
                 rec["eval"] = paired_summary(ge, ref_eval)
             np.savez(out / "params_cur.npz", **unflatten(theta, P0))
             np.savez(ckpt, theta=theta, m=m_, v=v_, iter=it, rng=np.array(rng, dtype=object))
@@ -427,12 +454,12 @@ def probe(a) -> None:
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     consts = rl.reward_constants(Path(a.c0_out))
-    scales = [float(x) for x in a.scales.split(",")]
+    configs = parse_configs(a.configs)
     Ls = [float(x) for x in a.probe.split(",")]
     draws = [int(x) for x in a.probe_draws.split(",")]
-    jobs = eval_jobs(None, consts, scales, a.eval_len, draws=draws)
+    jobs = eval_jobs(None, consts, configs, a.eval_len, draws=draws)
     for L in Ls:
-        jobs += eval_jobs(None, consts, scales, a.eval_len, probe=L, draws=draws)
+        jobs += eval_jobs(None, consts, configs, a.eval_len, probe=L, draws=draws)
     with mp.get_context("forkserver").Pool(a.workers) as pool:
         res = pool.map(run_episode, jobs, chunksize=1)
     n = len(jobs) // (len(Ls) + 1)
@@ -451,7 +478,7 @@ def main(argv=None):
     ap.add_argument("--hours", type=float, default=8.0)
     ap.add_argument("--max-iters", type=int, default=10 ** 6)
     ap.add_argument("--c0-out", default="evolve/rl_plan/out/c0")
-    ap.add_argument("--scales", default="0.75")
+    ap.add_argument("--configs", default=CONFIGS_DEFAULT, help="trace:replicas:scale, comma-separated")
     ap.add_argument("--pairs", type=int, default=8)
     ap.add_argument("--windows", type=int, default=4)
     ap.add_argument("--length", type=int, default=4000)
