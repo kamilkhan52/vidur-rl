@@ -56,6 +56,38 @@ FIDELITY = [
 ]
 
 
+PRIVATE_DIRS = ("log", "tmp__mem")  # written by ASTRA-Sim relative to its cwd (log/log.log is a rotating file)
+
+
+def make_private_root(lss_root: Path, base: str) -> Path:
+    """A per-run view of the LLMServingSim checkout under ``base`` (node-local): every entry is a symlink to the
+    checkout except ``astra-sim/{log,tmp__mem,inputs/runs}``, which are private directories.
+
+    LLMServingSim chdirs into ``<cwd>/astra-sim`` and ASTRA-Sim appends to ``log/log.log`` there (and rotates it).
+    Concurrent runs on different nodes sharing that one GPFS file stall each other (observed: 2 % CPU), so each run
+    gets its own. Nothing in the checkout is modified.
+    """
+    import tempfile
+    root = Path(tempfile.mkdtemp(prefix="lss2root_", dir=base))
+    for e in lss_root.iterdir():
+        if e.name != "astra-sim":
+            (root / e.name).symlink_to(e)
+    src = lss_root / "astra-sim"
+    dst = root / "astra-sim"
+    dst.mkdir()
+    for e in src.iterdir():
+        if e.name not in PRIVATE_DIRS + ("inputs",):
+            (dst / e.name).symlink_to(e)
+    for d in PRIVATE_DIRS:
+        (dst / d).mkdir()
+    (dst / "inputs").mkdir()
+    for e in (src / "inputs").iterdir() if (src / "inputs").exists() else ():
+        if e.name != "runs":
+            (dst / "inputs" / e.name).symlink_to(e)
+    (dst / "inputs" / "runs").mkdir()
+    return root
+
+
 def summarize(recs, warmup_frac: float = 0.2) -> dict:
     """Vidur's summary (scripts/tail_metrics.summarize_rows + evolve.evaluate.run_one's TBT and warm-up cut)."""
     arr = np.array([r["arrival_s"] for r in recs], float)
@@ -118,6 +150,12 @@ def main(argv=None):
     ap.add_argument("--hardware", default="RTXPRO6000")
     ap.add_argument("--no-fidelity", action="store_true", help="use LLMServingSim's defaults instead of FIDELITY")
     ap.add_argument("--lss-arg", action="append", default=[], help="extra LLMServingSim flag (repeatable)")
+    ap.add_argument("--private-root", default=os.environ.get("LSS2_PRIVATE_ROOT", "/tmp"),
+                    help="base dir for a per-run view of the checkout with private ASTRA-Sim log/inputs dirs "
+                         "('' = run in the checkout itself)")
+    ap.add_argument("--profile", action="store_true", help="pyinstrument wall-clock profile -> profile.txt")
+    ap.add_argument("--stack-dump", type=float, default=0.0,
+                    help="dump the Python stack to stacks.log every N seconds (diagnosing slow runs)")
     ap.add_argument("--local-inputs", default=os.environ.get("LSS2_LOCAL_INPUTS"),
                     help="write ASTRA-Sim's per-batch inputs under this (node-local) directory instead of the "
                          "checkout's astra-sim/inputs/runs (removed after the run)")
@@ -144,7 +182,8 @@ def main(argv=None):
     # ---- LLMServingSim, with our router installed
     sys.path.insert(0, str(lss_root))
     cwd = os.getcwd()
-    os.chdir(lss_root)
+    run_root = make_private_root(lss_root, a.private_root) if a.private_root else lss_root
+    os.chdir(run_root)
     import serving.__main__ as lss_main
     from serving.core.request import Request
     from serving.core.router import Router
@@ -159,7 +198,7 @@ def main(argv=None):
         policy_name = a.policy
         RouterCls = rt.make_router_class(Router, Request, policy, seed)
         lss_main.Router = RouterCls
-    dataset = str(jsonl) if not builtin_lss else os.path.relpath(jsonl, lss_root)
+    dataset = str(jsonl) if not builtin_lss else os.path.relpath(jsonl, run_root)
     run_id = f"lss2_{uuid.uuid4().hex[:10]}"
     argv_lss = ["serving", "--cluster-config", str(cluster), "--dataset", dataset,
                 "--output", str(out / "lss_requests.csv"), "--request-routing-policy", routing,
@@ -171,14 +210,45 @@ def main(argv=None):
     argv_lss += [] if a.no_fidelity else FIDELITY
     argv_lss += a.lss_arg
     sys.argv = argv_lss
+    # ASTRA-Sim's stderr is a pipe LLMServingSim never reads: send it to a file instead, so it can neither fill
+    # the pipe and block the simulator nor go unseen.
+    import subprocess
+    _popen = subprocess.Popen
+    astra_err = open(out / "astra_stderr.log", "w")
+
+    def _popen_stderr_to_file(*pa, **kw):
+        if kw.get("stderr") == subprocess.PIPE:
+            kw["stderr"] = astra_err
+        return _popen(*pa, **kw)
+    lss_main.subprocess.Popen = _popen_stderr_to_file
     buf = io.StringIO()
     t0 = time.time()
     try:
+        prof = None
+        if a.stack_dump > 0:
+            import faulthandler
+            stacks = open(out / "stacks.log", "w")
+            faulthandler.dump_traceback_later(a.stack_dump, repeat=True, file=stacks)
+        if a.profile:
+            from pyinstrument import Profiler
+            prof = Profiler()
+            prof.start()
         with contextlib.redirect_stdout(buf):
             lss_main.main()
+        if prof is not None:
+            prof.stop()
+            (out / "profile.txt").write_text(prof.output_text(unicode=False, color=False))
     finally:
         os.chdir(cwd)
+        lss_main.subprocess.Popen = _popen
+        astra_err.close()
         (out / "stdout.log").write_text(buf.getvalue())
+        if run_root != lss_root and run_root.name.startswith("lss2root_"):
+            import shutil
+            err = run_root / "astra-sim" / "log" / "err.log"  # ASTRA-Sim's error log (its info log is discarded)
+            if err.exists():
+                shutil.copy(err, out / "astra_err.log")
+            shutil.rmtree(run_root, ignore_errors=True)
         if local_inputs is not None and local_inputs.name.startswith("lss2_"):
             import shutil
             shutil.rmtree(local_inputs, ignore_errors=True)
