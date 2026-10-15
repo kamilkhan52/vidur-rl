@@ -416,10 +416,13 @@ def train(a) -> None:
                 r = allv.argsort().argsort() / (len(allv) - 1) - 0.5
                 diff = r[:a.pairs] - r[a.pairs:]
             grad = (diff[:, None] * eps).sum(0) / (2 * a.pairs * a.sigma)
-            # Adam ascent
-            m_ = 0.9 * m_ + 0.1 * grad
-            v_ = 0.999 * v_ + 0.001 * grad ** 2
-            step = a.lr * (m_ / (1 - 0.9 ** (it + 1))) / (np.sqrt(v_ / (1 - 0.999 ** (it + 1))) + 1e-8)
+            if a.opt == "adam":
+                m_ = 0.9 * m_ + 0.1 * grad
+                v_ = 0.999 * v_ + 0.001 * grad ** 2
+                step = a.lr * (m_ / (1 - 0.9 ** (it + 1))) / (np.sqrt(v_ / (1 - 0.999 ** (it + 1))) + 1e-8)
+            else:  # SGD with momentum: steps scale with the estimated gradient, so pure noise moves theta less
+                m_ = 0.9 * m_ + grad
+                step = a.lr * m_
             theta = theta + step - a.lr * a.wd * theta
             pair_sd = float(np.std([Fm[f"p{i}"] - Fm[f"m{i}"] for i in range(a.pairs)]))
             rec = {"iter": it, "wall_s": time.time() - t_it, "windows": wins,
@@ -487,6 +490,7 @@ def main(argv=None):
     ap.add_argument("--lr", type=float, default=0.02)
     ap.add_argument("--wd", type=float, default=0.0)
     ap.add_argument("--rank", action="store_true")
+    ap.add_argument("--opt", default="sgd", choices=("sgd", "adam"))
     ap.add_argument("--eval-every", type=int, default=5)
     ap.add_argument("--eval-len", type=int, default=rl.EVAL_LEN)
     ap.add_argument("--probe", default="1,3,10")

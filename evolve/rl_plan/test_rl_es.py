@@ -106,7 +106,7 @@ def test_train_smoke(plain, tmp_path, monkeypatch):
     monkeypatch.setattr(rl, "reward_constants", lambda _: consts)
     a = argparse.Namespace(out=str(tmp_path / "run"), seed=0, workers=2, hours=1.0, max_iters=2, c0_out="x",
                            configs="Tool:4:1.5,Conv:4:1.5", pairs=2, windows=2, length=200, start_grid=0, sigma=0.5, lr=0.05, wd=0.0,
-                           rank=False, eval_every=1, eval_len=200, fitness="tails4")
+                           rank=False, opt="sgd", eval_every=1, eval_len=200, fitness="tails4")
     orig = es.run_episode
 
     def small(job):
