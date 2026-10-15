@@ -319,7 +319,8 @@ def run_episode(job: dict) -> dict:
         if len(traj) != len(made):
             raise RuntimeError(f"{len(traj)} routing calls for {len(made)} requests")
         t_dec = np.array([x[4] for x in traj])
-        if not np.allclose(t_dec, a_) or [x[5] for x in traj] != [r.num_prefill_tokens for r in made]:
+        # (a preempted request folds generated tokens into its prompt: compare the prompt length at routing)
+        if not np.allclose(t_dec, a_) or [x[5] for x in traj] != [r.original_num_prefill_tokens for r in made]:
             raise RuntimeError("routing calls do not line up with the requests in arrival order")
         rc = request_costs(arr, k["taus"], k["w"], k["s_tbt"])
         out.update({"X": np.stack([x[0] for x in traj]), "b": np.array([x[1] for x in traj], np.int16),
