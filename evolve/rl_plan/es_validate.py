@@ -73,11 +73,12 @@ def main(argv=None):
     ap.add_argument("--stage", default="heldout3", choices=sorted(ev.STAGES))
     ap.add_argument("--workers", type=int, default=12)
     ap.add_argument("--out", required=True)
+    ap.add_argument("--timeout", type=float, default=3600.0, help="per-simulation limit, seconds (70B runs need more)")
     a = ap.parse_args(argv)
     py = freeze(Path(a.params), a.name)
     scen = list(ev.STAGES[a.stage])
     pol, ref = f"policy:{py.resolve()}", f"policy:{Path(c0.BASE).resolve()}"
-    res = ev.ensure_baselines(scen, [ref, pol], workers=a.workers)
+    res = ev.ensure_baselines(scen, [ref, pol], workers=a.workers, timeout=a.timeout)
     out = {"name": a.name, "params": a.params, "stage": a.stage, "code_version": ev.code_version(),
            "vs_4873": compare(pol, ref, scen, res),
            "per_scenario": {sc.tag: {m: res[(pol, sc)][m] / res[(ref, sc)][m] for m in TAILS4} for sc in scen}}
