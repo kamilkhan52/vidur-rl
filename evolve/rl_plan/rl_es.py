@@ -103,23 +103,31 @@ class LengthPredictor:
 
 # ------------------------------------------------------------------ policy
 
-def init_params(rng: np.random.Generator) -> dict:
+REPLICA_F = tuple(range(5, F_IN))  # per-replica features (request-level ones shift every replica equally)
+N_LIN = 3 * len(REPLICA_F)  # linear policy: each replica feature, and its products with predicted length and load
+
+
+def init_params(rng: np.random.Generator, arch: str = "mlp") -> dict:
+    if arch == "linear":
+        return {"lin": np.zeros(N_LIN)}
+
     def glorot(a, b):
         return rng.normal(0.0, math.sqrt(2.0 / (a + b)), (a, b))
     return {"W1": glorot(F_IN, HIDDEN), "b1": np.zeros(HIDDEN), "W2": glorot(HIDDEN, HIDDEN), "b2": np.zeros(HIDDEN),
             "w3": np.zeros(HIDDEN), "b3": np.zeros(1)}
 
 
-KEYS = ("W1", "b1", "W2", "b2", "w3", "b3")
+def _keys(P: dict):
+    return ("lin",) if "lin" in P else ("W1", "b1", "W2", "b2", "w3", "b3")
 
 
 def flatten(P: dict) -> np.ndarray:
-    return np.concatenate([np.asarray(P[k], float).ravel() for k in KEYS])
+    return np.concatenate([np.asarray(P[k], float).ravel() for k in _keys(P)])
 
 
 def unflatten(v: np.ndarray, like: dict) -> dict:
     out, i = {}, 0
-    for k in KEYS:
+    for k in _keys(like):
         n = np.asarray(like[k]).size
         out[k] = v[i:i + n].reshape(np.asarray(like[k]).shape)
         i += n
@@ -127,6 +135,9 @@ def unflatten(v: np.ndarray, like: dict) -> dict:
 
 
 def mlp(P: dict, X: np.ndarray) -> np.ndarray:
+    if "lin" in P:
+        Z = X[:, REPLICA_F]
+        return np.hstack([Z, Z * X[:, [0]], Z * X[:, [3]]]) @ P["lin"]
     h = np.tanh(X @ P["W1"] + P["b1"])
     h = np.tanh(h @ P["W2"] + P["b2"])
     return h @ P["w3"] + P["b3"][0]
@@ -357,8 +368,9 @@ def train(a) -> None:
     configs = parse_configs(a.configs)
     rng = np.random.default_rng(a.seed)
     ckpt = out / "ckpt.npz"
-    P0 = init_params(np.random.default_rng(a.seed))
-    meta = {"args": vars(a), "features": FEATURES, "hidden": HIDDEN, "code_version": ev.code_version()}
+    P0 = init_params(np.random.default_rng(a.seed), a.arch)
+    meta = {"args": vars(a), "features": FEATURES, "hidden": HIDDEN, "dim": int(flatten(P0).size),
+            "code_version": ev.code_version()}
     if ckpt.exists():
         with np.load(ckpt, allow_pickle=True) as f:
             theta, m_, v_, it0 = f["theta"], f["m"], f["v"], int(f["iter"]) + 1
@@ -491,6 +503,7 @@ def main(argv=None):
     ap.add_argument("--wd", type=float, default=0.0)
     ap.add_argument("--rank", action="store_true")
     ap.add_argument("--opt", default="sgd", choices=("sgd", "adam"))
+    ap.add_argument("--arch", default="mlp", choices=("mlp", "linear"))
     ap.add_argument("--eval-every", type=int, default=5)
     ap.add_argument("--eval-len", type=int, default=rl.EVAL_LEN)
     ap.add_argument("--probe", default="1,3,10")
