@@ -184,6 +184,7 @@ def build_policy(params_path, probe=None):
     if params_path:
         with np.load(params_path) as f:
             P = {k: f[k] for k in f.files}
+    bound = float(P["bound"]) if P is not None and "bound" in P else 0.0
     orig_select = base._select
 
     def _state(ctx, R):
@@ -209,6 +210,8 @@ def build_policy(params_path, probe=None):
                 g = probe * (lw - lw.mean()) / 3.0
             else:
                 g = mlp(P, features(request, replicas, costs, eff_cached, pred, conf, work, st["long"]))
+                if bound > 0:  # bounded nudge: at most `bound` spreads, whatever the features (2026-10-15)
+                    g = bound * np.tanh(np.asarray(g) / bound)
             spread = float(np.std(costs)) + 1.0
             new = [c + spread * float(x) for c, x in zip(costs, g)]
         pick = orig_select(request, replicas, ctx, new, num, n, eff_cached, ramp)
@@ -394,6 +397,7 @@ def train(a) -> None:
     rng = np.random.default_rng(a.seed)
     ckpt = out / "ckpt.npz"
     P0 = init_params(np.random.default_rng(a.seed), a.arch)
+    pmeta = {"bound": np.array(a.bound)} if a.bound > 0 else {}  # saved with every parameter file
     meta = {"args": vars(a), "features": FEATURES, "hidden": HIDDEN, "dim": int(flatten(P0).size),
             "code_version": ev.code_version()}
     if ckpt.exists():
@@ -414,7 +418,7 @@ def train(a) -> None:
 
         def save(vec, name):
             p = tmp / f"{name}.npz"
-            np.savez(p, **unflatten(vec, P0))
+            np.savez(p, **unflatten(vec, P0), **pmeta)
             return str(p)
 
         if a.eval_every:
@@ -477,11 +481,11 @@ def train(a) -> None:
                                          for e in res if e["tag"] == "c"}}
             if a.eval_every and (it + 1) % a.eval_every == 0:
                 pth = out / f"params_{it + 1}.npz"
-                np.savez(pth, **unflatten(theta, P0))
+                np.savez(pth, **unflatten(theta, P0), **pmeta)
                 ge = pool.map(run_episode, eval_jobs(str(pth), consts, configs, a.eval_len, oracle=a.oracle),
                               chunksize=1)
                 rec["eval"] = paired_summary(ge, ref_eval)
-            np.savez(out / "params_cur.npz", **unflatten(theta, P0))
+            np.savez(out / "params_cur.npz", **unflatten(theta, P0), **pmeta)
             np.savez(ckpt, theta=theta, m=m_, v=v_, iter=it, rng=np.array(rng, dtype=object))
             with open(out / "log.jsonl", "a") as f:
                 f.write(json.dumps(rec) + "\n")
@@ -530,6 +534,7 @@ def main(argv=None):
     ap.add_argument("--rank", action="store_true")
     ap.add_argument("--opt", default="sgd", choices=("sgd", "adam"))
     ap.add_argument("--arch", default="mlp", choices=("mlp", "linear"))
+    ap.add_argument("--bound", type=float, default=0.0, help="g -> bound * tanh(g / bound); 0 = unbounded")
     ap.add_argument("--oracle", action="store_true", help="diagnostic: true output lengths instead of predictions")
     ap.add_argument("--eval-every", type=int, default=5)
     ap.add_argument("--eval-len", type=int, default=rl.EVAL_LEN)

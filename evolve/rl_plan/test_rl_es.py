@@ -106,7 +106,7 @@ def test_train_smoke(plain, tmp_path, monkeypatch):
     monkeypatch.setattr(rl, "reward_constants", lambda _: consts)
     a = argparse.Namespace(out=str(tmp_path / "run"), seed=0, workers=2, hours=1.0, max_iters=2, c0_out="x",
                            configs="Tool:4:1.5,Conv:4:1.5", pairs=2, windows=2, length=200, start_grid=0, sigma=0.5, lr=0.05, wd=0.0,
-                           rank=False, oracle=False, arch="linear", opt="sgd", eval_every=1, eval_len=200, fitness="gen8")
+                           rank=False, oracle=False, arch="linear", opt="sgd", eval_every=1, eval_len=200, fitness="gen8", bound=0.5)
     orig = es.run_episode
 
     def small(job):
@@ -137,6 +137,8 @@ def test_train_smoke(plain, tmp_path, monkeypatch):
     assert log[0]["center_F"] == 0.0  # the centre starts as 4873 exactly
     assert all("eval" in r and r["eval"]["score"]["ratio"] > 0 for r in log)
     assert all(r["eval"]["gen8"]["ratio"] > 0 and r["eval"]["mean_tbt"]["ratio"] > 0 for r in log)
+    with np.load(tmp_path / "run" / "params_cur.npz") as f:
+        assert float(f["bound"]) == 0.5 and f["lin"].shape == (es.N_LIN,)
     a.max_iters = 3
     es.train(a)
     log = [json.loads(x) for x in (tmp_path / "run" / "log.jsonl").read_text().splitlines()]
