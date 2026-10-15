@@ -106,7 +106,7 @@ def test_train_smoke(plain, tmp_path, monkeypatch):
     monkeypatch.setattr(rl, "reward_constants", lambda _: consts)
     a = argparse.Namespace(out=str(tmp_path / "run"), seed=0, workers=2, hours=1.0, max_iters=2, c0_out="x",
                            configs="Tool:4:1.5,Conv:4:1.5", pairs=2, windows=2, length=200, start_grid=0, sigma=0.5, lr=0.05, wd=0.0,
-                           rank=False, arch="linear", opt="sgd", eval_every=1, eval_len=200, fitness="tails4")
+                           rank=False, oracle=False, arch="linear", opt="sgd", eval_every=1, eval_len=200, fitness="tails4")
     orig = es.run_episode
 
     def small(job):
@@ -140,3 +140,11 @@ def test_train_smoke(plain, tmp_path, monkeypatch):
     es.train(a)
     log = [json.loads(x) for x in (tmp_path / "run" / "log.jsonl").read_text().splitlines()]
     assert [r["iter"] for r in log] == [0, 1, 2]
+
+
+def test_oracle_sees_true_lengths(plain, tmp_path):
+    """With --oracle the predicted lengths are the true ones: the tracked work sums the true outputs, and every
+    lookup is consumed."""
+    _, consts = plain
+    e = es.run_episode(_job(None, consts, probe=1.0, oracle=True))
+    assert e["n"] == 300 and es._ORACLE is None

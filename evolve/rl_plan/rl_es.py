@@ -103,6 +103,10 @@ class LengthPredictor:
 
 # ------------------------------------------------------------------ policy
 
+# Oracle diagnostic (``--oracle``): true output lengths, keyed by (arrival time, prompt tokens), set by run_episode in
+# the simulator's process before the policy routes. Not a deployable policy; it bounds what the predictor could buy.
+_ORACLE = None
+
 REPLICA_F = tuple(range(5, F_IN))  # per-replica features (request-level ones shift every replica equally)
 N_LIN = 3 * len(REPLICA_F)  # linear policy: each replica feature, and its products with predicted length and load
 
@@ -195,6 +199,8 @@ def build_policy(params_path, probe=None):
         st = _state(ctx, R)
         h0 = request.prefix_hashes[0] if request.prefix_hashes else None
         pred, conf = st["pred"].predict(h0, n)
+        if _ORACLE is not None:
+            pred, conf = math.log1p(_ORACLE[(request.arrived_at, request.num_prefill_tokens)][0]), 1e3
         new = list(costs)
         if P is not None or probe is not None:
             work = st["work"]
@@ -208,6 +214,8 @@ def build_policy(params_path, probe=None):
         pick = orig_select(request, replicas, ctx, new, num, n, eff_cached, ramp)
         st["calls"] += 1
         st["moved"] += pick != int(np.argmin(costs))
+        if _ORACLE is not None:
+            _ORACLE[(request.arrived_at, request.num_prefill_tokens)].pop(0)
         p_tokens = math.expm1(pred)
         st["outs"][pick].setdefault((request.arrived_at, request.num_prefill_tokens), []).append((p_tokens, h0))
         st["work"][pick] += p_tokens
@@ -268,12 +276,20 @@ def run_episode(job: dict) -> dict:
         g = h.sim._request_generator
         made = sorted((e._request for e in h.sim._event_queue if getattr(e, "_request", None) is not None
                        and type(e).__name__ == "RequestArrivalEvent"), key=lambda r: r.arrived_at)
+        global _ORACLE
+        _ORACLE = None
+        if job.get("oracle"):
+            _ORACLE = {}
+            for r in made:
+                _ORACLE.setdefault((r.arrived_at, r.num_prefill_tokens), []).append(r.num_decode_tokens)
         orig = g.get_next_request
 
         def wrapped():
             r = orig()
             if r is not None:
                 made.append(r)
+                if _ORACLE is not None:
+                    _ORACLE.setdefault((r.arrived_at, r.num_prefill_tokens), []).append(r.num_decode_tokens)
             return r
         g.get_next_request = wrapped
         h.run()
@@ -281,6 +297,7 @@ def run_episode(job: dict) -> dict:
             raise RuntimeError("episode ended with requests left in the scheduler")
         arr = c0.request_arrays(h, made)
         st = h.sim._scheduler._ctx.state.get("es", {})
+        _ORACLE = None
         if job.get("write_dir"):
             h.write_output()
     a_ = arr["arrived"]
@@ -353,9 +370,9 @@ def paired_summary(res: list, ref: dict, seed: int = 0) -> dict:
     return out
 
 
-def eval_jobs(params, consts: dict, configs, length: int, probe=None, draws=None) -> list:
+def eval_jobs(params, consts: dict, configs, length: int, probe=None, draws=None, oracle=False) -> list:
     """Fixed windows per configuration: rl_residual's disjoint request ranges (Synth: the full trace) x draws."""
-    return [{**window_job(tr, R, sc, s, length, d, consts), "params": params, "probe": probe}
+    return [{**window_job(tr, R, sc, s, length, d, consts), "params": params, "probe": probe, "oracle": oracle}
             for (tr, R, sc) in configs for s in rl.EVAL_STARTS.get(tr, (-1,)) for d in (draws or EVAL_DRAWS)]
 
 
@@ -411,7 +428,7 @@ def train(a) -> None:
                 paths[f"m{i}"] = save(theta - a.sigma * eps[i], f"m{i}")
             jobs = []
             for (tr, R, sc, s_, d) in wins:
-                base = window_job(tr, R, sc, s_, a.length, d, consts)
+                base = {**window_job(tr, R, sc, s_, a.length, d, consts), "oracle": a.oracle}
                 jobs.append({**base, "params": None, "tag": "ref"})
                 for name, p in paths.items():
                     jobs.append({**base, "params": p, "tag": name})
@@ -453,7 +470,8 @@ def train(a) -> None:
             if a.eval_every and (it + 1) % a.eval_every == 0:
                 pth = out / f"params_{it + 1}.npz"
                 np.savez(pth, **unflatten(theta, P0))
-                ge = pool.map(run_episode, eval_jobs(str(pth), consts, configs, a.eval_len), chunksize=1)
+                ge = pool.map(run_episode, eval_jobs(str(pth), consts, configs, a.eval_len, oracle=a.oracle),
+                              chunksize=1)
                 rec["eval"] = paired_summary(ge, ref_eval)
             np.savez(out / "params_cur.npz", **unflatten(theta, P0))
             np.savez(ckpt, theta=theta, m=m_, v=v_, iter=it, rng=np.array(rng, dtype=object))
@@ -474,7 +492,7 @@ def probe(a) -> None:
     draws = [int(x) for x in a.probe_draws.split(",")]
     jobs = eval_jobs(None, consts, configs, a.eval_len, draws=draws)
     for L in Ls:
-        jobs += eval_jobs(None, consts, configs, a.eval_len, probe=L, draws=draws)
+        jobs += eval_jobs(None, consts, configs, a.eval_len, probe=L, draws=draws, oracle=a.oracle)
     with mp.get_context("forkserver").Pool(a.workers) as pool:
         res = pool.map(run_episode, jobs, chunksize=1)
     n = len(jobs) // (len(Ls) + 1)
@@ -504,6 +522,7 @@ def main(argv=None):
     ap.add_argument("--rank", action="store_true")
     ap.add_argument("--opt", default="sgd", choices=("sgd", "adam"))
     ap.add_argument("--arch", default="mlp", choices=("mlp", "linear"))
+    ap.add_argument("--oracle", action="store_true", help="diagnostic: true output lengths instead of predictions")
     ap.add_argument("--eval-every", type=int, default=5)
     ap.add_argument("--eval-len", type=int, default=rl.EVAL_LEN)
     ap.add_argument("--probe", default="1,3,10")
