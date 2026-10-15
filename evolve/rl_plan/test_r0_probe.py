@@ -66,3 +66,13 @@ def test_zero_jitter_reproduces_log_and_jitter_changes_it(c0_log, tmp_path):
     assert r0.run_window(SC, out1, every=6, workers=4, timeout=600, c0_dir=c0_log, delta=0.05)["new"] == 0
     res = r0.analyze(out1)
     assert res["decisions"] == 3 and set(res["targets"]) == set(r0.TARGETS)
+
+
+def test_resampled_outputs_change_rollouts(c0_log, tmp_path):
+    r0.run_window(SC, tmp_path, every=6, workers=4, timeout=600, c0_dir=c0_log, delta=0.0, resample=True)
+    rows = [json.loads(x) for x in (tmp_path / f"{SC.tag}.jsonl").read_text().splitlines()]
+    assert len(rows) == 3
+    for row in rows:
+        assert len({t["n"] for s in ("0", "1", "2") for t in row["reps"][s].values()}) == 1
+        assert any(_strip(row["reps"]["1"][c]) != _strip(row["reps"]["0"][c]) for c in row["reps"]["0"])
+        assert row["reps"]["1"] != row["reps"]["2"]

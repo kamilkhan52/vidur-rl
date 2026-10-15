@@ -1,6 +1,10 @@
 """R0 (2026-10-14): how reliable are C0's per-decision labels? A diagnostic for the on-policy learner (option 3 after
 step C), not a gate.
 
+R0b (``--resample-outputs``): the two replicates also draw new output lengths (in-flight requests conditioned on what
+they have generated, future ones unconditioned, from the trace outside the window), so their agreement measures what
+is reproducible without knowing the outputs a router never sees.
+
 C0 scored each candidate replica with one rollout on the recorded future. Its gain model explained none of the gain's
 variance. R0 measures how much of a label is reproducible: at a sample of C0's logged decisions, every candidate is
 rolled out again under two other futures (every arrival after the decision jittered by U(-5 ms, 5 ms), the noise
@@ -36,13 +40,17 @@ DELTA = hr.NOISE_DELTA
 TARGETS = ("full", "a120", "a60", "a30", "full_sum", "a30_sum", "full_hinge")
 
 
-def child(h, choice, taus, cut, seed, delta=None):
+def child(h, choice, taus, cut, seed, delta=None, outputs=None):
+    """``outputs`` = (pool, cap): also resample every output length the router cannot know (R0b), conditioned on the
+    tokens in-flight requests have generated, with the same draw for all candidates of a replicate."""
     hr.jitter_future(h, DELTA if delta is None else delta, seed)
+    if outputs is not None:
+        hr.resample_outputs(h, np.random.default_rng(10_000 + seed), *outputs)
     return c0.c0_child(h, choice, taus, cut)
 
 
 def run_window(sc, out: Path, every: int, workers: int, timeout: float, c0_dir: Path = C0_OUT,
-               delta=None) -> dict:
+               delta=None, resample: bool = False) -> dict:
     d = c0.window_dir(c0_dir, sc)
     summ = json.loads((d / "summary.json").read_text())
     lines = (d / "log.jsonl").read_text().splitlines()
@@ -53,6 +61,7 @@ def run_window(sc, out: Path, every: int, workers: int, timeout: float, c0_dir: 
     path = out / f"{sc.tag}.jsonl"
     done = {json.loads(x)["k"] for x in path.read_text().splitlines()} if path.exists() else set()
     taus, cut = header["taus"], header["cut"]
+    outputs = (hr.output_pool(sc), ev.max_request_tokens(sc)) if resample else None
     c0.install_capture()
     t0, n_new = time.time(), 0
     with tempfile.TemporaryDirectory() as tmp, open(path, "a") as f:
@@ -67,7 +76,7 @@ def run_window(sc, out: Path, every: int, workers: int, timeout: float, c0_dir: 
                     raise RuntimeError(f"{sc.tag}: decision {k} at t={t}, logged at {r['t']}")
                 reps = {"0": r["cands"]}
                 for s in SEEDS:
-                    res = hr._run_children([lambda c=c, s=s: child(h, c, taus, cut, s, delta) for c in range(sc.replicas)],
+                    res = hr._run_children([lambda c=c, s=s: child(h, c, taus, cut, s, delta, outputs) for c in range(sc.replicas)],
                                            workers, timeout)
                     if any(x["policy_choice"] != r["pe"] or x["executed"] != x["choice"] for x in res):
                         raise RuntimeError(f"{sc.tag}: rollouts at decision {k} disagree with the log")
@@ -136,6 +145,8 @@ def main(argv=None):
     ap.add_argument("--workers", type=int, default=8)
     ap.add_argument("--child-timeout", type=float, default=3600.0)
     ap.add_argument("--out", required=True)
+    ap.add_argument("--resample-outputs", action="store_true",
+                    help="R0b: replicates also resample the output lengths the router cannot know")
     a = ap.parse_args(argv)
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
@@ -145,7 +156,7 @@ def main(argv=None):
             raise SystemExit("--every must be a multiple of C0's spacing")
         t, s_, p = a.window.split(":")
         sc = ev.Scenario(t, 8, 0.75, int(s_), c0.LEN, int(p), model="l3_8b")
-        print(json.dumps(run_window(sc, out, a.every, a.workers, a.child_timeout)))
+        print(json.dumps(run_window(sc, out, a.every, a.workers, a.child_timeout, resample=a.resample_outputs)))
     else:
         res = analyze(out)
         (out / "analysis.json").write_text(json.dumps(res, indent=1))
