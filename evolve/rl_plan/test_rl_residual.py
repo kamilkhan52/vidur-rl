@@ -14,7 +14,7 @@ from evolve.rl_plan import rl_residual as rl
 from evolve.sim_fork import build_simulator
 from evolve import evaluate as ev
 
-SCEN = {"replicas": 4, "scale": 1.5, "length": 200}
+SCEN = {"replicas": 4, "scale": 1.5}
 SC = ev.Scenario("Conv", 4, 1.5, 6000, 200, 1, model="l3_8b")
 
 
@@ -39,8 +39,8 @@ def plain(tmp_path_factory):
 
 
 def _job(params, mode, seed, consts, **kw):
-    return {"trace": "Conv", "start": 6000, "draw": 1, "params": str(params), "mode": mode, "seed": seed,
-            "record": True, "consts": consts, **SCEN, **kw}
+    return {"trace": "Conv", "start": 6000, "length": 200, "draw": 1, "params": str(params), "mode": mode,
+            "seed": seed, "record": True, "consts": consts, **SCEN, **kw}
 
 
 def _csv(d):
@@ -48,9 +48,10 @@ def _csv(d):
 
 
 def _random_params(tmp_path, scale=1.0, seed=3):
-    P = rl.init_params(np.random.default_rng(seed), np.zeros(rl.F_IN), np.ones(rl.F_IN), 4)
+    P = rl.init_params(np.random.default_rng(seed), np.zeros(rl.F_IN), np.ones(rl.F_IN))
     P["mu"], P["sd"] = np.zeros(rl.F_IN), np.full(rl.F_IN, 50.0)
     P["w3"] = np.random.default_rng(seed + 1).normal(0, scale, rl.HIDDEN)
+    P["b3"] = np.array([-rl.ALPHA + 6.0])  # residual large enough to override often
     path = tmp_path / "p.npz"
     rl.save_params(P, path)
     return P, path
@@ -67,7 +68,7 @@ def test_overlap_cum_matches_brute_force():
 
 def test_zero_residual_greedy_is_4873_and_rewards_sum_to_minus_score(plain, tmp_path):
     d, consts = plain
-    P = rl.init_params(np.random.default_rng(0), np.zeros(rl.F_IN), np.ones(rl.F_IN), 4)
+    P = rl.init_params(np.random.default_rng(0), np.zeros(rl.F_IN), np.ones(rl.F_IN))
     rl.save_params(P, tmp_path / "p0.npz")
     out = tmp_path / "out"
     out.mkdir()
@@ -75,55 +76,71 @@ def test_zero_residual_greedy_is_4873_and_rewards_sum_to_minus_score(plain, tmp_
     assert e["overrides"] == 0 and e["calls"] == e["n"] == len(e["a"])
     assert filecmp.cmp(_csv(d), _csv(out), shallow=False)
     assert math.isclose(e["r"].sum(), -e["score"], rel_tol=1e-9)
-    # sampling with zero residual keeps 4873's pick with probability P_KEEP
-    es = rl.run_episode(_job(tmp_path / "p0.npz", "sample", 7, consts))
-    assert 0.0 < es["overrides"] / es["n"] < 0.15
+    # placebo with eps = 0 is 4873 too
+    out2 = tmp_path / "out2"
+    out2.mkdir()
+    rl.run_episode(_job(None, "placebo", 3, consts, eps=0.0, record=False, write_dir=str(out2)))
+    assert filecmp.cmp(_csv(d), _csv(out2), shallow=False)
+    # sampling with zero residual keeps 4873's pick with probability (1 - eps) pi(b)
+    eps = 0.1
+    es = rl.run_episode(_job(tmp_path / "p0.npz", "sample", 7, consts, eps=eps))
+    assert 0.0 < es["overrides"] / es["n"] < 0.3
     assert math.isclose(es["r"].sum(), -es["score"], rel_tol=1e-9)
-    assert np.all(np.exp(es["logp"][es["a"] == es["b"]]) == pytest.approx(rl.P_KEEP))
+    pib = math.exp(rl.ALPHA) / (math.exp(rl.ALPHA) + 3)
+    assert np.allclose(np.exp(es["logp"][es["a"] == es["b"]]), (1 - eps) * pib)
 
 
 def test_actor_logp_equals_learner_logp(plain, tmp_path):
     import torch
     _, consts = plain
     P, path = _random_params(tmp_path)
-    e = rl.run_episode(_job(path, "sample", 11, consts))
+    e = rl.run_episode(_job(path, "sample", 11, consts, eps=0.05))
     assert e["overrides"] > 0  # overrides are booked and the episode completes
-    net, alpha = rl._torch_net(P)
-    X = torch.from_numpy((e["X"].astype(np.float64) - P["mu"]) / P["sd"])
-    lp = torch.log_softmax(rl.torch_logits(net, alpha, X, torch.from_numpy(e["b"].astype(np.int64))), 1)
-    lp = lp.gather(1, torch.from_numpy(e["a"].astype(np.int64))[:, None]).squeeze(1).detach().numpy()
+    net = rl._torch_net(P)
+    X = torch.from_numpy(rl.normalise(e["X"], P["mu"], P["sd"]))
+    B, A = torch.from_numpy(e["b"].astype(np.int64)), torch.from_numpy(e["a"].astype(np.int64))
+    lp = rl.torch_log_mu(rl.torch_logits(net, X, B), B, A, 0.05).detach().numpy()
     assert np.allclose(lp, e["logp"], atol=1e-5)  # X is stored as float32
     # numpy actor logits equal the learner's
     z_np = np.stack([rl.logits(P, x.astype(np.float64), b) for x, b in zip(e["X"][:20], e["b"][:20])])
-    z_t = rl.torch_logits(net, alpha, X[:20], torch.from_numpy(e["b"][:20].astype(np.int64))).detach().numpy()
+    z_t = rl.torch_logits(net, X[:20], B[:20]).detach().numpy()
     assert np.allclose(z_np, z_t, atol=1e-6)
 
 
 def test_advantages_leave_one_out(plain, tmp_path):
     _, consts = plain
     _, path = _random_params(tmp_path, scale=0.3)
-    g = [rl.run_episode(_job(path, "sample", s, consts)) for s in (1, 2, 3)]
-    A = rl.advantages(g, 20.0)
+    g = [rl.run_episode(_job(path, "sample", s, consts, eps=0.05)) for s in (1, 2, 3)]
+    rs = [e["r"] for e in g]
+    A = rl.advantages(g, rs, 20.0)
     G = [rl.discounted_returns(e["r"], e["t"], 20.0) for e in g]
     assert np.allclose(A[0], G[0] - (G[1] + G[2]) / 2)
+    assert np.allclose(rl.discounted_returns(rs[0], g[0]["t"], math.inf), np.cumsum(rs[0][::-1])[::-1])
     bad = dict(g[1], t=g[1]["t"] + 1e-3)
     with pytest.raises(RuntimeError):
-        rl.advantages([g[0], bad], 20.0)
+        rl.advantages([g[0], bad], rs[:2], 20.0)
+    with pytest.raises(ValueError):
+        rl.advantages([g[0]], rs[:1], 20.0)
+    s = rl.snr([g], [rs], 20.0)
+    assert s["n_override"] > 0
 
 
 def test_train_smoke(plain, tmp_path, monkeypatch):
     _, consts = plain
     monkeypatch.setattr(rl, "SCEN", SCEN)
     monkeypatch.setattr(rl, "N_REQ", {"Tool": 1200, "Conv": 1200})
-    monkeypatch.setattr(rl, "EVAL_STARTS", {"Tool": (100,), "Conv": (300,)})
+    monkeypatch.setattr(rl, "EVAL_STARTS", {"Tool": (100,), "Conv": (300, 600)})
     monkeypatch.setattr(rl, "EVAL_DRAWS", (40,))
+    monkeypatch.setattr(rl, "EVAL_LEN", 200)
     a = argparse.Namespace(out=str(tmp_path / "run"), seed=0, workers=2, hours=1.0, c0_out=None, max_iters=2,
                            consts=consts, **{k: None for k in rl.DEFAULTS})
-    a.windows_per_iter, a.rollouts, a.eval_every, a.minibatch = 2, 2, 1, 256
+    a.windows_per_iter, a.rollouts, a.eval_every, a.minibatch, a.length = 2, 2, 1, 256, 300
+    a.eps, a.plant, a.t_gamma, a.lr = 0.2, 5000.0, 20.0, 3e-3
     rl.train(a)
     log = [json.loads(x) for x in (tmp_path / "run" / "log.jsonl").read_text().splitlines()]
     assert [r["iter"] for r in log] == [0, 1, 2]
     assert all("eval" in r and r["eval"]["p99_e2e"]["ratio"] > 0 for r in log[1:])
+    assert all(0 < r["planted_share"] < 1 and r["used"] > 0 and "snr" in r for r in log[1:])
     assert (tmp_path / "run" / "params_final.npz").exists()
     # resume continues from the checkpoint
     a.max_iters = 3
