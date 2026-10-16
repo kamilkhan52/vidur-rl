@@ -57,6 +57,8 @@ POLICIES = {
     "es_lin9_20": ("evolve/finalists/rl_es/es_lin9_20.py", "evolved", "evolve/finalists/rl_es/es_lin9_20.py"),
     "es_mlp9_10": ("evolve/finalists/rl_es/es_mlp9_10.py", "evolved", "evolve/finalists/rl_es/es_mlp9_10.py"),
     "es_gen8lin_20": ("evolve/finalists/rl_es/es_gen8lin_20.py", "evolved", "evolve/finalists/rl_es/es_gen8lin_20.py"),
+    "es_gen8div_b0_40": ("evolve/finalists/rl_es/es_gen8div_b0_40.py", "evolved",
+                         "evolve/finalists/rl_es/es_gen8div_b0_40.py"),
     "mooncake_tuned": ("evolve/policies/tuned/mooncake_min_ttft_tuned_best.py", "evolved",
                        "evolve/policies/tuned/mooncake_min_ttft_tuned_best.py"),
     "dynamo_tuned": ("evolve/policies/tuned/dynamo_kv_cost_tuned_best.py", "evolved",
