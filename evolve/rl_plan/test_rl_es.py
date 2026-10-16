@@ -88,7 +88,9 @@ def test_load_gate(plain, tmp_path):
     P = es.init_params(np.random.default_rng(0))
     P["w3"] = np.random.default_rng(1).normal(0, 1, es.HIDDEN)
     outs = {}
-    for name, extra in (("free", {}), ("g0", {"gate": np.array(0.0)}), ("ghi", {"gate": np.array(1e9)})):
+    T = np.array(30.0)
+    for name, extra in (("free", {}), ("g0", {"gate": np.array(0.0)}), ("ghi", {"gate": np.array(1e9)}),
+                        ("g0t", {"gate": np.array(0.0), "gate_tau": T}), ("ghit", {"gate": np.array(1e9), "gate_tau": T})):
         np.savez(tmp_path / f"{name}.npz", **P, **extra)
         outs[name] = tmp_path / name
         outs[name].mkdir()
@@ -96,6 +98,8 @@ def test_load_gate(plain, tmp_path):
     assert filecmp.cmp(_csv(outs["free"]), _csv(outs["g0"]), shallow=False)
     assert not filecmp.cmp(_csv(d), _csv(outs["free"]), shallow=False)
     assert filecmp.cmp(_csv(d), _csv(outs["ghi"]), shallow=False)
+    assert filecmp.cmp(_csv(outs["free"]), _csv(outs["g0t"]), shallow=False)  # smoothing is inert without a gate
+    assert filecmp.cmp(_csv(d), _csv(outs["ghit"]), shallow=False)
 
 
 def test_observe_tracks_outstanding_work(plain, tmp_path):

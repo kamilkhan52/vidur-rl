@@ -9,6 +9,10 @@ Selection rule (fixed before the sweep): the gate with the best mean log gen8 ra
 among gates whose gen8 is at most 1.0 in every configuration; if none qualifies, the gate with the smallest worst-
 configuration gen8.
 
+Sweep 2 (2026-10-16, after sweep 1 picked gate 32, i.e. 4873 except in overload): the same rule over gates x EWMA
+time constants (``--taus``, seconds of arrival time) at the unused learning-curve draws p42-p43, with the sweep-1
+pick competing as ``--extra 32:0``.
+
     python -m evolve.rl_plan.gate_sweep --params evolve/finalists/rl_es/es_gen8lin_20.npz --name es_gen8lin_20 \\
         --gates 1 2 4 8 16 32 --workers 8 --out evolve/rl_plan/out/gate_sweep_gen8.json
 """
@@ -29,18 +33,20 @@ DRAWS = (40, 41)
 SWEEP_DIR = FINAL_DIR / "gate_sweep"
 
 
-def scenarios():
+def scenarios(draws=DRAWS):
     return [ev.Scenario(t, R, s, -1, 0, d, model="l3_8b", jitter_s=ev.SYNTH_JITTER_S if t == "Synth" else -1.0)
-            for t in TRACES for (R, s) in CONFIGS for d in DRAWS]
+            for t in TRACES for (R, s) in CONFIGS for d in draws]
 
 
-def write_gated(params: Path, name: str, gate: float) -> Path:
-    """Freeze a copy of ``params`` with the gate set (gate 0 = ungated) as <dir>/<name>_g<gate>.{npz,py}."""
+def write_gated(params: Path, name: str, gate: float, tau: float = 0.0) -> Path:
+    """Freeze a copy of ``params`` with the gate set (gate 0 = ungated) as <dir>/<name>_g<gate>[_t<tau>].{npz,py}."""
     SWEEP_DIR.mkdir(parents=True, exist_ok=True)
     with np.load(params) as f:
         P = {k: f[k] for k in f.files}
     P["gate"] = np.array(float(gate))
-    stem = SWEEP_DIR / f"{name}_g{gate:g}"
+    if tau > 0:
+        P["gate_tau"] = np.array(float(tau))
+    stem = SWEEP_DIR / (f"{name}_g{gate:g}" + (f"_t{tau:g}" if tau > 0 else ""))
     np.savez(stem.with_suffix(".npz"), **P)
     npz = stem.with_suffix(".npz")
     py = stem.with_suffix(".py")
@@ -75,23 +81,29 @@ def main(argv=None):
     ap.add_argument("--params", required=True)
     ap.add_argument("--name", required=True)
     ap.add_argument("--gates", type=float, nargs="+", required=True)
+    ap.add_argument("--taus", type=float, nargs="+", default=[0.0], help="EWMA time constants (s); 0 = instantaneous")
+    ap.add_argument("--extra", nargs="*", default=[], help="extra gate:tau pairs, e.g. the incumbent 32:0")
+    ap.add_argument("--draws", type=int, nargs="+", default=list(DRAWS))
     ap.add_argument("--workers", type=int, default=8)
     ap.add_argument("--timeout", type=float, default=10800.0)
     ap.add_argument("--out", required=True)
     a = ap.parse_args(argv)
-    scen = scenarios()
+    scen = scenarios(tuple(a.draws))
     ref = f"policy:{Path(c0.BASE).resolve()}"
-    gates = [0.0] + [g for g in a.gates if g > 0]
-    pols = {g: f"policy:{write_gated(Path(a.params), a.name, g).resolve()}" for g in gates}
+    combos = [(0.0, 0.0)] + [(g, t) for g in a.gates if g > 0 for t in a.taus]
+    combos += [tuple(float(x) for x in e.split(":")) for e in a.extra]
+    combos = list(dict.fromkeys(combos))
+    pols = {c: f"policy:{write_gated(Path(a.params), a.name, *c).resolve()}" for c in combos}
     res = ev.ensure_baselines(scen, [ref] + list(pols.values()), workers=a.workers, timeout=a.timeout)
     table = {g: summarise(scen, res, p, ref) for g, p in pols.items()}
     pick = choose_gate(table)
-    out = {"code_version": ev.code_version(), "draws": DRAWS, "params": a.params, "chosen_gate": pick,
-           "table": {f"{g:g}": t for g, t in table.items()}}
+    key = lambda c: f"{c[0]:g}" if c[1] == 0 else f"{c[0]:g}:t{c[1]:g}"  # noqa: E731 (tau 0 keeps sweep-1 keys)
+    out = {"code_version": ev.code_version(), "draws": list(a.draws), "params": a.params, "chosen_gate": pick[0],
+           "chosen_tau": pick[1], "chosen": key(pick), "table": {key(c): t for c, t in table.items()}}
     Path(a.out).write_text(json.dumps(out, indent=1))
-    for g, t in table.items():
-        print(f"gate {g:5g}  " + "  ".join(f"{k} {r['gen8']:.3f}" for k, r in t.items()))
-    print("chosen gate:", pick)
+    for c, t in table.items():
+        print(f"gate {key(c):>8s}  " + "  ".join(f"{k} {r['gen8']:.3f}" for k, r in t.items()))
+    print("chosen gate:", key(pick))
 
 
 if __name__ == "__main__":

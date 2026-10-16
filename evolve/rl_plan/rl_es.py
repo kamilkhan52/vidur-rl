@@ -188,6 +188,9 @@ def build_policy(params_path, probe=None):
     # load gate (2026-10-16): below `gate` mean outstanding requests per replica (router-owned, exact) the policy is
     # plain 4873, which is near-optimal at light load where the learned correction hurt (plan 11, regime map)
     gate = float(P["gate"]) if P is not None and "gate" in P else 0.0
+    # gate_tau (2026-10-16): smooth that load with an EWMA of time constant gate_tau seconds (request arrival clock),
+    # so short bursts at light load do not switch the correction on; 0 = instantaneous
+    gate_tau = float(P["gate_tau"]) if P is not None and "gate_tau" in P else 0.0
     orig_select = base._select
 
     def _state(ctx, R):
@@ -206,7 +209,13 @@ def build_policy(params_path, probe=None):
         if _ORACLE is not None:
             pred, conf = math.log1p(_ORACLE[(request.arrived_at, request.num_prefill_tokens)][0]), 1e3
         new = list(costs)
-        busy = gate <= 0 or float(np.mean([r.outstanding_requests for r in replicas])) >= gate
+        load = float(np.mean([r.outstanding_requests for r in replicas]))
+        if gate_tau > 0:
+            t = float(request.arrived_at)
+            if "load" in st:
+                load = st["load"] + (1.0 - math.exp(-max(t - st["t"], 0.0) / gate_tau)) * (load - st["load"])
+            st["load"], st["t"] = load, t
+        busy = gate <= 0 or load >= gate
         st["gated"] = st.get("gated", 0) + (not busy)
         if busy and (P is not None or probe is not None):
             work = st["work"]
