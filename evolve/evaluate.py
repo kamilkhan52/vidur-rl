@@ -524,8 +524,19 @@ def load_baseline_cache() -> dict:
 
 
 def save_baseline_cache(cache: dict) -> None:
-    _atomic_write(CACHE_DIR / "baselines.json",
-                  lambda t: Path(t).write_text(json.dumps(cache, indent=1, sort_keys=True)))
+    """Merge into the cache on disk, under a lock: several jobs share one cache directory, and writing a copy loaded
+    hours earlier would drop their runs (2026-10-16). Entries in ``cache`` win; ``cache`` gains the disk entries."""
+    import fcntl
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    with open(CACHE_DIR / "baselines.lock", "w") as lk:
+        fcntl.flock(lk, fcntl.LOCK_EX)
+        try:
+            for k, v in load_baseline_cache().items():
+                cache.setdefault(k, v)
+            _atomic_write(CACHE_DIR / "baselines.json",
+                          lambda t: Path(t).write_text(json.dumps(cache, indent=1, sort_keys=True)))
+        finally:
+            fcntl.flock(lk, fcntl.LOCK_UN)
 
 
 def run_many(jobs, workers: int, launcher=None, timeout=3600) -> list:
@@ -550,11 +561,21 @@ def _ensure_baselines(scenarios, baselines, workers, launcher, timeout) -> dict:
     # "policy:<path>" references are evolved-router runs of that policy file
     jobs = [("evolved", sc, b[len("policy:"):]) if b.startswith("policy:") else (b, sc, None) for b, sc, _ in todo]
     failed = []
-    for (b, sc, _), res in zip(todo, run_many(jobs, workers, launcher, timeout)):
-        if res.get("ok"):
-            cache[baseline_key(b, sc)] = res
-        else:
-            failed.append(f"{b} on {sc.tag}: {res}")
+    # save as runs finish (every 5 min at most), so a job that hits its time limit keeps what it completed
+    last = time.monotonic()
+    with cf.ThreadPoolExecutor(max_workers=workers) as ex:
+        futs = {ex.submit(run_one, sched, sc, pol, timeout, launcher): (b, sc)
+                for (b, sc, _), (sched, _, pol) in zip(todo, jobs)}
+        for f in cf.as_completed(futs):
+            b, sc = futs[f]
+            res = f.result()
+            if res.get("ok"):
+                cache[baseline_key(b, sc)] = res
+            else:
+                failed.append(f"{b} on {sc.tag}: {res}")
+            if time.monotonic() - last > 300:
+                save_baseline_cache(cache)
+                last = time.monotonic()
     if todo:  # keep every completed run, even when another one failed
         save_baseline_cache(cache)
     if failed:
