@@ -343,7 +343,7 @@ print(json.dumps({{"picks": picks, "moved": ctx.state["es"]["moved"],
 '''
 
 
-@pytest.mark.parametrize("name", ["es_lin9_20", "es_mlp9_10"])
+@pytest.mark.parametrize("name", ["es_lin9_20", "es_mlp9_10", "es_gen8lin_20"])
 def test_es_policy_identical_with_stubs(name):
     """The ES policies give the same decisions when their Vidur-stack imports are stubbed (the lss2 env)."""
     policy = str(REPO / "evolve" / "finalists" / "rl_es" / f"{name}.py")

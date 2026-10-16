@@ -56,12 +56,18 @@ POLICIES = {
     "4873": ("evolve/finalists/v4/v4_487363424749.py", "evolved", "evolve/finalists/v4/v4_487363424749.py"),
     "es_lin9_20": ("evolve/finalists/rl_es/es_lin9_20.py", "evolved", "evolve/finalists/rl_es/es_lin9_20.py"),
     "es_mlp9_10": ("evolve/finalists/rl_es/es_mlp9_10.py", "evolved", "evolve/finalists/rl_es/es_mlp9_10.py"),
+    "es_gen8lin_20": ("evolve/finalists/rl_es/es_gen8lin_20.py", "evolved", "evolve/finalists/rl_es/es_gen8lin_20.py"),
     "mooncake_tuned": ("evolve/policies/tuned/mooncake_min_ttft_tuned_best.py", "evolved",
                        "evolve/policies/tuned/mooncake_min_ttft_tuned_best.py"),
     "dynamo_tuned": ("evolve/policies/tuned/dynamo_kv_cost_tuned_best.py", "evolved",
                      "evolve/policies/tuned/dynamo_kv_cost_tuned_best.py"),
 }
 REF = "4873"
+ANALYSIS_POLICIES = None  # analyze --policies: restrict the analysis to these (default: all in POLICIES)
+
+
+def _pols():
+    return tuple(n for n in POLICIES if ANALYSIS_POLICIES is None or n in ANALYSIS_POLICIES)
 MEANS = ("mean_e2e", "mean_ttft", "mean_tpot", "mean_tbt")
 P99S = ("p99_e2e", "p99_ttft", "p99_tpot", "p99_tbt")
 P50S = ("p50_e2e", "p50_ttft", "p50_tpot", "p50_tbt")
@@ -111,6 +117,8 @@ def lss_missing(a) -> None:
     lines = []
     for i, x in enumerate(cells()):
         for name in POLICIES:
+            if a.policies and name not in a.policies.split(","):
+                continue
             if not (Path(a.out) / cell_tag(*x) / name / "summary.json").exists():
                 lines.append(f"{i} {name}")
     Path(a.list).write_text("".join(l + "\n" for l in lines))
@@ -159,6 +167,8 @@ def vidur(a) -> None:
             if r.get("ok"):
                 done.add(r["key"])
     jobs = [j for j in vidur_jobs(a.set) if j[0] not in done]
+    if a.policies:
+        jobs = [j for j in jobs if j[0].rsplit("|", 1)[1] in a.policies.split(",")]
     if a.only:
         jobs = [j for j in jobs if any(x in j[0] for x in a.only.split(","))]
     if a.limit:
@@ -266,6 +276,9 @@ def gen8(r: dict) -> float:
 
 
 def analyze(a) -> None:
+    global ANALYSIS_POLICIES
+    if a.policies:
+        ANALYSIS_POLICIES = tuple(a.policies.split(","))
     lss = _load_lss(Path(a.lss))
     sims = {"lss": ratios(lss)}
     for vset in ("primary", "same"):
@@ -289,7 +302,7 @@ def analyze(a) -> None:
     for sim, rs in sims.items():
         for t in TRACES + ("all",):
             for load in LOADS + ("all",):
-                for name in POLICIES:
+                for name in _pols():
                     if name == REF:
                         continue
                     for m in METRICS + ("gen8",):
@@ -323,8 +336,8 @@ def analyze(a) -> None:
             taus, signs, nsign = [], 0, 0
             per_trace_load = defaultdict(list)
             for tag in sorted(set(lt) & set(vt)):
-                names = [n for n in POLICIES if n in lt[tag] and n in vt[tag]]
-                if len(names) < len(POLICIES):
+                names = [n for n in _pols() if n in lt[tag] and n in vt[tag]]
+                if len(names) < len(_pols()):
                     continue
                 x = [gen8(lt[tag][n]) if m == "gen8" else lt[tag][n].get(m, float("nan")) for n in names]
                 y = [gen8(vt[tag][n]) if m == "gen8" else vt[tag][n].get(m, float("nan")) for n in names]
@@ -350,7 +363,7 @@ def analyze(a) -> None:
     lines = []
     for sim in sims:
         lines.append(f"\n== {sim}: geometric mean ratio to 4873 [95% window-cluster bootstrap] wins/n, all cells")
-        for name in POLICIES:
+        for name in _pols():
             if name == REF:
                 continue
             parts = []
@@ -365,7 +378,47 @@ def analyze(a) -> None:
                      f"sign {x['sign_agreement']:.3f} n {x['n_cells']} " +
                      " ".join(f"{kk}={vv:.2f}" for kk, vv in sorted(x["by_trace_load"].items())))
     (out / "report.txt").write_text("\n".join(lines) + "\n")
+    (out / "tables.md").write_text(markdown_tables(sims, agg, agree))
     print("\n".join(lines))
+
+
+def markdown_tables(sims, agg, agree) -> str:
+    sim_names = [x for x in ("lss", "vidur_same", "vidur_primary") if x in sims]
+    label = {"lss": "LSS", "vidur_same": "Vidur same scale", "vidur_primary": "Vidur at 0.75 / 1.0-1.2"}
+    md = []
+    key_metrics = ("gen8", "mean_e2e", "mean_ttft", "mean_tpot", "mean_tbt", "p99_e2e", "p99_ttft", "p99_tpot",
+                   "p99_tbt", "p50_e2e", "p50_ttft")
+
+    def cell(sim, t, load, name, m, ci=True):
+        x = agg.get(f"{sim}|{t}|{load}|{name}|{m}")
+        if not x:
+            return "-"
+        return f"{x['geo']:.3f} [{x['lo']:.2f},{x['hi']:.2f}] {x['wins']}/{x['n']}" if ci else f"{x['geo']:.3f}"
+
+    for m in key_metrics:
+        md.append(f"\n#### {m}: geometric mean ratio to 4873 [95 % window-cluster bootstrap] wins/cells, all cells\n")
+        md.append("| policy | " + " | ".join(label[s_] for s_ in sim_names) + " |")
+        md.append("|---|" + "---|" * len(sim_names))
+        for name in _pols():
+            if name != REF:
+                md.append(f"| {name} | " + " | ".join(cell(s_, "all", "all", name, m) for s_ in sim_names) + " |")
+    md.append("\n#### gen8 by trace and load (point estimates; LSS / Vidur same / Vidur primary)\n")
+    cols = [(t, l) for t in TRACES for l in LOADS]
+    md.append("| policy | " + " | ".join(f"{t} {l}" for t, l in cols) + " |")
+    md.append("|---|" + "---|" * len(cols))
+    for name in _pols():
+        if name != REF:
+            md.append(f"| {name} | " + " | ".join(" / ".join(cell(s_, t, l, name, "gen8", ci=False) for s_ in sim_names)
+                                                for t, l in cols) + " |")
+    md.append("\n#### Agreement per cell: Kendall tau of the 9-policy ordering (mean over cells), sign agreement vs 4873\n")
+    md.append("| metric | same: tau | same: sign | primary: tau | primary: sign | same tau by Tool knee / Tool mod / Conv knee / Conv mod |")
+    md.append("|---|---|---|---|---|---|")
+    for m in ("gen8",) + METRICS:
+        a_, b_ = agree.get(f"same|{m}"), agree.get(f"primary|{m}")
+        f = lambda x, k: f"{x[k]:.2f}" if x else "-"
+        by = " / ".join(f"{a_['by_trace_load'].get(f'{t}|{l}', float('nan')):.2f}" for t, l in cols) if a_ else "-"
+        md.append(f"| {m} | {f(a_, 'mean_tau')} | {f(a_, 'sign_agreement')} | {f(b_, 'mean_tau')} | {f(b_, 'sign_agreement')} | {by} |")
+    return "\n".join(md) + "\n"
 
 
 def main(argv=None):
@@ -380,6 +433,7 @@ def main(argv=None):
     c = sub.add_parser("lss-missing")
     c.add_argument("--out", required=True)
     c.add_argument("--list", required=True)
+    c.add_argument("--policies", default="", help="comma-separated policy names (default: all)")
     c = sub.add_parser("lss-run")
     c.add_argument("--list", required=True)
     c.add_argument("--index", type=int, required=True)
@@ -391,12 +445,14 @@ def main(argv=None):
     c.add_argument("--workers", type=int, default=8)
     c.add_argument("--out", required=True)
     c.add_argument("--only", default="", help="comma-separated substrings of job keys")
+    c.add_argument("--policies", default="", help="comma-separated policy names (default: all)")
     c.add_argument("--limit", type=int, default=0)
     c.add_argument("--timeout", type=int, default=3600)
     c = sub.add_parser("analyze")
     c.add_argument("--lss", required=True)
     c.add_argument("--vidur", required=True)
     c.add_argument("--out", required=True)
+    c.add_argument("--policies", default="", help="comma-separated policy names to analyse (default: all)")
     a = ap.parse_args(argv)
     if a.cmd == "cells":
         for i, x in enumerate(cells()):
