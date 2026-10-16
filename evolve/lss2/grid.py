@@ -410,7 +410,7 @@ def markdown_tables(sims, agg, agree) -> str:
         if name != REF:
             md.append(f"| {name} | " + " | ".join(" / ".join(cell(s_, t, l, name, "gen8", ci=False) for s_ in sim_names)
                                                 for t, l in cols) + " |")
-    md.append("\n#### Agreement per cell: Kendall tau of the 9-policy ordering (mean over cells), sign agreement vs 4873\n")
+    md.append("\n#### Agreement per cell: Kendall tau of the policy ordering (mean over cells), sign agreement vs 4873\n")
     md.append("| metric | same: tau | same: sign | primary: tau | primary: sign | same tau by Tool knee / Tool mod / Conv knee / Conv mod |")
     md.append("|---|---|---|---|---|---|")
     for m in ("gen8",) + METRICS:
