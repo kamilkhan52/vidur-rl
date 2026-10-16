@@ -56,16 +56,17 @@ def main(argv=None):
     ap.add_argument("--workers", type=int, default=16)
     ap.add_argument("--timeout", type=float, default=10800.0)
     ap.add_argument("--out", required=True)
+    ap.add_argument("--policies", nargs="+", default=list(POLICIES), help="frozen policy names in finalists/rl_es")
     a = ap.parse_args(argv)
     scen = scenarios()
     ref = f"policy:{Path(c0.BASE).resolve()}"
-    pols = {p: f"policy:{(FINAL_DIR / f'{p}.py').resolve()}" for p in POLICIES}
+    pols = {p: f"policy:{(FINAL_DIR / f'{p}.py').resolve()}" for p in a.policies}
     res = ev.ensure_baselines(scen, [ref] + list(pols.values()), workers=a.workers, timeout=a.timeout)
     out = {"code_version": ev.code_version(), "draws": DRAWS,
            "policies": {p: summarise(scen, res, name, ref) for p, name in pols.items()},
            "ref_abs": {sc.tag: {m: res[(ref, sc)][m] for m in METS} for sc in scen}}
     Path(a.out).write_text(json.dumps(out, indent=1))
-    for p in POLICIES:
+    for p in a.policies:
         print("==", p)
         for k, row in out["policies"][p].items():
             print(f"{k:16s} load/rep {row['per_replica_load']:5.2f}  tails4 {row['tails4']['geo']:.3f}  "
