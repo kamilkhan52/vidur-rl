@@ -106,6 +106,35 @@ def lss_cell(a) -> None:
         print(f"{tag} {name} exit {rc}", flush=True)
 
 
+def lss_missing(a) -> None:
+    """Write the (cell index, policy) pairs without a summary.json, one per line (for a per-run Slurm array)."""
+    lines = []
+    for i, x in enumerate(cells()):
+        for name in POLICIES:
+            if not (Path(a.out) / cell_tag(*x) / name / "summary.json").exists():
+                lines.append(f"{i} {name}")
+    Path(a.list).write_text("".join(l + "\n" for l in lines))
+    print(f"{len(lines)} runs missing -> {a.list}")
+
+
+def lss_run(a) -> None:
+    """One (cell, policy) run: line ``index`` of ``--list`` (0-based)."""
+    i, name = Path(a.list).read_text().splitlines()[a.index].split()
+    t, s, load, p = cells()[int(i)]
+    out = Path(a.out) / cell_tag(t, s, load, p) / name
+    if (out / "summary.json").exists():
+        return
+    out.mkdir(parents=True, exist_ok=True)
+    spec = POLICIES[name][0]
+    pol = spec if spec in ("rr", "lor", "sticky_lor", "lop_uncached") else str(REPO / spec)
+    cmd = [sys.executable, "-m", "evolve.lss2.run", "--policy", pol, "--window",
+           str(Path(a.window_dir) / window_name(t, s)), "--replicas", "8", "--scale", str(LSS_LOADS[t][load]),
+           "--perturbation", str(p), "--out", str(out), "--lss-root", a.lss_root]
+    with open(out / "run.txt", "w") as log:
+        rc = subprocess.call(cmd, stdout=log, stderr=subprocess.STDOUT, cwd=a.lss_root)
+    print(f"{cell_tag(t, s, load, p)} {name} exit {rc}", flush=True)
+
+
 # ------------------------------------------------------------------ Vidur side (Mac or Alpine)
 
 def vidur_jobs(vset: str):
@@ -348,6 +377,15 @@ def main(argv=None):
     c.add_argument("--out", required=True)
     c.add_argument("--window-dir", required=True)
     c.add_argument("--lss-root", required=True)
+    c = sub.add_parser("lss-missing")
+    c.add_argument("--out", required=True)
+    c.add_argument("--list", required=True)
+    c = sub.add_parser("lss-run")
+    c.add_argument("--list", required=True)
+    c.add_argument("--index", type=int, required=True)
+    c.add_argument("--out", required=True)
+    c.add_argument("--window-dir", required=True)
+    c.add_argument("--lss-root", required=True)
     c = sub.add_parser("vidur")
     c.add_argument("--set", choices=tuple(VIDUR_LOADS), default="primary")
     c.add_argument("--workers", type=int, default=8)
@@ -365,6 +403,10 @@ def main(argv=None):
             print(i, cell_tag(*x), LSS_LOADS[x[0]][x[2]], {k: v[x[0]][x[2]] for k, v in VIDUR_LOADS.items()})
     elif a.cmd == "lss-cell":
         lss_cell(a)
+    elif a.cmd == "lss-missing":
+        lss_missing(a)
+    elif a.cmd == "lss-run":
+        lss_run(a)
     elif a.cmd == "vidur":
         vidur(a)
     else:
