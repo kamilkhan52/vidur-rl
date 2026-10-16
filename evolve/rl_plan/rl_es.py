@@ -185,6 +185,9 @@ def build_policy(params_path, probe=None):
         with np.load(params_path) as f:
             P = {k: f[k] for k in f.files}
     bound = float(P["bound"]) if P is not None and "bound" in P else 0.0
+    # load gate (2026-10-16): below `gate` mean outstanding requests per replica (router-owned, exact) the policy is
+    # plain 4873, which is near-optimal at light load where the learned correction hurt (plan 11, regime map)
+    gate = float(P["gate"]) if P is not None and "gate" in P else 0.0
     orig_select = base._select
 
     def _state(ctx, R):
@@ -203,7 +206,9 @@ def build_policy(params_path, probe=None):
         if _ORACLE is not None:
             pred, conf = math.log1p(_ORACLE[(request.arrived_at, request.num_prefill_tokens)][0]), 1e3
         new = list(costs)
-        if P is not None or probe is not None:
+        busy = gate <= 0 or float(np.mean([r.outstanding_requests for r in replicas])) >= gate
+        st["gated"] = st.get("gated", 0) + (not busy)
+        if busy and (P is not None or probe is not None):
             work = st["work"]
             if probe is not None:
                 lw = np.log1p(np.asarray(work, float))

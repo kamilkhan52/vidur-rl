@@ -82,6 +82,22 @@ def test_zero_output_is_4873_and_features_are_finite(plain, tmp_path):
     assert e3["n"] == 300 and np.isfinite(e3["score"])
 
 
+def test_load_gate(plain, tmp_path):
+    """A gate above any load gives exactly 4873; gate 0 leaves the learned policy unchanged."""
+    d, consts = plain
+    P = es.init_params(np.random.default_rng(0))
+    P["w3"] = np.random.default_rng(1).normal(0, 1, es.HIDDEN)
+    outs = {}
+    for name, extra in (("free", {}), ("g0", {"gate": np.array(0.0)}), ("ghi", {"gate": np.array(1e9)})):
+        np.savez(tmp_path / f"{name}.npz", **P, **extra)
+        outs[name] = tmp_path / name
+        outs[name].mkdir()
+        es.run_episode(_job(tmp_path / f"{name}.npz", consts, write_dir=str(outs[name])))
+    assert filecmp.cmp(_csv(outs["free"]), _csv(outs["g0"]), shallow=False)
+    assert not filecmp.cmp(_csv(d), _csv(outs["free"]), shallow=False)
+    assert filecmp.cmp(_csv(d), _csv(outs["ghi"]), shallow=False)
+
+
 def test_observe_tracks_outstanding_work(plain, tmp_path):
     """After an episode every routed request has completed, so the tracked decode work returns to 0."""
     _, consts = plain
