@@ -88,6 +88,42 @@ def make_private_root(lss_root: Path, base: str) -> Path:
     return root
 
 
+
+def start_janitor(workload_root: Path, max_age_s: float = 120.0, period_s: float = 30.0):
+    """Delete per-batch ASTRA-Sim workload folders (``instance<i>_batch<b>``) older than ``max_age_s`` of wall time.
+
+    LLMServingSim writes one folder of Chakra ``.et`` files per batch and keeps them all until the run ends (GBs per
+    run; nine runs filled a node's /tmp). ASTRA-Sim reads a batch's files when the batch is dispatched, which is
+    milliseconds of wall time after they are written, and the converted-graph cache holds bytes in memory, so old
+    folders are never read again. Returns a stop() function.
+    """
+    import shutil
+    import threading
+    stop = threading.Event()
+
+    def sweep():
+        now = time.time()
+        if not workload_root.is_dir():
+            return
+        for d in workload_root.glob("*/*/*/instance*_batch*"):  # <hardware>/<org>/<model>/instance<i>_batch<b>
+            try:
+                if now - d.stat().st_mtime > max_age_s:
+                    shutil.rmtree(d, ignore_errors=True)
+            except FileNotFoundError:
+                pass
+
+    def loop():
+        while not stop.wait(period_s):
+            sweep()
+
+    th = threading.Thread(target=loop, daemon=True)
+    th.start()
+
+    def _stop():
+        stop.set()
+        th.join(timeout=5)
+    return _stop
+
 def summarize(recs, warmup_frac: float = 0.2) -> dict:
     """Vidur's summary (scripts/tail_metrics.summarize_rows + evolve.evaluate.run_one's TBT and warm-up cut)."""
     arr = np.array([r["arrival_s"] for r in recs], float)
@@ -225,6 +261,10 @@ def main(argv=None):
     t0 = time.time()
     try:
         prof = None
+        janitor = None
+        if run_root != lss_root:  # private root: its inputs/runs/<run_id>/workload is ours alone
+            inputs_root = local_inputs if local_inputs is not None else run_root / "astra-sim" / "inputs" / "runs" / run_id
+            janitor = start_janitor(Path(inputs_root) / "workload")
         if a.stack_dump > 0:
             import faulthandler
             stacks = open(out / "stacks.log", "w")
@@ -239,6 +279,8 @@ def main(argv=None):
             prof.stop()
             (out / "profile.txt").write_text(prof.output_text(unicode=False, color=False))
     finally:
+        if janitor is not None:
+            janitor()
         os.chdir(cwd)
         lss_main.subprocess.Popen = _popen
         astra_err.close()
