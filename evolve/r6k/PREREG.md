@@ -99,3 +99,20 @@ at 8R; different draws, scales and prompt format). Only the r6k routers have the
 - Hardware windows: `data/r6k/Tool_4000_2000_3281d502d2bbca0f.csv` d6831336dd121f3b…,
   `data/r6k/Conv_0_2000_2fe221fad356221c.csv` d007257036497a44… (from `~/vidur-rl-sim6000/calib/r4/`).
 - Stages and exclusions: `evolve/evaluate.py` (`R6K_*`); tests `tests/test_r6k.py`.
+
+## Amendment 1 (2026-10-17, after the probe, before any tuning or validation run)
+
+**Loads.** The probe (Alpine 34557370, `evolve/r6k/out/probe_load.json`, 64 runs, none failed) makes §3's rule
+inapplicable on Tool:
+- Tool3 w0: round robin's mean scheduling delay is 1.90 s at scale 4 and 0.92 s at 5.6. So high = 5.6, and
+  "moderate ≥ 1.4 × high" lies off the grid.
+- Conv3 w3000: rr queue 0.83 s at 4, so high = 4 and moderate = 5.6, as sim6000 predicts for the hardware.
+
+The loads for `r6k_search` and `r6k_val` are therefore fixed at **2.5, 4.0, 5.6 on both traces**: 4 and 5.6 are
+sim6000's predicted hardware loads, and 2.5 is the heavy end of the requested range. Router means at these loads
+were seen only on the probe's search windows.
+
+**Format wording (corrects §2).** The 512-token rounding concerns Tool only. In v3 Tool every prompt is a multiple of
+512. In v3 Conv, prompts keep their real lengths (3 of the 2000 hardware Conv prompts are multiples of 512; realsys's
+check). The verification is unaffected: Conv3 rows 0–2003 minus the 4 over-cap requests equal the hardware Conv file
+row for row (`tests/test_r6k.py`).

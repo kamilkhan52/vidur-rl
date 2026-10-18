@@ -69,7 +69,7 @@ if V3_DATA:
     # code_version, so the path is separated here instead: v3-data runs keep under EVOLVE_KEEP_DIR/v3data/.
     if os.environ.get("EVOLVE_KEEP_DIR"):
         os.environ["EVOLVE_KEEP_DIR"] = str(Path(os.environ["EVOLVE_KEEP_DIR"]) / "v3data")
-# rtxpro6000 campaign (2026-10-17): the hardware replays windows cut from the v3 traces (prompt lengths rounded up to
+# rtxpro6000 campaign (2026-10-17): the hardware replays windows cut from the v3 traces (Tool prompt lengths rounded up to
 # whole 512-token hash blocks), so the r6k scenarios use that format under their own trace names. ToolHW/ConvHW are
 # realsys's hardware windows byte for byte (v3 Tool rows 4000-5999 and v3 Conv rows 0-2003 less the 4 requests over
 # Llama-2-7B's 122,752 tokens); they are the final sim test and are held out from everything else.
@@ -235,7 +235,7 @@ STAGES = {"1": STAGE1, "heldout": HELDOUT, "search2": SEARCH_V2, "heldout2": HEL
           "search3b": SEARCH_L3B, "test3b": TEST_L3B, "gen_l370": GEN_L370}
 # r6k (evolve/r6k/PREREG.md section 4): RTX PRO 6000, 4 replicas, 1000-request windows (as the hardware runs) in the
 # hardware's trace format. Loads per trace = (high, moderate, light) from the probe by PREREG section 3, set once.
-R6K_LOADS: Dict[str, tuple] = {}
+R6K_LOADS: Dict[str, tuple] = {"Tool3": (2.5, 4.0, 5.6), "Conv3": (2.5, 4.0, 5.6)}  # PREREG amendment 1
 R6K_SEARCH_WINDOWS = {"Tool3": (0, 10000), "Conv3": (3000, 7000)}
 R6K_VAL_WINDOWS = {"Tool3": (20000, 22000), "Conv3": (10000, 11000)}
 # Request ranges (trace: [(start, length)]) no training or tuning window may touch: the hardware windows, then the

@@ -1,0 +1,586 @@
+{
+ "replicas": 4,
+ "draw": 1,
+ "windows": {
+  "Tool3": 0,
+  "Conv3": 3000
+ },
+ "rows": [
+  {
+   "trace": "Tool3",
+   "scale": 1.5,
+   "router": "round_robin",
+   "queue_delay_mean": 20.713191546683035,
+   "mean_e2e": 32.28516395085998,
+   "mean_ttft": 21.73886326289926,
+   "p99_e2e": 111.60587060000003
+  },
+  {
+   "trace": "Tool3",
+   "scale": 1.5,
+   "router": "lor",
+   "queue_delay_mean": 10.356994593366096,
+   "mean_e2e": 22.779248159705162,
+   "mean_ttft": 11.386216355036854,
+   "p99_e2e": 70.08091828
+  },
+  {
+   "trace": "Tool3",
+   "scale": 1.5,
+   "router": "v4_487363424749",
+   "queue_delay_mean": 3.766598905405405,
+   "mean_e2e": 15.127639726044217,
+   "mean_ttft": 4.780666475429979,
+   "p99_e2e": 70.47858612
+  },
+  {
+   "trace": "Tool3",
+   "scale": 1.5,
+   "router": "mooncake_min_ttft_tuned_best",
+   "queue_delay_mean": 6.40814888943489,
+   "mean_e2e": 19.249813448402953,
+   "mean_ttft": 7.43531998525799,
+   "p99_e2e": 65.22007307000001
+  },
+  {
+   "trace": "Tool3",
+   "scale": 1.75,
+   "router": "round_robin",
+   "queue_delay_mean": 15.325329535626533,
+   "mean_e2e": 25.561301070024566,
+   "mean_ttft": 16.31075957985257,
+   "p99_e2e": 98.28145379
+  },
+  {
+   "trace": "Tool3",
+   "scale": 1.75,
+   "router": "lor",
+   "queue_delay_mean": 4.262639313267815,
+   "mean_e2e": 14.15637636732186,
+   "mean_ttft": 5.212368211302211,
+   "p99_e2e": 63.42710745000001
+  },
+  {
+   "trace": "Tool3",
+   "scale": 1.75,
+   "router": "v4_487363424749",
+   "queue_delay_mean": 1.995194094594594,
+   "mean_e2e": 12.439832159705173,
+   "mean_ttft": 2.955825988943491,
+   "p99_e2e": 56.15726945
+  },
+  {
+   "trace": "Tool3",
+   "scale": 1.75,
+   "router": "mooncake_min_ttft_tuned_best",
+   "queue_delay_mean": 2.40528560933661,
+   "mean_e2e": 13.012894574938572,
+   "mean_ttft": 3.3496487334152336,
+   "p99_e2e": 51.51145613
+  },
+  {
+   "trace": "Tool3",
+   "scale": 2.0,
+   "router": "round_robin",
+   "queue_delay_mean": 11.15626509582309,
+   "mean_e2e": 20.5489048108108,
+   "mean_ttft": 12.115816079852584,
+   "p99_e2e": 93.57405312
+  },
+  {
+   "trace": "Tool3",
+   "scale": 2.0,
+   "router": "lor",
+   "queue_delay_mean": 2.522269103194105,
+   "mean_e2e": 10.888638894348878,
+   "mean_ttft": 3.440002367321869,
+   "p99_e2e": 58.71793648
+  },
+  {
+   "trace": "Tool3",
+   "scale": 2.0,
+   "router": "v4_487363424749",
+   "queue_delay_mean": 0.8690296683046692,
+   "mean_e2e": 9.08383113759213,
+   "mean_ttft": 1.758031050368552,
+   "p99_e2e": 53.35474889000002
+  },
+  {
+   "trace": "Tool3",
+   "scale": 2.0,
+   "router": "mooncake_min_ttft_tuned_best",
+   "queue_delay_mean": 1.184934853808353,
+   "mean_e2e": 9.874757571253072,
+   "mean_ttft": 2.074678276412777,
+   "p99_e2e": 46.55602488000001
+  },
+  {
+   "trace": "Tool3",
+   "scale": 2.5,
+   "router": "round_robin",
+   "queue_delay_mean": 6.257349968058961,
+   "mean_e2e": 14.146317128992642,
+   "mean_ttft": 7.165248864864865,
+   "p99_e2e": 83.38511964
+  },
+  {
+   "trace": "Tool3",
+   "scale": 2.5,
+   "router": "lor",
+   "queue_delay_mean": 1.181934571253072,
+   "mean_e2e": 7.649489858722361,
+   "mean_ttft": 2.0323759668304664,
+   "p99_e2e": 51.337507980000005
+  },
+  {
+   "trace": "Tool3",
+   "scale": 2.5,
+   "router": "v4_487363424749",
+   "queue_delay_mean": 0.2647478808353809,
+   "mean_e2e": 6.800239138820636,
+   "mean_ttft": 1.0979674299754312,
+   "p99_e2e": 36.930563490000004
+  },
+  {
+   "trace": "Tool3",
+   "scale": 2.5,
+   "router": "mooncake_min_ttft_tuned_best",
+   "queue_delay_mean": 0.5490739287469282,
+   "mean_e2e": 7.177200686732189,
+   "mean_ttft": 1.3620094717444715,
+   "p99_e2e": 35.63900842000001
+  },
+  {
+   "trace": "Tool3",
+   "scale": 3.0,
+   "router": "round_robin",
+   "queue_delay_mean": 4.071817929975431,
+   "mean_e2e": 10.782215133906648,
+   "mean_ttft": 4.9398043181818165,
+   "p99_e2e": 70.66977705000001
+  },
+  {
+   "trace": "Tool3",
+   "scale": 3.0,
+   "router": "lor",
+   "queue_delay_mean": 0.9456215049140053,
+   "mean_e2e": 6.397334038083539,
+   "mean_ttft": 1.763426093366094,
+   "p99_e2e": 39.6228775
+  },
+  {
+   "trace": "Tool3",
+   "scale": 3.0,
+   "router": "v4_487363424749",
+   "queue_delay_mean": 0.1425593746928746,
+   "mean_e2e": 5.491348138820644,
+   "mean_ttft": 0.9208233009828013,
+   "p99_e2e": 32.23173045
+  },
+  {
+   "trace": "Tool3",
+   "scale": 3.0,
+   "router": "mooncake_min_ttft_tuned_best",
+   "queue_delay_mean": 0.17373894348894348,
+   "mean_e2e": 5.613159339066342,
+   "mean_ttft": 0.9472068304668303,
+   "p99_e2e": 30.171067670000003
+  },
+  {
+   "trace": "Tool3",
+   "scale": 3.5,
+   "router": "round_robin",
+   "queue_delay_mean": 2.736612737100733,
+   "mean_e2e": 8.926638697788704,
+   "mean_ttft": 3.5796248280098264,
+   "p99_e2e": 63.743534669999995
+  },
+  {
+   "trace": "Tool3",
+   "scale": 3.5,
+   "router": "lor",
+   "queue_delay_mean": 0.6703896179361181,
+   "mean_e2e": 5.5464389828009875,
+   "mean_ttft": 1.459277163390664,
+   "p99_e2e": 30.28677193
+  },
+  {
+   "trace": "Tool3",
+   "scale": 3.5,
+   "router": "v4_487363424749",
+   "queue_delay_mean": 0.0807227764127764,
+   "mean_e2e": 4.912030539312043,
+   "mean_ttft": 0.8419661142506141,
+   "p99_e2e": 28.76231826
+  },
+  {
+   "trace": "Tool3",
+   "scale": 3.5,
+   "router": "mooncake_min_ttft_tuned_best",
+   "queue_delay_mean": 0.20693624447174447,
+   "mean_e2e": 5.0839991965602005,
+   "mean_ttft": 0.959871280098281,
+   "p99_e2e": 29.004160669999997
+  },
+  {
+   "trace": "Tool3",
+   "scale": 4.0,
+   "router": "round_robin",
+   "queue_delay_mean": 1.9048693132678118,
+   "mean_e2e": 7.623040976658471,
+   "mean_ttft": 2.7280149975429944,
+   "p99_e2e": 55.401371940000004
+  },
+  {
+   "trace": "Tool3",
+   "scale": 4.0,
+   "router": "lor",
+   "queue_delay_mean": 0.47947118796068805,
+   "mean_e2e": 4.9299775798525785,
+   "mean_ttft": 1.2388978439803433,
+   "p99_e2e": 32.16460469
+  },
+  {
+   "trace": "Tool3",
+   "scale": 4.0,
+   "router": "v4_487363424749",
+   "queue_delay_mean": 0.04423401474201472,
+   "mean_e2e": 4.479806819410322,
+   "mean_ttft": 0.7863092788697787,
+   "p99_e2e": 27.49503808
+  },
+  {
+   "trace": "Tool3",
+   "scale": 4.0,
+   "router": "mooncake_min_ttft_tuned_best",
+   "queue_delay_mean": 0.10089571990171986,
+   "mean_e2e": 4.562515490171987,
+   "mean_ttft": 0.8353298280098271,
+   "p99_e2e": 28.112651980000006
+  },
+  {
+   "trace": "Tool3",
+   "scale": 5.6,
+   "router": "round_robin",
+   "queue_delay_mean": 0.9180458230958229,
+   "mean_e2e": 5.571471727272723,
+   "mean_ttft": 1.6939951560196527,
+   "p99_e2e": 40.342639040000016
+  },
+  {
+   "trace": "Tool3",
+   "scale": 5.6,
+   "router": "lor",
+   "queue_delay_mean": 0.2387421117936117,
+   "mean_e2e": 4.199050067567563,
+   "mean_ttft": 0.9834251203931214,
+   "p99_e2e": 30.21817141
+  },
+  {
+   "trace": "Tool3",
+   "scale": 5.6,
+   "router": "v4_487363424749",
+   "queue_delay_mean": 0.011354065110565102,
+   "mean_e2e": 3.9011721732186677,
+   "mean_ttft": 0.7273983230958239,
+   "p99_e2e": 28.02065209
+  },
+  {
+   "trace": "Tool3",
+   "scale": 5.6,
+   "router": "mooncake_min_ttft_tuned_best",
+   "queue_delay_mean": 0.04455542137592135,
+   "mean_e2e": 4.053766544226043,
+   "mean_ttft": 0.7589299078624074,
+   "p99_e2e": 28.341959940000006
+  },
+  {
+   "trace": "Conv3",
+   "scale": 1.5,
+   "router": "round_robin",
+   "queue_delay_mean": 23.029933675090238,
+   "mean_e2e": 43.193954743682305,
+   "mean_ttft": 24.749142107099907,
+   "p99_e2e": 113.57970950000002
+  },
+  {
+   "trace": "Conv3",
+   "scale": 1.5,
+   "router": "lor",
+   "queue_delay_mean": 8.689512228640183,
+   "mean_e2e": 30.00711810830328,
+   "mean_ttft": 10.423983510228627,
+   "p99_e2e": 84.70891980000003
+  },
+  {
+   "trace": "Conv3",
+   "scale": 1.5,
+   "router": "v4_487363424749",
+   "queue_delay_mean": 3.973977737665469,
+   "mean_e2e": 24.049487511431998,
+   "mean_ttft": 5.669505711191329,
+   "p99_e2e": 70.28597630000003
+  },
+  {
+   "trace": "Conv3",
+   "scale": 1.5,
+   "router": "mooncake_min_ttft_tuned_best",
+   "queue_delay_mean": 4.765738027677499,
+   "mean_e2e": 26.223705019253913,
+   "mean_ttft": 6.472655651022859,
+   "p99_e2e": 70.45273550000003
+  },
+  {
+   "trace": "Conv3",
+   "scale": 1.75,
+   "router": "round_robin",
+   "queue_delay_mean": 8.966474637785801,
+   "mean_e2e": 25.894015695547537,
+   "mean_ttft": 10.589119382671482,
+   "p99_e2e": 86.62797190000003
+  },
+  {
+   "trace": "Conv3",
+   "scale": 1.75,
+   "router": "lor",
+   "queue_delay_mean": 2.945769521058966,
+   "mean_e2e": 17.4881571817088,
+   "mean_ttft": 4.472351036101088,
+   "p99_e2e": 67.20096150000003
+  },
+  {
+   "trace": "Conv3",
+   "scale": 1.75,
+   "router": "v4_487363424749",
+   "queue_delay_mean": 1.1343441119133575,
+   "mean_e2e": 15.617230348977136,
+   "mean_ttft": 2.634979203369434,
+   "p99_e2e": 50.556264600000105
+  },
+  {
+   "trace": "Conv3",
+   "scale": 1.75,
+   "router": "mooncake_min_ttft_tuned_best",
+   "queue_delay_mean": 1.2446772936221413,
+   "mean_e2e": 16.270888862815895,
+   "mean_ttft": 2.72711415282792,
+   "p99_e2e": 53.531939400000084
+  },
+  {
+   "trace": "Conv3",
+   "scale": 2.0,
+   "router": "round_robin",
+   "queue_delay_mean": 4.2794599723225,
+   "mean_e2e": 18.14021641516246,
+   "mean_ttft": 5.8087283381468096,
+   "p99_e2e": 71.00512160000008
+  },
+  {
+   "trace": "Conv3",
+   "scale": 2.0,
+   "router": "lor",
+   "queue_delay_mean": 1.8157777677497,
+   "mean_e2e": 13.74268092900121,
+   "mean_ttft": 3.271639998796632,
+   "p99_e2e": 54.333815700000024
+  },
+  {
+   "trace": "Conv3",
+   "scale": 2.0,
+   "router": "v4_487363424749",
+   "queue_delay_mean": 0.571143346570397,
+   "mean_e2e": 12.419416314079422,
+   "mean_ttft": 1.9818093790613736,
+   "p99_e2e": 43.06737250000001
+  },
+  {
+   "trace": "Conv3",
+   "scale": 2.0,
+   "router": "mooncake_min_ttft_tuned_best",
+   "queue_delay_mean": 0.6147741720818288,
+   "mean_e2e": 12.761441338146806,
+   "mean_ttft": 2.0090898784596853,
+   "p99_e2e": 45.09937780000003
+  },
+  {
+   "trace": "Conv3",
+   "scale": 2.5,
+   "router": "round_robin",
+   "queue_delay_mean": 2.184477345367031,
+   "mean_e2e": 12.467878465703953,
+   "mean_ttft": 3.5900306269554743,
+   "p99_e2e": 55.669637900000126
+  },
+  {
+   "trace": "Conv3",
+   "scale": 2.5,
+   "router": "lor",
+   "queue_delay_mean": 1.119984018050542,
+   "mean_e2e": 10.228686404332127,
+   "mean_ttft": 2.4775863778580023,
+   "p99_e2e": 49.57753580000002
+  },
+  {
+   "trace": "Conv3",
+   "scale": 2.5,
+   "router": "v4_487363424749",
+   "queue_delay_mean": 0.1878621696750904,
+   "mean_e2e": 9.488646527075815,
+   "mean_ttft": 1.5106517172081833,
+   "p99_e2e": 42.06469750000008
+  },
+  {
+   "trace": "Conv3",
+   "scale": 2.5,
+   "router": "mooncake_min_ttft_tuned_best",
+   "queue_delay_mean": 0.24383016967509036,
+   "mean_e2e": 9.753949335740066,
+   "mean_ttft": 1.5491972803850802,
+   "p99_e2e": 39.011573400000074
+  },
+  {
+   "trace": "Conv3",
+   "scale": 3.0,
+   "router": "round_robin",
+   "queue_delay_mean": 1.4997590048134775,
+   "mean_e2e": 10.444290184115514,
+   "mean_ttft": 2.8518897196149213,
+   "p99_e2e": 49.08491950000007
+  },
+  {
+   "trace": "Conv3",
+   "scale": 3.0,
+   "router": "lor",
+   "queue_delay_mean": 0.729278270758122,
+   "mean_e2e": 8.801453678700353,
+   "mean_ttft": 2.0346522707581247,
+   "p99_e2e": 36.33410880000001
+  },
+  {
+   "trace": "Conv3",
+   "scale": 3.0,
+   "router": "v4_487363424749",
+   "queue_delay_mean": 0.08878653549939819,
+   "mean_e2e": 8.158646226233452,
+   "mean_ttft": 1.365829247894104,
+   "p99_e2e": 35.497197100000044
+  },
+  {
+   "trace": "Conv3",
+   "scale": 3.0,
+   "router": "mooncake_min_ttft_tuned_best",
+   "queue_delay_mean": 0.09908637184115525,
+   "mean_e2e": 8.478370885679908,
+   "mean_ttft": 1.3660660204572812,
+   "p99_e2e": 37.285387800000144
+  },
+  {
+   "trace": "Conv3",
+   "scale": 3.5,
+   "router": "round_robin",
+   "queue_delay_mean": 1.1085154452466908,
+   "mean_e2e": 9.358455377857998,
+   "mean_ttft": 2.4328640565583637,
+   "p99_e2e": 45.21310590000005
+  },
+  {
+   "trace": "Conv3",
+   "scale": 3.5,
+   "router": "lor",
+   "queue_delay_mean": 0.36618118050541515,
+   "mean_e2e": 7.8419449001203345,
+   "mean_ttft": 1.646202954271962,
+   "p99_e2e": 36.84242690000002
+  },
+  {
+   "trace": "Conv3",
+   "scale": 3.5,
+   "router": "v4_487363424749",
+   "queue_delay_mean": 0.054609258724428435,
+   "mean_e2e": 7.46149457882069,
+   "mean_ttft": 1.3046406570397104,
+   "p99_e2e": 33.75298420000006
+  },
+  {
+   "trace": "Conv3",
+   "scale": 3.5,
+   "router": "mooncake_min_ttft_tuned_best",
+   "queue_delay_mean": 0.06129176895306864,
+   "mean_e2e": 7.543095379061364,
+   "mean_ttft": 1.3031008170878455,
+   "p99_e2e": 29.026249200000045
+  },
+  {
+   "trace": "Conv3",
+   "scale": 4.0,
+   "router": "round_robin",
+   "queue_delay_mean": 0.8332169121540305,
+   "mean_e2e": 8.550164788206974,
+   "mean_ttft": 2.136087350180506,
+   "p99_e2e": 41.16623460000004
+  },
+  {
+   "trace": "Conv3",
+   "scale": 4.0,
+   "router": "lor",
+   "queue_delay_mean": 0.36207484235860454,
+   "mean_e2e": 7.439833362214202,
+   "mean_ttft": 1.6377312551143228,
+   "p99_e2e": 34.41727640000003
+  },
+  {
+   "trace": "Conv3",
+   "scale": 4.0,
+   "router": "v4_487363424749",
+   "queue_delay_mean": 0.02104934055354995,
+   "mean_e2e": 7.032670145607698,
+   "mean_ttft": 1.2562798832731652,
+   "p99_e2e": 33.884440700000084
+  },
+  {
+   "trace": "Conv3",
+   "scale": 4.0,
+   "router": "mooncake_min_ttft_tuned_best",
+   "queue_delay_mean": 0.027166054151624548,
+   "mean_e2e": 7.126997212996387,
+   "mean_ttft": 1.2565407232250305,
+   "p99_e2e": 28.654986900000033
+  },
+  {
+   "trace": "Conv3",
+   "scale": 5.6,
+   "router": "round_robin",
+   "queue_delay_mean": 0.43366611552346596,
+   "mean_e2e": 7.3140650000000145,
+   "mean_ttft": 1.7020528664259917,
+   "p99_e2e": 35.89501840000003
+  },
+  {
+   "trace": "Conv3",
+   "scale": 5.6,
+   "router": "lor",
+   "queue_delay_mean": 0.1949817930204572,
+   "mean_e2e": 6.595109169675085,
+   "mean_ttft": 1.4400979891696755,
+   "p99_e2e": 29.392463600000013
+  },
+  {
+   "trace": "Conv3",
+   "scale": 5.6,
+   "router": "v4_487363424749",
+   "queue_delay_mean": 0.004607216606498195,
+   "mean_e2e": 6.365356247894097,
+   "mean_ttft": 1.2129034741275582,
+   "p99_e2e": 30.175018900000165
+  },
+  {
+   "trace": "Conv3",
+   "scale": 5.6,
+   "router": "mooncake_min_ttft_tuned_best",
+   "queue_delay_mean": 0.017465014440433215,
+   "mean_e2e": 6.493848021660645,
+   "mean_ttft": 1.2290720000000002,
+   "p99_e2e": 29.530135200000096
+  }
+ ]
+}
