@@ -116,3 +116,20 @@ were seen only on the probe's search windows.
 512. In v3 Conv, prompts keep their real lengths (3 of the 2000 hardware Conv prompts are multiples of 512; realsys's
 check). The verification is unaffected: Conv3 rows 0–2003 minus the 4 over-cap requests equal the hardware Conv file
 row for row (`tests/test_r6k.py`).
+
+## Amendment 2 (2026-10-18, before any RL validation result)
+
+**RL relaunch.** The first RL jobs (Alpine 34557600/602/603/604) passed the §6 command through `sbatch --export`,
+which splits on commas. Their command stopped after `--configs Tool3:4:2.0`, and the runs used the defaults:
+- the a100 profile and `tails4` fitness;
+- Tool3 at 4 replicas and scale 2.0 only;
+- length 4000 and no exclusion.
+
+Their outputs are kept as `out/es/INVALID_cmd_truncated_a100_r6k_gen8_s2*`. They were never validated and are not
+used. The §6 recipe, unchanged and with eval length 2000, was relaunched through `evolve/r6k/es_seed.sh` as Alpine
+34601469–34601472. Each run's `meta.json` was checked against §6 at start: device, fitness, lengths, ES settings,
+16 configurations, exclusions and learning-curve starts. The tuning, probe and validation jobs had no comma in their
+commands, and their scenarios set the device in code, so they are unaffected.
+
+**4873-r6k (§5) outcome**, for the record: not adopted. On `r6k_val`, the mean E2E ratio to 4873 is 1.002
+[0.999, 1.005] (`out/val_compare.json`).
