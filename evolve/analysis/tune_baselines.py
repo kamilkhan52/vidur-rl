@@ -38,6 +38,13 @@ FAMILIES = {
     "mooncake": (TUNABLE / "mooncake_min_ttft_tuned.py",
                  {"QUEUE_W": (0.1, 10.0, True, 1.0), "LEN_QUAD": (0.0, 0.5, False, 0.0),
                   "KV_W": (0.0, 1.0, False, 0.0)}),
+    # r6k (evolve/r6k/PREREG.md section 5): the evolved router 4873's price and load-scale constants, each in
+    # [1/4, 4] x its evolved value on a log scale, for re-selection on another GPU profile.
+    "v4873": (ev.REPO / "evolve" / "finalists" / "v4" / "v4_487363424749.py",
+              {k: (v / 4, v * 4, True, v) for k, v in (
+                  ("DECODE_MISS_PRICE", 1.5), ("MISS_EXTERNALITY", 0.5), ("DECODE_WEIGHT", 100.0),
+                  ("BATCH_PRICE", 0.5), ("INTERFERENCE", 0.05), ("CONTEXT_PRICE", 0.05), ("LOAD_UNIT", 10000.0),
+                  ("RAMP_START", 0.5))}),
 }
 
 
@@ -91,8 +98,10 @@ def ask_tell(budget: int, dim: int, evaluate, seed: int = 0, lam: int = 0):
     return hist
 
 
-def install(family: str, run: Path) -> Path:
-    """Write run/best.json's constants into evolve/policies/tuned/<template>_best.py, with provenance in a header."""
+def install(family: str, run: Path, out_dir: Path = ev.TUNED) -> Path:
+    """Write run/best.json's constants into <out_dir>/<template>_best.py (default evolve/policies/tuned/), with
+    provenance in a header. Tuning on another device installs elsewhere, so it can neither overwrite the A100 files
+    nor join bar v4t (which globs evolve/policies/tuned/)."""
     template_path, space = FAMILIES[family]
     best = json.loads((run / "best.json").read_text())
     n = len(load_history(run / "history.jsonl"))
@@ -101,7 +110,7 @@ def install(family: str, run: Path) -> Path:
     header = (f"# Frozen by evolve.analysis.tune_baselines --install from {run.name}/best.json: fitness {best['fitness']:+.4f} "
               f"after {n} evaluations,\n# code_version {best['code_version']}, params {best['params']}.\n")
     seed = json.loads((run / "meta.json").read_text()).get("seed", 0) if (run / "meta.json").exists() else 0
-    out = ev.TUNED / f"{template_path.stem}_best{'' if seed == 0 else f'_s{seed}'}.py"  # one file per tuning seed
+    out = out_dir / f"{template_path.stem}_best{'' if seed == 0 else f'_s{seed}'}.py"  # one file per tuning seed
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(header + render(template_path.read_text(), best["params"]))
     return out
@@ -154,9 +163,10 @@ def main():
     ap.add_argument("--parallel", type=int, default=1, help="ES candidates evaluated at once (each uses --workers)")
     ap.add_argument("--run-dir", required=True)
     ap.add_argument("--install", action="store_true", help="freeze run-dir/best.json into evolve/policies/tuned/")
+    ap.add_argument("--install-dir", default=str(ev.TUNED), help="r6k: evolve/policies/tuned_r6k")
     a = ap.parse_args()
     if a.install:
-        print(f"wrote {install(a.family, Path(a.run_dir))}")
+        print(f"wrote {install(a.family, Path(a.run_dir), Path(a.install_dir))}")
         return
 
     template_path, space = FAMILIES[a.family]

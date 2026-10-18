@@ -69,7 +69,17 @@ if V3_DATA:
     # code_version, so the path is separated here instead: v3-data runs keep under EVOLVE_KEEP_DIR/v3data/.
     if os.environ.get("EVOLVE_KEEP_DIR"):
         os.environ["EVOLVE_KEEP_DIR"] = str(Path(os.environ["EVOLVE_KEEP_DIR"]) / "v3data")
-BUCKETED = {"Tool", "Conv"}  # Mooncake conv/tool timestamps are 3 s buckets
+# rtxpro6000 campaign (2026-10-17): the hardware replays windows cut from the v3 traces (prompt lengths rounded up to
+# whole 512-token hash blocks), so the r6k scenarios use that format under their own trace names. ToolHW/ConvHW are
+# realsys's hardware windows byte for byte (v3 Tool rows 4000-5999 and v3 Conv rows 0-2003 less the 4 requests over
+# Llama-2-7B's 122,752 tokens); they are the final sim test and are held out from everything else.
+TRACES.update({
+    "Tool3": REPO / "data/processed_traces/mooncake_toolagent_trace.csv",
+    "Conv3": REPO / "data/processed_traces/mooncake_conversation_trace.csv",
+    "ToolHW": REPO / "data/r6k/Tool_4000_2000_3281d502d2bbca0f.csv",
+    "ConvHW": REPO / "data/r6k/Conv_0_2000_2fe221fad356221c.csv",
+})
+BUCKETED = {"Tool", "Conv", "Tool3", "Conv3", "ToolHW", "ConvHW"}  # Mooncake conv/tool timestamps are 3 s buckets
 # KV-cache tokens per replica, from Vidur's MemoryPlanner (A100 80 GB). Llama-2's attention is profiled only up to
 # 4,032 KV tokens (its context window), and the random-forest predictor is flat beyond that; 58-81 % of the prefill
 # tokens of the Mooncake traces lie beyond it (found 2026-10-08). Meta-Llama-3-8B is profiled to 262,112 KV tokens.
@@ -223,6 +233,27 @@ GEN_L370 = [Scenario(t, 8, sc, -1, 0, p, model="l3_70b") for t in ("Tool", "Conv
 STAGES = {"1": STAGE1, "heldout": HELDOUT, "search2": SEARCH_V2, "heldout2": HELDOUT_V2, "test2": TEST_V2,
           "gen70": GEN70, "cal70": CAL70, "search3": SEARCH_L3, "heldout3": HELDOUT_L3, "test3": TEST_L3,
           "search3b": SEARCH_L3B, "test3b": TEST_L3B, "gen_l370": GEN_L370}
+# r6k (evolve/r6k/PREREG.md section 4): RTX PRO 6000, 4 replicas, 1000-request windows (as the hardware runs) in the
+# hardware's trace format. Loads per trace = (high, moderate, light) from the probe by PREREG section 3, set once.
+R6K_LOADS: Dict[str, tuple] = {}
+R6K_SEARCH_WINDOWS = {"Tool3": (0, 10000), "Conv3": (3000, 7000)}
+R6K_VAL_WINDOWS = {"Tool3": (20000, 22000), "Conv3": (10000, 11000)}
+# Request ranges (trace: [(start, length)]) no training or tuning window may touch: the hardware windows, then the
+# validation ranges.
+R6K_EXCLUDE = {"Tool3": [(4000, 2000), (20000, 3608)], "Conv3": [(0, 2004), (10000, 2031)]}
+
+
+def _r6k(windows: dict, draws: tuple) -> List[Scenario]:
+    return [Scenario(t, 4, s, w, 1000, p, model="l3_8b", device="rtxpro6000")
+            for t, ws in windows.items() for w in ws for s in R6K_LOADS[t] for p in draws]
+
+
+if R6K_LOADS:
+    STAGES["r6k_search"] = _r6k(R6K_SEARCH_WINDOWS, (1, 4))
+    STAGES["r6k_val"] = _r6k(R6K_VAL_WINDOWS, (2, 3))
+# The final sim test: the hardware's own 1000 requests per trace, draws 1-3, once.
+STAGES["r6k_test"] = [Scenario(t, 4, s, 0, 1000, p, model="l3_8b", device="rtxpro6000")
+                      for t in ("ToolHW", "ConvHW") for s in (2.0, 2.5, 3.0, 4.0, 5.6) for p in (1, 2, 3)]
 
 _WINDOW_LOCK = threading.Lock()
 
@@ -385,6 +416,7 @@ def table_digest() -> str:
     tables = {
         "KV_CAPACITY": KV_CAPACITY, "KV_CAPACITY_DEVICE": {repr(k): v for k, v in KV_CAPACITY_DEVICE.items()},
         "MAX_CONTEXT": MAX_CONTEXT, "MODEL_NAME": MODEL_NAME, "TP": TP, "SEED_FLAG": SEED_FLAG,
+        "DEVICE_ARGS": DEVICE_ARGS,  # r6k: KV blocks and network device per device
         "BUCKETED": sorted(BUCKETED), "TRANSFORMS": list(TRANSFORMS),
         "source": [inspect.getsource(f) for f in (Scenario.seed.fget, Scenario.jitter.fget, window_csv,
                                                   _transformed_csv, _warp)],

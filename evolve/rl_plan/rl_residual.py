@@ -59,7 +59,7 @@ from evolve.sim_fork import build_simulator
 
 BASE = c0.BASE
 TRACES = ("Tool", "Conv")
-N_REQ = {"Tool": 23608, "Conv": 12031}
+N_REQ = {"Tool": 23608, "Conv": 12031, "Tool3": 23608, "Conv3": 12031}  # *3: v3 format (r6k), same rows
 TRAIN_DRAWS = tuple(range(22, 40))
 EVAL_DRAWS = (40, 41, 42, 43)
 EVAL_LEN = 4000
