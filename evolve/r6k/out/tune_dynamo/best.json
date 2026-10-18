@@ -1,0 +1,11 @@
+{
+  "params": {
+    "PREFILL_SCALE": 2.878097,
+    "TEMPERATURE": 0.00859
+  },
+  "fitness": -0.1181483524197097,
+  "valid": true,
+  "file": "evolve/runs/r6k_tune_dynamo/candidates/dynamo_7cd6934127.py",
+  "code_version": "c4557954b77b",
+  "gen": 9
+}

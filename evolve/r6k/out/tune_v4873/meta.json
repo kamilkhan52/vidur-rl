@@ -1,0 +1,22 @@
+{
+  "family": "v4873",
+  "stage": "r6k_search",
+  "objective": "tail4",
+  "seed": 0,
+  "budget": 125,
+  "code_version": "c4557954b77b",
+  "bar": [
+    "sticky_lor",
+    "lor",
+    "round_robin",
+    "random",
+    "lop_uncached",
+    "mooncake_min_ttft.py:40204e7b7d0d",
+    "dynamo_kv_cost.py:c456cabea4e9",
+    "p2c_outstanding.py:1646fbe27b6f",
+    "p2c_kv.py:0cb9857413ae",
+    "jsq_kv.py:d6b38cb39409"
+  ],
+  "template_sha": "487363424749b062",
+  "tuner_sha": "41aed049aabdf0b8"
+}

@@ -1,0 +1,17 @@
+{
+  "params": {
+    "DECODE_MISS_PRICE": 1.991529,
+    "MISS_EXTERNALITY": 0.46033,
+    "DECODE_WEIGHT": 56.023054,
+    "BATCH_PRICE": 1.340655,
+    "INTERFERENCE": 0.015204,
+    "CONTEXT_PRICE": 0.07783,
+    "LOAD_UNIT": 4917.239751,
+    "RAMP_START": 0.941354
+  },
+  "fitness": -0.04142720879802716,
+  "valid": true,
+  "file": "evolve/runs/r6k_tune_v4873/candidates/v4873_2aadf56b94.py",
+  "code_version": "c4557954b77b",
+  "gen": 5
+}

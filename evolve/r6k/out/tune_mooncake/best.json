@@ -1,0 +1,12 @@
+{
+  "params": {
+    "QUEUE_W": 3.48902,
+    "LEN_QUAD": 0.259924,
+    "KV_W": 0.352863
+  },
+  "fitness": -0.07731478150858498,
+  "valid": true,
+  "file": "evolve/runs/r6k_tune_mooncake/candidates/mooncake_60275a968b.py",
+  "code_version": "c4557954b77b",
+  "gen": 10
+}
