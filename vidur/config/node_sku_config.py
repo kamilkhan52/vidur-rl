@@ -60,3 +60,14 @@ class H100DgxNodeSKUConfig(BaseNodeSKUConfig):
     @staticmethod
     def get_type():
         return NodeSKUType.H100_DGX
+
+
+@dataclass
+class RtxPro6000PcieNodeSKUConfig(BaseNodeSKUConfig):
+    # Alpine artxpro6000 nodes: 4 RTX PRO 6000 on PCIe (no NVLink). No collectives are profiled; TP1 needs none.
+    device_sku_type: DeviceSKUType = DeviceSKUType.RTXPRO6000
+    num_devices_per_node: int = 4
+
+    @staticmethod
+    def get_type():
+        return NodeSKUType.RTXPRO6000_PCIE

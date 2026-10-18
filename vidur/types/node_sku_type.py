@@ -7,3 +7,4 @@ class NodeSKUType(BaseIntEnum):
     H100_PAIRWISE_NVLINK = 3
     A100_DGX = 4
     H100_DGX = 5
+    RTXPRO6000_PCIE = 6

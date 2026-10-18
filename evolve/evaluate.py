@@ -83,7 +83,15 @@ MODEL_LABEL = {"7b": "Llama-2-7B", "70b": "Llama-2-70B", "l3_8b": "Llama-3.1-8B 
                "l3_70b": "Llama-3.1-70B (Meta-Llama-3-70B profile)"}
 MAX_CONTEXT = {} if V3_DATA else {"l3_8b": 131072, "l3_70b": 131072}  # Llama-2: no context cap (as in v3); v4 traces
 # KV capacity on other devices, from Vidur's MemoryPlanner; filled in as deployments are added.
-KV_CAPACITY_DEVICE: Dict[tuple, int] = {}
+KV_CAPACITY_DEVICE: Dict[tuple, int] = {
+    # RTX PRO 6000 (96 GB): the cache is pinned to 30,208 blocks of 16 tokens (DEVICE_ARGS) = the A100 capacity the
+    # policies were trained with, which the hardware runs also pin (sim6000 handoff, 2026-10-17).
+    ("l3_8b", "rtxpro6000"): 483328,
+}
+# Extra Vidur arguments per device. rtxpro6000: 4-GPU PCIe node SKU; KV blocks pinned (Vidur would size ~37.6k from 96 GB).
+DEVICE_ARGS: Dict[str, List[str]] = {
+    "rtxpro6000": ["--replica_config_network_device", "rtxpro6000_pcie", "--cache_config_num_blocks", "30208"],
+}
 SEED_FLAG = {
     "random": "random_global_scheduler_config_seed",
     "round_robin": "round_robin_global_scheduler_config_seed",
@@ -433,6 +441,7 @@ def sim_command(scheduler: str, policy: Optional[str], sc: Scenario, trace_csv: 
     cmd = [
         sys.executable, "-m", "vidur.main",
         "--replica_config_device", sc.device,
+        *DEVICE_ARGS.get(sc.device, []),
         "--replica_config_model_name", MODEL_NAME[sc.model],
         "--replica_config_tensor_parallel_size", str(TP[sc.model]),
         "--cluster_config_num_replicas", str(sc.replicas),

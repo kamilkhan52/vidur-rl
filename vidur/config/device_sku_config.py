@@ -41,3 +41,16 @@ class H100DeviceSKUConfig(BaseDeviceSKUConfig):
     @staticmethod
     def get_type():
         return DeviceSKUType.H100
+
+
+@dataclass
+class RtxPro6000DeviceSKUConfig(BaseDeviceSKUConfig):
+    # NVIDIA RTX PRO 6000 Blackwell Server Edition (96 GB). fp16_tflops is used only by the MFU calculator: 400 is the
+    # measured dense bf16 GEMM throughput at 16,384 tokens (389-401 TFLOPS, sim6000 J1, Alpine 2026-10-17). Runs that
+    # must keep the capacity the policies were trained with pass --cache_config_num_blocks 30208 (96 GB gives ~37.6k).
+    fp16_tflops: int = 400
+    total_memory_gb: int = 96
+
+    @staticmethod
+    def get_type():
+        return DeviceSKUType.RTXPRO6000

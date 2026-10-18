@@ -52,6 +52,12 @@ from evolve.rl_plan.c0_policy import load_base
 from evolve.sim_fork import build_simulator
 
 BASE = c0.BASE
+# Device and hold-outs (2026-10-17, rtxpro6000 retraining). Set by main() in the parent process; carried to workers in
+# each job dict (forkserver workers do not see the parent's globals). EXCLUDE: request ranges (start, length) per trace
+# that no training or learning-curve window may touch (the hardware test windows). EVAL_STARTS: learning-curve starts.
+DEVICE = "a100"
+EXCLUDE: dict = {}
+EVAL_STARTS: dict = {}
 TRACES = rl.TRACES
 N_REQ = rl.N_REQ
 TRAIN_DRAWS = rl.TRAIN_DRAWS
@@ -138,10 +144,25 @@ def unflatten(v: np.ndarray, like: dict) -> dict:
     return out
 
 
+def _mean(xs) -> float:
+    xs = [float(x) for x in xs]
+    return math.fsum(xs) / len(xs)
+
+
+def _std(xs) -> float:
+    m = _mean(xs)
+    return math.sqrt(math.fsum((float(x) - m) ** 2 for x in xs) / len(xs))
+
+
 def mlp(P: dict, X: np.ndarray) -> np.ndarray:
     if "lin" in P:
+        # Machine-independent (2026-10-17): the A100-era version used a BLAS matmul and numpy reductions, whose last
+        # bits differ between the Mac and Alpine and flipped near-ties in 8 of 45 test runs. Correctly rounded sums
+        # (math.fsum) of exact products, then rounding to 1e-10, give the same correction on every machine.
         Z = X[:, REPLICA_F]
-        return np.hstack([Z, Z * X[:, [0]], Z * X[:, [3]]]) @ P["lin"]
+        A = np.hstack([Z, Z * X[:, [0]], Z * X[:, [3]]])
+        w = [float(v) for v in np.asarray(P["lin"]).ravel()]
+        return np.array([round(math.fsum(float(a) * b for a, b in zip(row, w)), 10) for row in A])
     h = np.tanh(X @ P["W1"] + P["b1"])
     h = np.tanh(h @ P["W2"] + P["b2"])
     return h @ P["w3"] + P["b3"][0]
@@ -150,36 +171,39 @@ def mlp(P: dict, X: np.ndarray) -> np.ndarray:
 def features(request, replicas, costs, eff_cached, pred, conf, work, longs) -> np.ndarray:
     R = len(replicas)
     n = max(request.num_prefill_tokens, 1)
+    # Reductions use _mean/_std (math.fsum) and logs use math.log1p, not numpy's (possibly SIMD) versions, so the
+    # features are the same on every machine (2026-10-17).
     out = np.array([r.outstanding_requests for r in replicas], float)
     run = np.array([r.running for r in replicas], float)
-    pend = np.log1p(np.array([r.pending_prefill_tokens for r in replicas], float))
+    pend = np.array([math.log1p(r.pending_prefill_tokens) for r in replicas], float)
     kv = np.array([r.kv_usage for r in replicas], float)
     cst = np.asarray(costs, float)
-    spread = cst.std() + 1.0
-    lw = np.log1p(np.asarray(work, float))
+    spread = _std(cst) + 1.0
+    lw = np.array([math.log1p(x) for x in work], float)
     lg = np.asarray(longs, float)
+    m_out, m_run, m_pend, m_kv, m_lw, m_lg = (_mean(v) for v in (out, run, pend, kv, lw, lg))
     X = np.empty((R, F_IN))
     X[:, 0] = pred / 5.0
     X[:, 1] = math.log1p(conf) / 5.0
     X[:, 2] = math.log(n) / 10.0
-    X[:, 3] = out.mean() / 10.0
-    X[:, 4] = math.log1p(np.mean([r.pending_prefill_tokens for r in replicas])) / 10.0
+    X[:, 3] = m_out / 10.0
+    X[:, 4] = math.log1p(_mean([r.pending_prefill_tokens for r in replicas])) / 10.0
     X[:, 5] = np.clip((cst - cst.min()) / spread, 0.0, 5.0)
     X[:, 6] = cst <= cst.min() + 1e-9
-    X[:, 7] = (out - out.mean()) / (out.mean() + 1.0)
-    X[:, 8] = (run - run.mean()) / (run.mean() + 1.0)
-    X[:, 9] = (pend - pend.mean()) / 5.0
-    X[:, 10] = kv - kv.mean()
+    X[:, 7] = (out - m_out) / (m_out + 1.0)
+    X[:, 8] = (run - m_run) / (m_run + 1.0)
+    X[:, 9] = (pend - m_pend) / 5.0
+    X[:, 10] = kv - m_kv
     X[:, 11] = np.asarray(eff_cached, float) / n
     X[:, 12] = [i == request.session_last_replica for i in range(R)]
-    X[:, 13] = (lw - lw.mean()) / 3.0
-    X[:, 14] = (lg - lg.mean()) / (lg.mean() + 1.0)
+    X[:, 13] = (lw - m_lw) / 3.0
+    X[:, 14] = (lg - m_lg) / (m_lg + 1.0)
     return X
 
 
-def build_policy(params_path, probe=None):
+def build_policy(params_path, probe=None, base_path=None):
     """Returns (choose, observe). ``probe`` = L: g = L * relative predicted decode work (no MLP)."""
-    base = load_base(BASE)
+    base = load_base(base_path or BASE)
     P = None
     if params_path:
         with np.load(params_path) as f:
@@ -209,7 +233,7 @@ def build_policy(params_path, probe=None):
         if _ORACLE is not None:
             pred, conf = math.log1p(_ORACLE[(request.arrived_at, request.num_prefill_tokens)][0]), 1e3
         new = list(costs)
-        load = float(np.mean([r.outstanding_requests for r in replicas]))
+        load = _mean([r.outstanding_requests for r in replicas])
         if gate_tau > 0:
             t = float(request.arrived_at)
             if "load" in st:
@@ -225,8 +249,8 @@ def build_policy(params_path, probe=None):
             else:
                 g = mlp(P, features(request, replicas, costs, eff_cached, pred, conf, work, st["long"]))
                 if bound > 0:  # bounded nudge: at most `bound` spreads, whatever the features (2026-10-15)
-                    g = bound * np.tanh(np.asarray(g) / bound)
-            spread = float(np.std(costs)) + 1.0
+                    g = [round(bound * math.tanh(float(x) / bound), 10) for x in g]
+            spread = _std(costs) + 1.0
             new = [c + spread * float(x) for c, x in zip(costs, g)]
         pick = orig_select(request, replicas, ctx, new, num, n, eff_cached, ramp)
         st["calls"] += 1
@@ -261,16 +285,16 @@ def build_policy(params_path, probe=None):
     return choose, observe
 
 
-POLICY_TEMPLATE = '''"""ES policy (generated by evolve.rl_plan.rl_es; do not edit)."""
+POLICY_TEMPLATE = '''"""ES policy (generated by evolve.rl_plan.rl_es, machine-independent scoring of 2026-10-17; do not edit)."""
 from evolve.rl_plan.rl_es import build_policy as _build
 
-choose, observe = _build({params!r}, {probe!r})
+choose, observe = _build({params!r}, {probe!r}, {base!r})
 '''
 
 
-def write_policy(path: Path, params_path, probe=None) -> Path:
+def write_policy(path: Path, params_path, probe=None, base=None) -> Path:
     path.write_text(POLICY_TEMPLATE.format(params=str(Path(params_path).resolve()) if params_path else None,
-                                           probe=probe))
+                                           probe=probe, base=str(Path(base).resolve()) if base else None))
     return path
 
 
@@ -279,16 +303,18 @@ def write_policy(path: Path, params_path, probe=None) -> Path:
 def run_episode(job: dict) -> dict:
     """job: trace, start, length, draw, replicas, scale, params (npz path or None = 4873), probe, consts; optional
     write_dir. Returns tail metrics and the C7 score over the requests after the warm-up cut."""
-    hr.set_base_policy(BASE)
+    base_pol = job.get("base") or BASE
+    hr.set_base_policy(base_pol)
     sc = ev.Scenario(job["trace"], job["replicas"], job["scale"], job["start"], job["length"], job["draw"],
-                     model="l3_8b", jitter_s=job.get("jitter_s", -1.0))
+                     model="l3_8b", jitter_s=job.get("jitter_s", -1.0), device=job.get("device", "a100"))
     k = job["consts"].get(job["trace"])
     t0 = time.time()
     with tempfile.TemporaryDirectory() as tmp:
         if job.get("params") is None and job.get("probe") is None:
-            pol = BASE
+            pol = base_pol
         else:
-            pol = str(write_policy(Path(tmp) / "es_policy.py", job.get("params"), job.get("probe")))
+            pol = str(write_policy(Path(tmp) / "es_policy.py", job.get("params"), job.get("probe"),
+                                   job.get("base")))
         h = build_simulator(hr.argv_for(sc, job.get("write_dir") or tmp, policy=pol))
         g = h.sim._request_generator
         made = sorted((e._request for e in h.sim._event_queue if getattr(e, "_request", None) is not None
@@ -350,7 +376,11 @@ def parse_configs(s: str) -> list:
 
 def window_job(tr: str, replicas: int, scale: float, start: int, length: int, draw: int, consts: dict) -> dict:
     j = {"trace": tr, "replicas": replicas, "scale": scale, "start": start, "length": length, "draw": draw,
-         "consts": consts}
+         "consts": consts, "device": DEVICE, "base": None if BASE == c0.BASE else BASE}
+    if start >= 0:
+        for s0, n0 in EXCLUDE.get(tr, ()):
+            assert start + length <= s0 or start >= s0 + n0, f"window {tr} {start}+{length} touches held-out {s0}+{n0}"
+
     if tr == "Synth":
         j.update(start=-1, length=SYNTH_LEN, jitter_s=ev.SYNTH_JITTER_S)
     return j
@@ -398,7 +428,8 @@ def paired_summary(res: list, ref: dict, seed: int = 0) -> dict:
 def eval_jobs(params, consts: dict, configs, length: int, probe=None, draws=None, oracle=False) -> list:
     """Fixed windows per configuration: rl_residual's disjoint request ranges (Synth: the full trace) x draws."""
     return [{**window_job(tr, R, sc, s, length, d, consts), "params": params, "probe": probe, "oracle": oracle}
-            for (tr, R, sc) in configs for s in rl.EVAL_STARTS.get(tr, (-1,)) for d in (draws or EVAL_DRAWS)]
+            for (tr, R, sc) in configs for s in (EVAL_STARTS or rl.EVAL_STARTS).get(tr, (-1,))
+            for d in (draws or EVAL_DRAWS)]
 
 
 # ------------------------------------------------------------------ ES driver
@@ -446,6 +477,8 @@ def train(a) -> None:
             for i in range(a.windows):
                 tr, R, sc = configs[(it * a.windows + i) % len(configs)]
                 st_ = rl.draw_start(rng, tr, a.length, a.start_grid) if tr in N_REQ else -1
+                while st_ >= 0 and any(not (st_ + a.length <= s0 or st_ >= s0 + n0) for s0, n0 in EXCLUDE.get(tr, ())):
+                    st_ = rl.draw_start(rng, tr, a.length, a.start_grid)  # redraw: touches a held-out range
                 wins.append((tr, R, sc, st_, int(rng.choice(TRAIN_DRAWS))))
             eps = rng.standard_normal((a.pairs, theta.size))
             paths = {"c": save(theta, "c")}
@@ -555,7 +588,21 @@ def main(argv=None):
     ap.add_argument("--probe", default="1,3,10")
     ap.add_argument("--probe-draws", default="22,23,24,25")
     ap.add_argument("--fitness", default="tails4", choices=("tails4", "gen8", "score"))
+    ap.add_argument("--device", default="a100", help="Vidur device profile (rtxpro6000: see evaluate.DEVICE_ARGS)")
+    ap.add_argument("--base", default=None, help="base router (default: 4873)")
+    ap.add_argument("--exclude", default="", help="held-out request ranges trace:start:length, comma-separated")
+    ap.add_argument("--eval-starts", default="", help="learning-curve starts trace:s1/s2/..., comma-separated")
     a = ap.parse_args(argv)
+    global DEVICE, BASE
+    DEVICE = a.device
+    if a.base:
+        BASE = str(Path(a.base).resolve())
+    for x in filter(None, a.exclude.split(",")):
+        tr, s0, n0 = x.split(":")
+        EXCLUDE.setdefault(tr, []).append((int(s0), int(n0)))
+    for x in filter(None, a.eval_starts.split(",")):
+        tr, ss = x.split(":")
+        EVAL_STARTS[tr] = tuple(int(s) for s in ss.split("/"))
     hr.set_base_policy(BASE)
     (train if a.mode == "train" else probe)(a)
 
