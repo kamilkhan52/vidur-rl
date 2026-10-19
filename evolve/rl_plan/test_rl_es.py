@@ -11,6 +11,7 @@ import pytest
 from evolve import evaluate as ev
 from evolve.rl_plan import c0
 from evolve.rl_plan import headroom as hr
+from evolve.rl_plan import oracle_state
 from evolve.rl_plan import rl_es as es
 from evolve.rl_plan import rl_residual as rl
 from evolve.sim_fork import build_simulator
@@ -170,4 +171,17 @@ def test_oracle_sees_true_lengths(plain, tmp_path):
     lookup is consumed."""
     _, consts = plain
     e = es.run_episode(_job(None, consts, probe=1.0, oracle=True))
-    assert e["n"] == 300 and es._ORACLE is None
+    assert e["n"] == 300 and oracle_state.TABLE is None
+
+
+def test_oracle_reaches_policy_when_runner_is_main(plain):
+    """`python -m evolve.rl_plan.rl_es` runs the runner as a second module copy (``__main__``) while the policy imports
+    ``evolve.rl_plan.rl_es``; the oracle must still reach the policy (it silently did not before 2026-10-19)."""
+    import importlib.util
+    _, consts = plain
+    spec = importlib.util.spec_from_file_location("rl_es_as_main", es.__file__)
+    main_copy = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(main_copy)
+    with_o = main_copy.run_episode(_job(None, consts, probe=1.0, oracle=True))  # raises if the policy never read it
+    without = main_copy.run_episode(_job(None, consts, probe=1.0))
+    assert with_o["n"] == without["n"] == 300 and with_o != {**without, "wall_s": with_o["wall_s"]}
