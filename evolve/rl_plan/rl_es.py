@@ -47,6 +47,7 @@ import numpy as np
 from evolve import evaluate as ev
 from evolve.rl_plan import c0
 from evolve.rl_plan import headroom as hr
+from evolve.rl_plan import oracle_state
 from evolve.rl_plan import rl_residual as rl
 from evolve.rl_plan.c0_policy import load_base
 from evolve.sim_fork import build_simulator
@@ -110,8 +111,8 @@ class LengthPredictor:
 # ------------------------------------------------------------------ policy
 
 # Oracle diagnostic (``--oracle``): true output lengths, keyed by (arrival time, prompt tokens), set by run_episode in
-# the simulator's process before the policy routes. Not a deployable policy; it bounds what the predictor could buy.
-_ORACLE = None
+# the simulator's process before the policy routes (``oracle_state.TABLE``, one copy whichever module name imported
+# this file). Not a deployable policy; it bounds what the predictor could buy.
 
 REPLICA_F = tuple(range(5, F_IN))  # per-replica features (request-level ones shift every replica equally)
 N_LIN = 3 * len(REPLICA_F)  # linear policy: each replica feature, and its products with predicted length and load
@@ -230,8 +231,9 @@ def build_policy(params_path, probe=None, base_path=None):
         st = _state(ctx, R)
         h0 = request.prefix_hashes[0] if request.prefix_hashes else None
         pred, conf = st["pred"].predict(h0, n)
-        if _ORACLE is not None:
-            pred, conf = math.log1p(_ORACLE[(request.arrived_at, request.num_prefill_tokens)][0]), 1e3
+        if oracle_state.TABLE is not None:
+            pred, conf = math.log1p(oracle_state.TABLE[(request.arrived_at, request.num_prefill_tokens)][0]), 1e3
+            oracle_state.LOOKUPS += 1
         new = list(costs)
         load = _mean([r.outstanding_requests for r in replicas])
         if gate_tau > 0:
@@ -255,8 +257,8 @@ def build_policy(params_path, probe=None, base_path=None):
         pick = orig_select(request, replicas, ctx, new, num, n, eff_cached, ramp)
         st["calls"] += 1
         st["moved"] += pick != int(np.argmin(costs))
-        if _ORACLE is not None:
-            _ORACLE[(request.arrived_at, request.num_prefill_tokens)].pop(0)
+        if oracle_state.TABLE is not None:
+            oracle_state.TABLE[(request.arrived_at, request.num_prefill_tokens)].pop(0)
         p_tokens = math.expm1(pred)
         st["outs"][pick].setdefault((request.arrived_at, request.num_prefill_tokens), []).append((p_tokens, h0))
         st["work"][pick] += p_tokens
@@ -319,20 +321,19 @@ def run_episode(job: dict) -> dict:
         g = h.sim._request_generator
         made = sorted((e._request for e in h.sim._event_queue if getattr(e, "_request", None) is not None
                        and type(e).__name__ == "RequestArrivalEvent"), key=lambda r: r.arrived_at)
-        global _ORACLE
-        _ORACLE = None
+        oracle_state.TABLE, oracle_state.LOOKUPS = None, 0
         if job.get("oracle"):
-            _ORACLE = {}
+            oracle_state.TABLE = {}
             for r in made:
-                _ORACLE.setdefault((r.arrived_at, r.num_prefill_tokens), []).append(r.num_decode_tokens)
+                oracle_state.TABLE.setdefault((r.arrived_at, r.num_prefill_tokens), []).append(r.num_decode_tokens)
         orig = g.get_next_request
 
         def wrapped():
             r = orig()
             if r is not None:
                 made.append(r)
-                if _ORACLE is not None:
-                    _ORACLE.setdefault((r.arrived_at, r.num_prefill_tokens), []).append(r.num_decode_tokens)
+                if oracle_state.TABLE is not None:
+                    oracle_state.TABLE.setdefault((r.arrived_at, r.num_prefill_tokens), []).append(r.num_decode_tokens)
             return r
         g.get_next_request = wrapped
         h.run()
@@ -340,7 +341,9 @@ def run_episode(job: dict) -> dict:
             raise RuntimeError("episode ended with requests left in the scheduler")
         arr = c0.request_arrays(h, made)
         st = h.sim._scheduler._ctx.state.get("es", {})
-        _ORACLE = None
+        if job.get("oracle") and st.get("calls", 0) and oracle_state.LOOKUPS != st["calls"]:
+            raise RuntimeError(f"oracle episode: {oracle_state.LOOKUPS} oracle reads for {st['calls']} routing calls")
+        oracle_state.TABLE = None
         if job.get("write_dir"):
             h.write_output()
     a_ = arr["arrived"]
