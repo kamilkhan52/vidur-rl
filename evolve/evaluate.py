@@ -251,9 +251,12 @@ def _r6k(windows: dict, draws: tuple) -> List[Scenario]:
 if R6K_LOADS:
     STAGES["r6k_search"] = _r6k(R6K_SEARCH_WINDOWS, (1, 4))
     STAGES["r6k_val"] = _r6k(R6K_VAL_WINDOWS, (2, 3))
-# The final sim test: the hardware's own 1000 requests per trace, draws 1-3, once.
+# The final sim test (PREREG amendment 3): the hardware's own first 1000 requests per trace, draws 1-6, at the candidate
+# high loads the pilot can pick (scale 4 predicted; 3 and 4.8 the alternatives), once. The headline is the pilot's
+# measured high load per trace; a load outside this set is run once more at that scale.
+R6K_TEST_SCALES = (3.0, 4.0, 4.8)
 STAGES["r6k_test"] = [Scenario(t, 4, s, 0, 1000, p, model="l3_8b", device="rtxpro6000")
-                      for t in ("ToolHW", "ConvHW") for s in (2.0, 2.5, 3.0, 4.0, 5.6) for p in (1, 2, 3)]
+                      for t in ("ToolHW", "ConvHW") for s in R6K_TEST_SCALES for p in range(1, 7)]
 
 _WINDOW_LOCK = threading.Lock()
 

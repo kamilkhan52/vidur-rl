@@ -47,3 +47,8 @@ def test_search_and_validation_windows_avoid_what_they_must():
 def test_final_test_uses_only_hardware_traces():
     assert {sc.trace for sc in ev.STAGES["r6k_test"]} == {"ToolHW", "ConvHW"}
     assert all(sc.replicas == 4 and sc.device == "rtxpro6000" and sc.window_len == 1000 for sc in ev.STAGES["r6k_test"])
+    # amendment 3: draws 1-6 at the candidate high loads, the first 1000 requests of each hardware window
+    assert len(ev.STAGES["r6k_test"]) == 2 * 3 * 6
+    assert {sc.perturbation for sc in ev.STAGES["r6k_test"]} == set(range(1, 7))
+    assert {sc.scale for sc in ev.STAGES["r6k_test"]} == {3.0, 4.0, 4.8}
+    assert all(sc.window_start == 0 for sc in ev.STAGES["r6k_test"])

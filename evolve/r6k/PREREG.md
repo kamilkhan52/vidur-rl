@@ -133,3 +133,28 @@ commands, and their scenarios set the device in code, so they are unaffected.
 
 **4873-r6k (§5) outcome**, for the record: not adopted. On `r6k_val`, the mean E2E ratio to 4873 is 1.002
 [0.999, 1.005] (`out/val_compare.json`).
+
+## Amendment 3 (2026-10-20, before any `r6k_test` run)
+
+**`r6k_test` now mirrors the hardware main comparison (M5).** Kamil fixed M5's design on 2026-10-20 (vidur-realsys
+`prereg/2026-10-19_alpine_r4_main_comparison_DRAFT.md`, 1cac8d4): high load only, draws 1–6, 9 routers. This
+replaces §4's `r6k_test` row (5 scales × draws 1–3) and the headline-cell sentence under it.
+
+- **Cells:** the first 1000 requests of `ToolHW` (`Tool_4000_2000_3281d502d2bbca0f`) and `ConvHW`
+  (`Conv_0_2000_2fe221fad356221c`), 4 replicas, draws 1–6, at each candidate high load **3.0, 4.0, 4.8**
+  (`evaluate.R6K_TEST_SCALES`): 36 scenarios.
+- **Headline:** the pilot's (34395040, P1) measured high load per trace. It is chosen by the hardware, not by these
+  results. A load outside {3.0, 4.0, 4.8} is run once more at that scale with the same code; the other loads are
+  reported as they come.
+- **Routers (9, M5):** 4873, es (`es_gen8div_b0_40`), mooncake0 (default), mooncake6 and dynamo6 (`tuned_r6k`,
+  0bca11c), dynamo (default = A100-tuned), lor, sticky_lor, lop_uncached. Not round robin, not the A100-tuned Mooncake.
+  The seven router files match realsys's vendored copies by SHA256. es runs this branch's `rl_es.py`
+  (machine-independent sums; numerically equal up to near-tie flips to the vendored A100-era file).
+- **Scoring (M5's rule, applied to the simulation):**
+  - primary: for each baseline b, the geometric mean over the 12 cells of mean E2E(4873) / mean E2E(b), with a
+    two-sided 95 % t-interval on the log ratios (11 df); pass iff the upper bound < 1, for every baseline;
+  - RL: the geometric mean of mean E2E(es) / mean E2E(4873); pass iff the 95 % upper bound < 1.03 (the simulation
+    has no run-to-run noise, so max(3 %, 2 σ_rep) = 3 %);
+  - reported, not judged: median E2E, mean TTFT, P50 TPOT, P99 E2E/TTFT/TBT; per trace; per cell.
+- **Run:** once, on Alpine (CPU), `python -m evolve.r6k.test_run --out evolve/r6k/out/r6k_test.json`, cache
+  `evolve/.cache_r6k`. The result is the simulation's prediction for M5, sent to vidur-realsys with the commit.
