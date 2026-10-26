@@ -97,10 +97,19 @@ KV_CAPACITY_DEVICE: Dict[tuple, int] = {
     # RTX PRO 6000 (96 GB): the cache is pinned to 30,208 blocks of 16 tokens (DEVICE_ARGS) = the A100 capacity the
     # policies were trained with, which the hardware runs also pin (sim6000 handoff, 2026-10-17).
     ("l3_8b", "rtxpro6000"): 483328,
+    # H100 with the decode-attention fix (h1 campaign, evolve/h1/PREREG.md): KV pinned to 30,208 blocks as in sim6000's
+    # router-value grid (EXP24), so the evolved router sees the capacity it was trained with.
+    ("l3_8b", "h100df"): 483328,
 }
+# Campaign device names that are not Vidur device names: h100df = Vidur's h100 profile with the corrected
+# decode-attention table (vidur-rl-decodefix, compute_decodefix/h100, sha256 826d45ffe57a4c0d...).
+VIDUR_DEVICE: Dict[str, str] = {"h100df": "h100"}
 # Extra Vidur arguments per device. rtxpro6000: 4-GPU PCIe node SKU; KV blocks pinned (Vidur would size ~37.6k from 96 GB).
 DEVICE_ARGS: Dict[str, List[str]] = {
     "rtxpro6000": ["--replica_config_network_device", "rtxpro6000_pcie", "--cache_config_num_blocks", "30208"],
+    "h100df": ["--replica_config_network_device", "h100_pairwise_nvlink", "--cache_config_num_blocks", "30208",
+               "--random_forest_execution_time_predictor_config_attention_input_file",
+               "../../data/profiling/compute_decodefix/{DEVICE}/{MODEL}/attention.csv"],
 }
 SEED_FLAG = {
     "random": "random_global_scheduler_config_seed",
@@ -257,6 +266,28 @@ if R6K_LOADS:
 R6K_TEST_SCALES = (3.0, 4.0, 4.8)
 STAGES["r6k_test"] = [Scenario(t, 4, s, 0, 1000, p, model="l3_8b", device="rtxpro6000")
                       for t in ("ToolHW", "ConvHW") for s in R6K_TEST_SCALES for p in range(1, 7)]
+
+# h1 (evolve/h1/PREREG.md, EXP31/EXP32): H100 (decode-attention fix), Llama-3-8B TP1, the hardware trace format,
+# 8 and 16 replicas, 2000-request windows. Loads: EXP24's h100-8b-r8-df knee (rr mean engine queue <= 1 s on the
+# h1000 windows): heavy = H / 1.5, high = H, moderate = 1.4 H at 8R; 16R at half the scale (same per-replica load).
+H1_LOADS_8R = (0.5982, 0.8973, 1.256)  # heavy, high, moderate
+H1_LOADS_16R = (0.2991, 0.4487, 0.628)
+H1_LEN = 2000
+H1_VAL_WINDOWS = {"Tool3": (20000, 21600), "Conv3": (10000,)}
+H1_TEST_WINDOWS = {"Tool3": (14000, 16000), "Conv3": (6000,)}
+# Request ranges no ES training window may touch: the hardware windows (unused here), validation, test.
+H1_EXCLUDE = {"Tool3": [(4000, 2000), (20000, 3608), (14000, 4000)], "Conv3": [(0, 2004), (10000, 2031), (6000, 2000)]}
+
+
+def _h1(windows: dict, draws: tuple, which: tuple) -> List[Scenario]:
+    loads = [(8, H1_LOADS_8R[i]) for i in which] + [(16, H1_LOADS_16R[i]) for i in which]
+    return [Scenario(t, r, s, w, H1_LEN, p, model="l3_8b", device="h100df")
+            for t, ws in windows.items() for w in ws for r, s in loads for p in draws]
+
+
+STAGES["h1_val"] = _h1(H1_VAL_WINDOWS, (2, 3), (0, 1, 2))  # selection: heavy, high, moderate
+STAGES["h1_test"] = _h1(H1_TEST_WINDOWS, (1, 2, 3), (0, 1))  # the test, once: heavy and high
+STAGES["h1_test_mod"] = _h1(H1_TEST_WINDOWS, (1, 2, 3), (2,))  # reported with the test, not judged
 
 _WINDOW_LOCK = threading.Lock()
 
@@ -420,6 +451,7 @@ def table_digest() -> str:
         "KV_CAPACITY": KV_CAPACITY, "KV_CAPACITY_DEVICE": {repr(k): v for k, v in KV_CAPACITY_DEVICE.items()},
         "MAX_CONTEXT": MAX_CONTEXT, "MODEL_NAME": MODEL_NAME, "TP": TP, "SEED_FLAG": SEED_FLAG,
         "DEVICE_ARGS": DEVICE_ARGS,  # r6k: KV blocks and network device per device
+        "VIDUR_DEVICE": VIDUR_DEVICE,  # h1: campaign device -> Vidur device
         "BUCKETED": sorted(BUCKETED), "TRANSFORMS": list(TRANSFORMS),
         "source": [inspect.getsource(f) for f in (Scenario.seed.fget, Scenario.jitter.fget, window_csv,
                                                   _transformed_csv, _warp)],
@@ -475,7 +507,7 @@ def sim_command(scheduler: str, policy: Optional[str], sc: Scenario, trace_csv: 
     gtype = scheduler if scheduler in ("evolved", "learned") else ("evolved" if policy else scheduler)
     cmd = [
         sys.executable, "-m", "vidur.main",
-        "--replica_config_device", sc.device,
+        "--replica_config_device", VIDUR_DEVICE.get(sc.device, sc.device),
         *DEVICE_ARGS.get(sc.device, []),
         "--replica_config_model_name", MODEL_NAME[sc.model],
         "--replica_config_tensor_parallel_size", str(TP[sc.model]),
