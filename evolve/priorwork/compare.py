@@ -32,6 +32,9 @@ ROUTERS = {
     "mooncake0": "evolve/policies/systems/mooncake_min_ttft.py",
     "mooncake_tuned": "evolve/policies/tuned/mooncake_min_ttft_tuned_best.py",
     "dynamo": "evolve/policies/systems/dynamo_kv_cost.py",
+    # RTX only (S3): Mooncake and Dynamo tuned on r6k's search windows (PREREG design: mooncake6, dynamo6)
+    "mooncake6": "evolve/policies/tuned_r6k/mooncake_min_ttft_tuned_best.py",
+    "dynamo6": "evolve/policies/tuned_r6k/dynamo_kv_cost_tuned_best.py",
     "lor": "lor",
     "sticky_lor": "sticky_lor",
 }
