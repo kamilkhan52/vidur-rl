@@ -84,9 +84,13 @@ def main(argv=None):
         sel = json.loads(SELECTION.read_text())["selected"]
         if sel is None:
             raise SystemExit("no seed passed validation: the method finds no policy (PREREG section 4)")
+        os.environ["EVOLVE_KEEP_DIR"] = str(OUT / "keep")  # amendment 1: request-level outputs for goodput
         v = run_stage(sel, "h1_test", a.workers)["vs_4873"]
         mod = run_stage(sel, "h1_test_mod", a.workers)["vs_4873"]
         verdict = {"selected": sel["name"], "test": v, "rule": passes_test(v), "moderate_reported": mod}
+        from evolve.h1 import goodput  # reported, never judged (amendment 1)
+        goodput.main(["--keep", str(OUT / "keep" / ev.code_version()), "--policy", sel["name"],
+                      "--out", str(OUT / "h1_goodput.json")])
         (OUT / "h1_test_verdict.json").write_text(json.dumps(verdict, indent=1))
         print(json.dumps(verdict["rule"], indent=1))
     else:
