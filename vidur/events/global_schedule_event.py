@@ -18,6 +18,7 @@ class GlobalScheduleEvent(BaseEvent):
 
         self._replica_set = set()
         queue_depth_before = len(scheduler._request_queue)
+        scheduler.schedule_time = self.time  # read only by routers that hold requests (dispatch() policies)
         self._request_mapping = scheduler.schedule()
         queue_depth_after = len(scheduler._request_queue)
 

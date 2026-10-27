@@ -1,4 +1,7 @@
 {
+ "glia": "evolve/policies/priorwork/glia.py",
+ "engram": "evolve/policies/priorwork/engram.py",
+ "lodestar": "evolve/policies/priorwork/lodestar_h100df.py",
  "gorgo": "evolve/policies/priorwork/gorgo.py",
  "llumnix": "evolve/policies/priorwork/llumnix_dispatch.py",
  "dualmap": "evolve/policies/priorwork/dualmap.py"
