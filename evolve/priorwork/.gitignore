@@ -1,3 +1,5 @@
 .cache/
 keep/
 __pycache__/
+data/lodestar_rows_*.pkl
+out/*.tmp

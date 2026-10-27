@@ -156,7 +156,8 @@ def main(argv=None):
     refs = {n: ref_of(n) for n in names}
     res = ev.ensure_baselines(scen, list(refs.values()), workers=a.workers)
     by_name = {(n, sc): res[(refs[n], sc)] for n in names for sc in scen}
-    report = {"set": a.set, "n_runs": len(scen), "code_version": ev.code_version(),
+    cores = {f: ev.file_sha(HERE / f)[:16] for f in ("lodestar_core.py", "astrolabe_core.py") if (HERE / f).exists()}
+    report = {"set": a.set, "n_runs": len(scen), "code_version": ev.code_version(), "core_sha256": cores,
               "bundles": sorted({by_name[k].get("bundle", "?") for k in by_name}),
               "routers": {n: refs[n] for n in names}, "vs_4873": {}, "abs": {}}
     for n in names:

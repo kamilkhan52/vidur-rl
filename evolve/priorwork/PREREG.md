@@ -97,3 +97,21 @@ S1 ≈ 14 routers × 54 × 35 s ≈ 7 CPU-h; S2 ≈ 14 × 51 × 5–8 min ≈ 60
 `evolve/priorwork/compare.py` (sets, scoring, goodput), `overhead.py`, `calib_prefill.py`, `lodestar_core.py`,
 `lodestar_collect.py`, `identity_h1.py`, `routers.json`; ports in `evolve/policies/priorwork/`; tests
 `tests/test_priorwork.py`.
+
+## Amendment 1 (2026-10-26, before any comparison result was read; S1 had started at 619b9b4 with the 13 other routers)
+
+- **astrolabe added** (§3.1 row): `evolve/priorwork/astrolabe_core.py` + `evolve/policies/priorwork/astrolabe_h100df.py`.
+  Power of two choices on predicted E2E; each probe rebuilds the candidate replica from the router's ledger and runs
+  our `VLLMV1ReplicaScheduler` forward with Vidur's own execution-time predictor (the run's bundle, key checked,
+  never trained). Output lengths: running mean of observed decode tokens (prior 256); a request past its estimate
+  ends within 10 tokens (Astrolabe's rule). Deviations listed in the file (DEVIATIONS): mean-length estimator instead
+  of RoBERTa; decode progress dead-reckoned; **the timing model is the simulator's own, so its predictions have no
+  model error, which favours astrolabe**; vllm_v1 instead of vLLM 0.7.2 V0. Port checks on the h1 validation window
+  (Tool3 20000, 8R heavy, draw 2): completes 2000/2000; predicted vs actual E2E Pearson 0.46 (0.89 with true
+  lengths); choose() 10.1 ms mean, 45 ms P99. Needs Vidur-only state (the timing model): simulation only unless a
+  hardware-side predictor is substituted. Runs on S1 after the 13 routers, then S2/S3 with device variants.
+- **Core modules frozen:** lodestar_core.py and astrolabe_core.py are frozen at this commit; compare.py records their
+  sha256 in every report (cached runs are keyed by the policy file only). Any change to a core needs a new policy
+  file name.
+- **Disk:** kept outputs drop Vidur's plots/ folder (3.0 of 3.6 MB per run; unused); request_metrics.csv and
+  token_gaps.npz are kept.
