@@ -30,10 +30,28 @@ def h1_train():
     return out
 
 
-SETS = {"h100df": h1_train}
+def r6k_train():  # r6k's search windows (R6K_SEARCH_WINDOWS: Tool3 rows 0-9999, Conv3 3000-6999), 4R, high loads
+    out = []
+    for trace, starts in (("Tool3", (0, 5000)), ("Conv3", (3000, 5000))):
+        for start in starts:
+            for scale in ev.R6K_LOADS[trace][:2]:
+                sc = ev.Scenario(trace, 4, scale, start, 1000, 4, model="l3_8b", device="rtxpro6000")
+                lo, n = ev.R6K_SEARCH_WINDOWS[trace]
+                assert lo <= start and start + 1000 <= lo + n, sc.tag
+                out.append(sc)
+    return out
+
+
+def a100_train():  # search3b (SELECTION.md: search fitness / training split), Tool and Conv at the knee, draw 1
+    return [sc for sc in ev.STAGES["search3b"] if sc.trace in ("Tool", "Conv") and sc.scale == 0.75
+            and sc.perturbation == 1]
+
+
+SETS = {"h100df": h1_train, "rtxpro6000": r6k_train, "a100": a100_train}
 
 
 def one(sc, path):
+    path.unlink(missing_ok=True)  # rows are appended per flush; start each collection run empty
     env = dict(os.environ, LODESTAR_DUMP=str(path))
     os.environ.update(env)  # run_one passes the environment to the simulator process
     return ev.run_one("evolved", sc, policy=str(POLICY))
@@ -52,7 +70,13 @@ def main():
     rows = []
     for sc, p, r in zip(scen, parts, res):
         assert r.get("ok"), (sc.tag, r)
-        part = pickle.loads(p.read_bytes())
+        part = []
+        with open(p, "rb") as f:  # one pickle per flush (lodestar_core appends)
+            while True:
+                try:
+                    part.extend(pickle.load(f))
+                except EOFError:
+                    break
         print(f"{sc.tag}: {len(part)} rows, bundle {r.get('bundle')}")
         rows.extend(part)
     out = DATA / f"lodestar_offline_{a.device}.pkl"

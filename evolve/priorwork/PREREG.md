@@ -115,3 +115,17 @@ S1 ≈ 14 routers × 54 × 35 s ≈ 7 CPU-h; S2 ≈ 14 × 51 × 5–8 min ≈ 60
   file name.
 - **Disk:** kept outputs drop Vidur's plots/ folder (3.0 of 3.6 MB per run; unused); request_metrics.csv and
   token_gaps.npz are kept.
+
+## Amendment 2 (2026-10-27, before any comparison result was read)
+
+- The first S1 attempt (started 2026-10-26 22:16 at 619b9b4) was lost when the Mac's disk filled (ENOSPC, about
+  22:30–06:00); no S1 result was read or kept (the run cache was last saved before it started). S1 restarts with all
+  14 routers (amendment 1's astrolabe included) from 6780e22 + this amendment.
+- compare.py now runs one router at a time (each router's runs are saved when it finishes) and stops if less than 5 GB
+  is free.
+- lodestar_core.py: the collection-mode dump appends one pickle per flush instead of rewriting the whole file (only
+  the collection path changes; routing is unchanged). New core sha256 recorded in each report (core_sha256).
+- Device constants measured before the outage (validation or selection windows): DualMap prefill time per token RTX
+  6.732e-05 s (r6k validation window Tool3 20000, 4R, scale 32, draw 2), A100 1.143e-04 s (Tool full trace, 8R,
+  scale 6.0, draw 2, a heldout3 selection draw). Lodestar RTX offline rows: 7,726 rows from r6k search windows, sha256
+  28df7579…; A100 rows to be collected (search3b, Tool/Conv 8R 0.75, draw 1).

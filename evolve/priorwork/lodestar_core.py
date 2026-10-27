@@ -221,10 +221,9 @@ class Lodestar:
             if len(self.done) >= FLUSH_MIN:
                 self.history.extend(self.done)
                 self.new_since += len(self.done)
-                if self.dump is not None:  # collection runs only (offline rows from training windows)
-                    self.dumped.extend(self.done)
-                    with open(self.dump, "wb") as f:
-                        pickle.dump(self.dumped, f)
+                if self.dump is not None:  # collection runs only: append this flush's rows (one pickle per flush)
+                    with open(self.dump, "ab") as f:
+                        pickle.dump(self.done, f)
                 self.done = []
             self.next_flush += FLUSH_S
         while now >= self.next_poll:

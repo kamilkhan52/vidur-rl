@@ -11,6 +11,7 @@ import argparse
 import json
 import math
 import os
+import shutil
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -41,6 +42,7 @@ if _ROUTERS_JSON.exists():
 
 SLOS = {"2s_50ms": (2.0, 0.050), "5s_100ms": (5.0, 0.100)}  # (TTFT s, TPOT s); EXP30 / h1 amendment 1
 ATTAIN = 0.90
+MIN_FREE_GB = 5.0
 
 
 def scenarios(name: str) -> list:
@@ -154,6 +156,20 @@ def main(argv=None):
     assert len(devices) == 1, devices
     _device = devices.pop()
     refs = {n: ref_of(n) for n in names}
+    # One router at a time, so every router's runs are saved when it finishes (ensure_baselines saves at the end of
+    # a call and every 5 min); stop before the disk is nearly full (2026-10-26: a full disk lost an S1 attempt).
+    failed = []
+    for n in names:
+        free = shutil.disk_usage(REPO).free / 2**30
+        if free < MIN_FREE_GB:
+            raise SystemExit(f"only {free:.1f} GB free (< {MIN_FREE_GB}); stopping before {n}")
+        try:
+            ev.ensure_baselines(scen, [refs[n]], workers=a.workers)
+        except RuntimeError as e:
+            failed.append(f"{n}: {e}")
+            print(f"FAILED {n}: {str(e)[:500]}", flush=True)
+    if failed:
+        raise SystemExit(f"{len(failed)} router(s) had failed runs; rerun to retry them (completed runs are cached)")
     res = ev.ensure_baselines(scen, list(refs.values()), workers=a.workers)
     by_name = {(n, sc): res[(refs[n], sc)] for n in names for sc in scen}
     cores = {f: ev.file_sha(HERE / f)[:16] for f in ("lodestar_core.py", "astrolabe_core.py") if (HERE / f).exists()}
