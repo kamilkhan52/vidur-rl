@@ -49,11 +49,22 @@ def scenarios(name: str) -> list:
     if name == "h1_smoke":  # port checks: one Tool3 validation window, 8R, heavy load, draw 2 (never a test window)
         return [sc for sc in ev.STAGES["h1_val"] if sc.replicas == 8 and sc.trace == "Tool3"
                 and sc.window_start == 20000 and sc.perturbation == 2 and sc.scale == ev.H1_LOADS_8R[0]]
+    if name == "test3b_heavy":  # A100 heavy-load cell: 8R full traces at 0.6 (0.75 is the knee), test3b draws
+        return [ev.Scenario(t, 8, 0.6, -1, 0, p, model="l3_8b") for t in ("Tool", "Conv") for p in (9, 10, 11)]
+    if name == "r6k_heavy":  # RTX heavy-load cell: r6k_test's windows at load 2.0, draws 1-3
+        return [ev.Scenario(t, 4, 2.0, 0, 1000, p, model="l3_8b", device="rtxpro6000")
+                for t in ("ToolHW", "ConvHW") for p in (1, 2, 3)]
     return ev.STAGES[name]
+
+
+DEVICE = {"a100": "a100", "h100df": "h100df", "rtxpro6000": "rtxpro6000"}
+_device = "h100df"  # set by main() from the scenario set; per-device ports (lodestar, dualmap) pick their variant
 
 
 def ref_of(name: str) -> str:
     p = {**ROUTERS, **PRIOR}[name]
+    if isinstance(p, dict):  # per-device variants
+        p = p[_device]
     return p if not p.endswith(".py") else f"policy:{(REPO / p).resolve()}"
 
 
@@ -138,6 +149,10 @@ def main(argv=None):
     if REF not in names:
         names.insert(0, REF)
     scen = scenarios(a.set)
+    global _device
+    devices = {sc.device for sc in scen}
+    assert len(devices) == 1, devices
+    _device = devices.pop()
     refs = {n: ref_of(n) for n in names}
     res = ev.ensure_baselines(scen, list(refs.values()), workers=a.workers)
     by_name = {(n, sc): res[(refs[n], sc)] for n in names for sc in scen}
