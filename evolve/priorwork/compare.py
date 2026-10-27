@@ -46,9 +46,9 @@ ATTAIN = 0.90
 def scenarios(name: str) -> list:
     if name == "h1":  # EXP31's test windows at heavy, high and moderate load (h1_test + h1_test_mod)
         return ev.STAGES["h1_test"] + ev.STAGES["h1_test_mod"]
-    if name == "h1_smoke":  # small check: one Tool3 test window, 8R, heavy load, draw 1
-        return [sc for sc in ev.STAGES["h1_test"] if sc.replicas == 8 and sc.trace == "Tool3"
-                and sc.window_start == 14000 and sc.perturbation == 1 and sc.scale == ev.H1_LOADS_8R[0]]
+    if name == "h1_smoke":  # port checks: one Tool3 validation window, 8R, heavy load, draw 2 (never a test window)
+        return [sc for sc in ev.STAGES["h1_val"] if sc.replicas == 8 and sc.trace == "Tool3"
+                and sc.window_start == 20000 and sc.perturbation == 2 and sc.scale == ev.H1_LOADS_8R[0]]
     return ev.STAGES[name]
 
 

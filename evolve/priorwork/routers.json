@@ -1,0 +1,5 @@
+{
+ "gorgo": "evolve/policies/priorwork/gorgo.py",
+ "llumnix": "evolve/policies/priorwork/llumnix_dispatch.py",
+ "dualmap": "evolve/policies/priorwork/dualmap.py"
+}
