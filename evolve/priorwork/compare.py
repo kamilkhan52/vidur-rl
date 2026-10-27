@@ -64,6 +64,8 @@ def scenarios(name: str) -> list:
     if name == "r6k_heavy":  # RTX heavy-load cell: r6k_test's windows at load 2.0, draws 1-3
         return [ev.Scenario(t, 4, 2.0, 0, 1000, p, model="l3_8b", device="rtxpro6000")
                 for t in ("ToolHW", "ConvHW") for p in (1, 2, 3)]
+    if name == "S3":  # PREREG §4/§5: S3 = r6k_test + r6k_heavy, pooled for the realsys hand-off rule
+        return scenarios("r6k_test") + scenarios("r6k_heavy")
     return ev.STAGES[name]
 
 
