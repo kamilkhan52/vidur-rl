@@ -1,0 +1,37 @@
+{
+ "selected": {
+  "seed": 42,
+  "params": "/home/kamil/vidur-rl-cashew/h100/evolve/rl_plan/out/es/h1_gen8_s42/params_130.npz",
+  "name": "h1_gen8_s42_130",
+  "lc_iter": 129,
+  "lc_gen8": {
+   "ratio": 0.985999843469985,
+   "lo": 0.9805443692630834,
+   "hi": 0.9912986870298629
+  },
+  "lc_mean_e2e": {
+   "ratio": 0.9975798510571803,
+   "lo": 0.995348352170116,
+   "hi": 0.9998437786185475
+  },
+  "lc_points": 14,
+  "val_gen8": {
+   "geo": 0.9857596575973885,
+   "lo": 0.9770802405813972,
+   "hi": 0.9943487778432478,
+   "wins": 26,
+   "n": 36
+  },
+  "val_mean_e2e": {
+   "geo": 0.995980154343103,
+   "lo": 0.9912292392512118,
+   "hi": 1.0000784501178803,
+   "wins": 23,
+   "n": 36
+  },
+  "val_pass": true
+ },
+ "k_pass": 4,
+ "n_seeds": 4,
+ "code_version": "cd416352bffe"
+}
