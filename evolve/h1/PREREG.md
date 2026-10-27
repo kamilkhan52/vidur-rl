@@ -109,3 +109,19 @@ invalid.
   `h1_test_mod`); tests `tests/test_h1.py`.
 - `evolve/h1/es_seed.sh`, `evolve/h1/validate.py` (checkpoint choice, validation, selection, test, descriptive
   replication), `evolve/h1/cashew.sbatch`.
+
+## Amendment 1 (2026-10-26, before any training run)
+
+Kamil, 2026-10-26, relayed by the registry session: "Add heavy load test for RL everywhere", and report system
+throughput next to the per-request metrics.
+- **Heavy load:** already in every h1 stage. `h1_val` and `h1_test` both include heavy load (8R 0.5982, 16R 0.2991),
+  the learning curve covers all 16 training configurations including heavy and overload, and the §5b oracle readout
+  uses that learning curve. Nothing changes. §5a keeps the original run's configurations (A100 8R at 0.75 and 1.0;
+  0.75 is the A100 knee), because it has to match the buggy run.
+- **System throughput (reported, never judged; the §4 pass rule is unchanged).** The `h1_test` and `h1_test_mod`
+  runs keep their request-level metrics (`EVOLVE_KEEP_DIR`). Per (window, replicas, draw), for the selected policy and
+  for 4873, report **goodput capacity**: the highest load at which ≥ 90 % of requests meet both TTFT ≤ T and TPOT ≤ P.
+  Two absolute SLO levels are used, as in EXP30: (2 s, 50 ms) and (5 s, 100 ms). Capacity is interpolated
+  log-linearly in arrival rate between heavy, high and moderate load; a value outside that range is reported as a
+  bound. Also reported: served tokens per second per GPU at each load. The script is `evolve/h1/goodput.py`, written
+  before the test is run.
