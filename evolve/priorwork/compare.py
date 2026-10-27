@@ -45,6 +45,11 @@ ATTAIN = 0.90
 MIN_FREE_GB = 5.0
 
 
+# Vidur's per-replica CDF plot fails on some runs ("cannot reindex on an axis with duplicate labels", mooncake0 on
+# h1 16R); plots never feed the metrics, and the cache key ignores these flags.
+NO_PLOTS = ["--no-metrics_config_store_plots"]
+
+
 def scenarios(name: str) -> list:
     if name == "h1":  # EXP31's test windows at heavy, high and moderate load (h1_test + h1_test_mod)
         return ev.STAGES["h1_test"] + ev.STAGES["h1_test_mod"]
@@ -164,13 +169,13 @@ def main(argv=None):
         if free < MIN_FREE_GB:
             raise SystemExit(f"only {free:.1f} GB free (< {MIN_FREE_GB}); stopping before {n}")
         try:
-            ev.ensure_baselines(scen, [refs[n]], workers=a.workers)
+            ev.ensure_baselines(scen, [refs[n]], workers=a.workers, extra=NO_PLOTS)
         except RuntimeError as e:
             failed.append(f"{n}: {e}")
             print(f"FAILED {n}: {str(e)[:500]}", flush=True)
     if failed:
         raise SystemExit(f"{len(failed)} router(s) had failed runs; rerun to retry them (completed runs are cached)")
-    res = ev.ensure_baselines(scen, list(refs.values()), workers=a.workers)
+    res = ev.ensure_baselines(scen, list(refs.values()), workers=a.workers, extra=NO_PLOTS)
     by_name = {(n, sc): res[(refs[n], sc)] for n in names for sc in scen}
     cores = {f: ev.file_sha(HERE / f)[:16] for f in ("lodestar_core.py", "astrolabe_core.py") if (HERE / f).exists()}
     report = {"set": a.set, "n_runs": len(scen), "code_version": ev.code_version(), "core_sha256": cores,
