@@ -624,14 +624,17 @@ def run_many(jobs, workers: int, launcher=None, timeout=3600) -> list:
 _BASELINE_LOCK = threading.Lock()
 
 
-def ensure_baselines(scenarios, baselines=DEFAULT_BASELINES, workers=4, launcher=None, timeout=3600) -> dict:
+def ensure_baselines(scenarios, baselines=DEFAULT_BASELINES, workers=4, launcher=None, timeout=3600,
+                     extra=None) -> dict:
     # One thread computes missing baselines; concurrent candidates (the driver evaluates seeds
     # and proposals in parallel) wait for it instead of re-running them and racing on the cache.
     with _BASELINE_LOCK:
-        return _ensure_baselines(scenarios, baselines, workers, launcher, timeout)
+        return _ensure_baselines(scenarios, baselines, workers, launcher, timeout, extra)
 
 
-def _ensure_baselines(scenarios, baselines, workers, launcher, timeout) -> dict:
+def _ensure_baselines(scenarios, baselines, workers, launcher, timeout, extra=None) -> dict:
+    # extra: simulator flags that must not change a run's metrics (e.g. --no-metrics_config_store_plots); the cache
+    # key ignores them.
     cache = load_baseline_cache()
     todo = [(b, sc, None) for sc in scenarios for b in baselines if baseline_key(b, sc) not in cache]
     # "policy:<path>" references are evolved-router runs of that policy file
@@ -640,7 +643,7 @@ def _ensure_baselines(scenarios, baselines, workers, launcher, timeout) -> dict:
     # save as runs finish (every 5 min at most), so a job that hits its time limit keeps what it completed
     last = time.monotonic()
     with cf.ThreadPoolExecutor(max_workers=workers) as ex:
-        futs = {ex.submit(run_one, sched, sc, pol, timeout, launcher): (b, sc)
+        futs = {ex.submit(run_one, sched, sc, pol, timeout, launcher, extra): (b, sc)
                 for (b, sc, _), (sched, _, pol) in zip(todo, jobs)}
         for f in cf.as_completed(futs):
             b, sc = futs[f]

@@ -15,6 +15,13 @@ Policy contract (a Python module at ``policy_path``) — define ONE of:
         Called once per request. The harness updates the replica views after each
         assignment, so later requests of the same burst see earlier ones.
 
+    def dispatch(held, replicas, ctx) -> list[tuple[int, int]]
+        A router that may hold requests (Glia, Engram). ``held`` is every request
+        waiting at the router, in arrival order (new arrivals included); return
+        (position in held, replica index) pairs for the ones to send now. The rest
+        stay held. Called on every arrival and after every batch that completed a
+        request (as in Glia's Vidur fork); ctx.now is that event's time.
+
 Views are read-only snapshots (frozen dataclasses). Replica indices refer to the
 order of ``replicas`` (0 .. N-1). ``ctx`` provides ``rng`` (the scheduler's seeded
 ``random.Random``; the only allowed randomness), ``now`` (simulated time: the
@@ -119,8 +126,8 @@ def load_policy(path: str, require_router: bool = True):
         raise PolicyError(f"cannot load policy from {path!r}")
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
-    if require_router and not (hasattr(mod, "route") or hasattr(mod, "choose")):
-        raise PolicyError(f"policy {path!r} defines neither route() nor choose()")
+    if require_router and not (hasattr(mod, "route") or hasattr(mod, "choose") or hasattr(mod, "dispatch")):
+        raise PolicyError(f"policy {path!r} defines neither route() nor choose() (nor dispatch())")
     return mod
 
 
@@ -133,6 +140,8 @@ class EvolvedGlobalScheduler(BaseGlobalScheduler):
         if not gs_config.policy_path:
             raise PolicyError("evolved global scheduler requires --evolved_global_scheduler_config_policy_path")
         self._policy = load_policy(gs_config.policy_path, require_router=self.REQUIRES_ROUTER)
+        self.holds_requests = hasattr(self._policy, "dispatch")
+        self.schedule_time = 0.0  # set by GlobalScheduleEvent before every schedule() call
         self._replica_ids: List[ReplicaId] = list(self._replica_schedulers.keys())
         self._index_of = {rid: i for i, rid in enumerate(self._replica_ids)}
         self._outstanding = [0] * len(self._replica_ids)
@@ -272,6 +281,8 @@ class EvolvedGlobalScheduler(BaseGlobalScheduler):
     # --------------------------------------------------------------- routing
 
     def schedule(self) -> List[Tuple[ReplicaId, Request]]:
+        if self.holds_requests:
+            return self._schedule_held()
         self.sort_requests()
         burst = self._request_queue
         self._request_queue = []
@@ -316,6 +327,47 @@ class EvolvedGlobalScheduler(BaseGlobalScheduler):
                     rv = replace(rv, session_last_replica=self._session_last.get(r.session_id, -1))
                 c = self._call(self._policy.choose, rv, self._replica_views())
                 mapping.append(self._assign(r, self._check(c), cached[k]))
+        return mapping
+
+    def _schedule_held(self) -> List[Tuple[ReplicaId, Request]]:
+        """dispatch() policies: every request waiting at the router is offered; unplaced ones stay queued."""
+        self.sort_requests()
+        held = self._request_queue
+        if not held:
+            return []
+        self._ctx.now = self.schedule_time
+        block_tokens = self._block_tokens()
+        cached = [self._cached_prefix_tokens(r) for r in held]
+        views = [
+            RequestView(
+                arrived_at=r.arrived_at,
+                num_prefill_tokens=r.num_prefill_tokens,
+                session_id=r.session_id,
+                cached_prefix_tokens=cached[k],
+                session_last_replica=self._session_last.get(r.session_id, -1) if r.session_id is not None else -1,
+                position_in_burst=k,
+                burst_size=len(held),
+                prefix_hashes=prompt_block_hashes(r, block_tokens),
+                block_tokens=block_tokens,
+                inflight_prefix_tokens=self._inflight_prefix_tokens(r, block_tokens),
+                active_prefix_tokens=self._inflight_prefix_tokens(r, block_tokens, self._active),
+            )
+            for k, r in enumerate(held)
+        ]
+        pairs = self._call(self._policy.dispatch, views, self._replica_views())
+        if not isinstance(pairs, (list, tuple)):
+            raise PolicyError(f"dispatch() must return a list of (position, replica) pairs, got {pairs!r}")
+        seen = set()
+        mapping: List[Tuple[ReplicaId, Request]] = []
+        for pair in pairs:
+            if not (isinstance(pair, (list, tuple)) and len(pair) == 2):
+                raise PolicyError(f"dispatch() returned {pair!r}, not a (position, replica) pair")
+            k, c = pair
+            if not isinstance(k, int) or isinstance(k, bool) or not 0 <= k < len(held) or k in seen:
+                raise PolicyError(f"dispatch() returned an invalid or repeated position {k!r}")
+            seen.add(k)
+            mapping.append(self._assign(held[k], self._check(c), cached[k]))
+        self._request_queue = [r for k, r in enumerate(held) if k not in seen]
         return mapping
 
     def _call(self, fn, *args, observe: bool = False):

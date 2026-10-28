@@ -38,6 +38,14 @@ class BatchEndEvent(BaseEvent):
             next_events.append(PrefillEndEvent(self.time, request))
         for request in self._batch.completed_requests:
             next_events.append(RequestEndEvent(self.time, request))
+        # A router that holds requests (EvolvedGlobalScheduler with a dispatch() policy) is called again after every
+        # batch that completed a request, as in Glia's Vidur fork (mit-nms/vidur_simulator 2666cb6,
+        # vidur/events/batch_end_event.py:35-41). No other scheduler sets holds_requests, so nothing else changes.
+        if (self._batch.completed_requests and getattr(global_scheduler, "holds_requests", False)
+                and global_scheduler._request_queue):
+            from vidur.events.global_schedule_event import GlobalScheduleEvent
+
+            next_events.append(GlobalScheduleEvent(self.time))
 
         return next_events
 
