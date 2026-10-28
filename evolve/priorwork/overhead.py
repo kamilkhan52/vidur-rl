@@ -48,7 +48,7 @@ def measure(policy: str, sc) -> dict:
     egs.EvolvedGlobalScheduler._call = timed
     try:
         with tempfile.TemporaryDirectory() as tmp:
-            cmd = ev.sim_command("evolved", policy, sc, ev.window_csv(sc), Path(tmp))
+            cmd = ev.sim_command("evolved", policy, sc, ev.window_csv(sc), Path(tmp), cmp.NO_PLOTS)
             argv = cmd[cmd.index("vidur.main") + 1:]
             saved = sys.argv
             sys.argv = ["vidur.main", *argv]
