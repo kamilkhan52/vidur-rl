@@ -7,7 +7,7 @@ from pathlib import Path
 from evolve.priorwork.lodestar_core import build
 
 _ROWS = Path(__file__).resolve().parents[2] / "priorwork/data/lodestar_offline_rtxpro6000.pkl"
-ROWS_SHA256 = "28df757978b0048fd37dd558240e2b88f450d0fac56de1636875a214fe653e4a"
+ROWS_SHA256 = "6d99e623641ddc4b2b48176b6d4e6de88a36098d00a998d351165b5213c7f662"
 _b = _ROWS.read_bytes()
 if hashlib.sha256(_b).hexdigest() != ROWS_SHA256:
     raise RuntimeError(f"{_ROWS} is not the frozen offline row file")

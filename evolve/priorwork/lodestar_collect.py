@@ -30,14 +30,14 @@ def h1_train():
     return out
 
 
-def r6k_train():  # r6k's search windows (R6K_SEARCH_WINDOWS: Tool3 rows 0-9999, Conv3 3000-6999), 4R, high loads
+def r6k_train():  # r6k's search windows (R6K_SEARCH_WINDOWS holds window starts, 1000 rows each), 4R, high loads
     out = []
-    for trace, starts in (("Tool3", (0, 5000)), ("Conv3", (3000, 5000))):
+    for trace, starts in ev.R6K_SEARCH_WINDOWS.items():
         for start in starts:
             for scale in ev.R6K_LOADS[trace][:2]:
                 sc = ev.Scenario(trace, 4, scale, start, 1000, 4, model="l3_8b", device="rtxpro6000")
-                lo, n = ev.R6K_SEARCH_WINDOWS[trace]
-                assert lo <= start and start + 1000 <= lo + n, sc.tag
+                for s0, n in ev.R6K_EXCLUDE[trace]:
+                    assert start + 1000 <= s0 or start >= s0 + n, (sc.tag, s0, n)
                 out.append(sc)
     return out
 
