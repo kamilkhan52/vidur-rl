@@ -390,12 +390,27 @@ def test_policy_fingerprint_checked_at_fork(tmp_path):
         h.fork()
 
 
-@pytest.mark.parametrize("path", sorted(str(p.relative_to(ev.REPO)) for p in
-                                        list((ev.REPO / "evolve/finalists").glob("*.py"))
-                                        + list((ev.REPO / "evolve/policies").rglob("*.py"))
-                                        if not p.name.startswith("rl_")))
+# Prior-work wrappers that build their router at import (Lodestar's online-trained model, DualMap's exec of the frozen
+# rule, Astrolabe's per-replica simulators): they keep state outside ctx.state, so forking must refuse them. Importing
+# them needs their data files and bundles, so they are scanned from source only.
+UNFORKABLE = {f"evolve/policies/priorwork/{n}.py" for n in (
+    "astrolabe_a100", "astrolabe_h100df", "astrolabe_rtxpro6000", "dualmap_a100", "dualmap_rtxpro6000",
+    "lodestar_a100", "lodestar_h100df", "lodestar_rtxpro6000", "lodestar_collect")}
+REPO_POLICIES = sorted(str(p.relative_to(ev.REPO)) for p in
+                       list((ev.REPO / "evolve/finalists").glob("*.py"))
+                       + list((ev.REPO / "evolve/policies").rglob("*.py"))
+                       if not p.name.startswith("rl_"))
+
+
+@pytest.mark.parametrize("path", [p for p in REPO_POLICIES if p not in UNFORKABLE])
 def test_repo_policies_pass_module_scan(path):
     assert sf._module_state_issues(load_policy(str(ev.REPO / path), require_router=False)) == []
+
+
+@pytest.mark.parametrize("path", sorted(UNFORKABLE))
+def test_unforkable_policies_are_flagged(path):
+    assert path in REPO_POLICIES
+    assert sf._module_state_issues(types.SimpleNamespace(__file__=str(ev.REPO / path)))
 
 
 HARMLESS = {  # E r4 minor 2: stores of module constants into locals/ctx.state are not aliases of shared objects
