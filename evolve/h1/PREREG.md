@@ -125,3 +125,11 @@ throughput next to the per-request metrics.
   log-linearly in arrival rate between heavy, high and moderate load; a value outside that range is reported as a
   bound. Also reported: served tokens per second per GPU at each load. The script is `evolve/h1/goodput.py`, written
   before the test is run.
+
+## Note (2026-10-27, after all h1 results): prior-work routers merged
+
+Branch `priorwork` (EXP33, tip e34154e) was merged into `h100` at b925694, at Kamil's request relayed by
+vidur-priorwork. The merge adds a router-side hold (`dispatch()` policies) to `vidur/`, and that changes
+`code_version` to c18b7fc0cb62. For every router without `dispatch()` the behaviour is unchanged: the §1 identity
+check, rerun after the merge, is again request for request identical (max |diff| 0.0). Every h1 result above was
+produced at cd416352bffe; runs at the new code version recompute their 4873 baselines.
